@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment files - credentials must never be committed (FR-003, FR-006)
+.env
+.env.*
+*.env
+
+# Token/credential artifacts (FR-003)
+tokens.db*
+auth.lock
+
+# Scratch directory (never committed per constitution layout)
+tmp/
+
+# Test cache
+.pytest_cache/
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
