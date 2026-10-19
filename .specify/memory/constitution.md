@@ -138,6 +138,13 @@ Every `git commit` MUST satisfy the following rules:
   being committed (files, features, or concerns included in that commit).
   A commit whose message does not enumerate its changes is non-compliant
   and MUST NOT be pushed.
+- **Documentation currency**: before every `git commit`, all documentation
+  affected by the change MUST be updated to match the committed behavior
+  and included in the same commit — files in `docs/`, `README.md`, and any
+  Spec Kit quickstart or contract describing the changed behavior. A
+  commit that leaves documentation stale (describing behavior that no
+  longer exists, or omitting newly delivered behavior) is non-compliant
+  and MUST NOT be created.
 
 These rules apply to every contributor and agent performing commits, and
 are part of the compliance review.
@@ -158,4 +165,4 @@ are part of the compliance review.
   Kit plan documents; agents MUST consult the constitution at the start of
   plan and implement phases.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-19
+**Version**: 1.3.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-19
