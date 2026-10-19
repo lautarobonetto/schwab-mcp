@@ -121,6 +121,9 @@ y usan stderr para mensajes auxiliares.
 
 El contrato completo está en
 [specs/002-automated-token-renewal/contracts/cli.md](../specs/002-automated-token-renewal/contracts/cli.md).
+La referencia detallada para agentes de AI (campos JSON, semántica de
+cada resultado, playbook de decisión) está en
+[docs/tools.md](./tools.md).
 
 ### `schwab-mcp renew`
 
@@ -198,6 +201,9 @@ específico. Ninguna se cuelga ni muestra tracebacks.
 
 ## Referencias
 
+- [Interfaz para agentes de AI](./tools.md) — referencia completa de
+  comandos y campos JSON para consumo por agentes
+- [Changelog](./CHANGELOG.md) — progreso del código por versión
 - [Guía de instalación](./instalacion.md)
 - [Quickstart del spec](../specs/001-schwab-oauth-access/quickstart.md)
   — escenarios de validación end-to-end
