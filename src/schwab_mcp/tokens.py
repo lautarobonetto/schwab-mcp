@@ -7,6 +7,7 @@ import fcntl
 import logging
 import os
 import sqlite3
+import time
 from typing import Any, Callable, Optional, TypeVar
 
 from schwab_mcp.errors import ConcurrentAuthError, ConnectivityError
@@ -139,8 +140,15 @@ class AuthLock:
             os.remove(self._lock_path)
 
 
-def retry_once(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Call *fn* with the given arguments, retrying exactly once on failure.
+def retry_call(
+    fn: Callable[..., Any],
+    retries: int = 2,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Call *fn* with the given arguments, retrying up to *retries* times on failure.
+
+    A short fixed wait (0.5 s) is inserted between retry attempts.
 
     The token DB is guaranteed **not** to be deleted or rewritten on
     failure (T020).  This function only captures transient network errors;
@@ -150,6 +158,9 @@ def retry_once(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     ----------
     fn
         The callable to invoke.
+    retries
+        Maximum number of retry attempts after the initial call.
+        Defaults to 2 (so up to 3 total calls).
     *args, **kwargs
         Forwarded to *fn*.
 
@@ -160,16 +171,26 @@ def retry_once(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     Raises
     ------
     ConnectivityError
-        After the first attempt and the single retry both fail.
+        After all attempts are exhausted.
     """
-    try:
-        return fn(*args, **kwargs)
-    except Exception as first_exc:
-        _logger.warning("First attempt failed; retrying once: %s", first_exc)
+    attempt = 0
+    while True:
         try:
             return fn(*args, **kwargs)
-        except Exception as final_exc:
-            raise ConnectivityError(
-                detail="Schwab API unreachable after retry; "
-                "stored tokens were not modified"
-            ) from final_exc
+        except Exception as exc:
+            attempt += 1
+            if attempt > retries:
+                raise ConnectivityError(
+                    detail="Schwab API unreachable after retry; "
+                    "stored tokens were not modified"
+                ) from exc
+            _logger.warning("Attempt %d failed; retrying: %s", attempt, exc)
+            time.sleep(0.5)
+
+
+def retry_once(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Retry exactly once (backward-compatible wrapper).
+
+    See :func:`retry_call` for details.
+    """
+    return retry_call(fn, retries=1, *args, **kwargs)

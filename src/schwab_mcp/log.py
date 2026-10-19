@@ -12,6 +12,7 @@ ALLOWED_EVENTS = frozenset({
     "auth_start",
     "auth_success",
     "auth_failure",
+    "renew_start",
     "renewal_success",
     "renewal_failure",
 })
@@ -20,7 +21,8 @@ _ALLOWED_OUTCOMES = {
     "auth_start": {"initiated"},
     "auth_success": {"ok"},
     "auth_failure": {"cancelled", "failed", "refused_concurrent"},
-    "renewal_success": {"ok"},
+    "renew_start": {"initiated"},
+    "renewal_success": {"ok", "not_needed"},
     "renewal_failure": {"connectivity", "reauth_required"},
 }
 

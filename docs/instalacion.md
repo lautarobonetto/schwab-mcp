@@ -87,9 +87,13 @@ set -a; source ~/.schwab-mcp/env; set +a
 ## 5. Verificar la instalación
 
 ```sh
-uv run schwab-mcp --help      # debe listar los subcomandos: auth, serve
+uv run schwab-mcp --help      # debe listar los subcomandos: auth, serve, renew, auth-status
 uv run pytest -q              # suite completa: todos los tests en verde
 ```
+
+Además de `auth` y `serve`, el CLI expone los comandos
+[`renew` y `auth-status`](./uso.md#comandos-de-renovación) para
+renovación automática de tokens y verificación de estado sin red.
 
 ## Siguiente paso
 

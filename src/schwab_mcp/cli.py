@@ -16,6 +16,7 @@ from schwab_mcp.errors import (
     TokenStoreCorruptedError,
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
+from schwab_mcp.renewal import AuthHealth, RenewalOutcome, read_store_lifetime, renew as _renew
 from schwab_mcp.tokens import AuthLock, enforce_permissions, peek_store, peek_store_status
 
 
@@ -133,6 +134,136 @@ def run_auth() -> None:
         auth_event("auth_success", "ok", "token set stored")
 
 
+def run_auth_status() -> None:
+    """Execute the ``auth-status`` subcommand (FR-008).
+
+    Strictly read-only: never constructs a ``schwabdev.Client``,
+    never touches the network, never triggers a renewal.  Answers in
+    one shot (SC-003), ≤ 2 s.
+    """
+    config = load_config()
+    store_path = config.token_db
+
+    status = peek_store_status(store_path)
+    if status == "absent":
+        health = AuthHealth(
+            state="reauth_required",
+            access_expires_in_seconds=None,
+            refresh_expires_in_seconds=None,
+        )
+        print(health.to_json())
+        sys.exit(3)
+
+    if status == "corrupted":
+        health = AuthHealth(
+            state="reauth_required",
+            access_expires_in_seconds=None,
+            refresh_expires_in_seconds=None,
+        )
+        print(health.to_json())
+        sys.exit(3)
+
+    lifetime = read_store_lifetime(store_path)
+    if lifetime is None:
+        health = AuthHealth(
+            state="reauth_required",
+            access_expires_in_seconds=None,
+            refresh_expires_in_seconds=None,
+        )
+    else:
+        health = AuthHealth(
+            state="valid",
+            access_expires_in_seconds=lifetime.access_remaining_seconds,
+            refresh_expires_in_seconds=lifetime.refresh_remaining_seconds,
+        )
+    print(health.to_json())
+    sys.exit(0)
+
+
+def run_renew() -> None:
+    """Execute the ``renew`` subcommand (FR-002).
+
+    Sequence
+    --------
+    1. Load configuration (fail-fast).
+    2. Peek the token store: absent / corrupted → exit 3.
+    3. Read remaining validity; above margin → exit 0 (not_needed).
+    4. Acquire ``AuthLock`` (non-blocking); busy → exit 6.
+    5. Build the schwabdev client and call ``renew()``.
+    6. Print exactly one JSON line on stdout.
+    7. Map outcome to exit code per contracts/cli.md.
+    """
+    config = load_config()
+    store_path = config.token_db
+
+    # 2. Store peek: absent / corrupted → reauth_required, exit 3
+    status = peek_store_status(store_path)
+    if status == "absent":
+        outcome = RenewalOutcome(
+            outcome="reauth_required",
+            expires_in_seconds=None,
+            retryable=False,
+            detail="store_absent",
+        )
+        print(outcome.to_json())
+        auth_event("renewal_failure", "reauth_required",
+                    detail="run: schwab-mcp auth")
+        sys.exit(3)
+
+    if status == "corrupted":
+        outcome = RenewalOutcome(
+            outcome="reauth_required",
+            expires_in_seconds=None,
+            retryable=False,
+            detail="store_corrupted",
+        )
+        print(outcome.to_json())
+        auth_event("renewal_failure", "reauth_required",
+                    detail="run: schwab-mcp auth")
+        sys.exit(3)
+
+    # 4. Acquire AuthLock (non-blocking); busy → exit 6
+    try:
+        with AuthLock(store_path):
+            _do_run_renew(config, store_path)
+    except ConcurrentAuthError:
+        auth_event("renewal_failure", "reauth_required",
+                    detail="another renewal already in progress")
+        sys.exit(6)
+
+
+def _do_run_renew(config: object, store_path: str) -> None:
+    """Build the client and execute ``renew()`` (under ``AuthLock``)."""
+    import schwabdev  # noqa: PLC0415 — late import for testability
+
+    from schwab_mcp.server import _build_serve_guard_hook
+
+    guard_hook = _build_serve_guard_hook()
+
+    # Use the same guard hook as ``serve`` — in the explicit CLI command,
+    # a re-authorization attempt is still a permanent error.
+    client = schwabdev.Client(
+        config.app_key,
+        config.app_secret,
+        config.callback_url,
+        tokens_db=store_path,
+        call_on_auth=guard_hook,
+        open_browser_for_auth=False,
+    )
+
+    outcome = _renew(client, store_path, trigger_detail="explicit_command")
+    print(outcome.to_json())
+
+    # Map outcome to exit code per contracts/cli.md
+    exit_codes = {
+        "renewed": 0,
+        "not_needed": 0,
+        "reauth_required": 3,
+        "transient_failure": 7,
+    }
+    sys.exit(exit_codes.get(outcome.outcome, 1))
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for the ``schwab-mcp`` console script."""
     # Install redaction filter on root and schwabdev loggers at startup.
@@ -142,6 +273,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="schwab-mcp")
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("auth", help="Authorize Schwab API access")
+    subparsers.add_parser("renew", help="Renew the access credential (non-interactive)")
+    subparsers.add_parser(
+        "auth-status", help="Show authentication status (local read, no network)"
+    )
     subparsers.add_parser("serve", help="Start the stdio MCP server")
     args = parser.parse_args(argv)
 
@@ -161,6 +296,28 @@ def main(argv: list[str] | None = None) -> None:
         except AuthError as e:
             print(e.message, file=sys.stderr)
             sys.exit(e.exit_code)
+        else:
+            sys.exit(0)
+    elif args.command == "renew":
+        try:
+            run_renew()
+        except AuthError as e:
+            print(e.message, file=sys.stderr)
+            sys.exit(e.exit_code)
+        except Exception as exc:
+            print(f"Unexpected error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            sys.exit(0)
+    elif args.command == "auth-status":
+        try:
+            run_auth_status()
+        except AuthError as e:
+            print(e.message, file=sys.stderr)
+            sys.exit(e.exit_code)
+        except Exception as exc:
+            print(f"Unexpected error: {exc}", file=sys.stderr)
+            sys.exit(1)
         else:
             sys.exit(0)
     elif args.command == "serve":

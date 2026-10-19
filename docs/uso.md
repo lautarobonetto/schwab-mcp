@@ -113,6 +113,52 @@ uv run schwab-mcp auth
 Un intento de re-auth fallido no toca el token set existente: si la
 autorización nueva no se completa, los tokens vigentes siguen intactos.
 
+## Comandos de renovación
+
+Diseñados para agentes no interactivos. Ninguno abre browser, lee stdin
+ni abre sockets. Ambos imprimen exactamente **una línea JSON** en stdout
+y usan stderr para mensajes auxiliares.
+
+El contrato completo está en
+[specs/002-automated-token-renewal/contracts/cli.md](../specs/002-automated-token-renewal/contracts/cli.md).
+
+### `schwab-mcp renew`
+
+Renueva el token de acceso de forma no interactiva. Carga configuración,
+verifica el store, e intenta el refresh con hasta 2 reintentos ante
+fallos transitorios.
+
+```sh
+uv run schwab-mcp renew
+```
+
+**Códigos de salida:**
+
+| Código | Significado |
+|--------|------------|
+| 0 | `renewed` o `not_needed` (aún vigente) |
+| 2 | Configuración faltante o mal formada |
+| 3 | Requiere re-autorización: `reauth_required` (correr `schwab-mcp auth`) |
+| 6 | Otra renovación o autorización ya en curso (`busy`) |
+| 7 | Error transitorio: `transient_failure` (el agente puede reintentar más tarde) |
+
+### `schwab-mcp auth-status`
+
+Consulta de salud de autenticación **local** (sin red). Lee el store de
+tokens y devuelve el estado en ≤ 2 segundos.
+
+```sh
+uv run schwab-mcp auth-status
+```
+
+**Códigos de salida:**
+
+| Código | Significado |
+|--------|------------|
+| 0 | `valid` (los campos indican tiempo restante) |
+| 2 | Configuración faltante o mal formada |
+| 3 | Requiere re-autorización: `reauth_required` (store ausente o corrupto) |
+
 ## Modos de falla
 
 Cada falla imprime su mensaje propio, accionable, y sale con código

@@ -256,3 +256,145 @@ class TestAuthLock:
         assert "authorization" in msg.lower() or "already" in msg.lower(), (
             f"Message should reference concurrent auth: {msg!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# retry_call — generalized bounded-retry helper
+# ---------------------------------------------------------------------------
+
+
+class TestRetryCall:
+    """RED-phase tests for ``retry_call(fn, retries=2, ...)``.
+
+    The ``retry_call`` helper generalises the existing ``retry_once`` so the
+    caller can configure the number of retries.  Guarantees:
+
+    * Initial attempt + exactly *retries* retries with short fixed waits.
+    * :exc:`ConnectivityError <schwab_mcp.errors.ConnectivityError>` after
+      exhaustion.
+    * Stored credentials are **never** deleted/rewritten on failure (FR-006).
+
+    These tests will fail (:exc:`ImportError`) until ``retry_call`` is
+    implemented — this is the **RED** phase of TDD.
+    """
+
+    def test_retry_call_succeeds_on_first_attempt(self) -> None:
+        """When ``fn`` succeeds on the first call, return the result
+        without retrying."""
+        from schwab_mcp.tokens import retry_call
+
+        calls: list[object] = []
+
+        def succeed() -> str:
+            calls.append(None)
+            return "ok"
+
+        result = retry_call(succeed, retries=2)
+
+        assert result == "ok"
+        assert len(calls) == 1, "Should only call fn once on success"
+
+    def test_retry_call_succeeds_after_retries(self) -> None:
+        """When ``fn`` fails the first 2 times but succeeds on the 3rd
+        call, return the result."""
+        from schwab_mcp.tokens import retry_call
+
+        calls: list[object] = []
+
+        def fail_twice_then_succeed() -> str:
+            calls.append(None)
+            if len(calls) < 3:
+                raise RuntimeError("transient error")
+            return "ok"
+
+        result = retry_call(fail_twice_then_succeed, retries=2)
+
+        assert result == "ok"
+        assert len(calls) == 3, (
+            f"Expected 3 calls (initial + 2 retries), got {len(calls)}"
+        )
+
+    def test_retry_call_exhausts_retries(self) -> None:
+        """When ``fn`` always fails, verify it is called exactly 3 times
+        (initial + 2 retries) and raises :exc:`ConnectivityError`."""
+        from schwab_mcp.errors import ConnectivityError
+        from schwab_mcp.tokens import retry_call
+
+        calls: list[object] = []
+
+        def always_fail() -> str:
+            calls.append(None)
+            raise RuntimeError("persistent error")
+
+        with pytest.raises(ConnectivityError):
+            retry_call(always_fail, retries=2)
+
+        assert len(calls) == 3, (
+            f"Expected 3 calls (initial + 2 retries), "
+            f"got {len(calls)}"
+        )
+
+    def test_retry_call_raises_connectivity_error(self) -> None:
+        """After exhausting retries, the raised exception is an instance
+        of :exc:`ConnectivityError`."""
+        from schwab_mcp.errors import ConnectivityError
+        from schwab_mcp.tokens import retry_call
+
+        def always_fail() -> str:
+            raise RuntimeError("persistent error")
+
+        with pytest.raises(ConnectivityError) as excinfo:
+            retry_call(always_fail, retries=2)
+
+        assert isinstance(excinfo.value, ConnectivityError)
+
+    def test_retry_call_stored_credentials_not_deleted(self, tmp_path: Path) -> None:
+        """After retries are exhausted, verify the token store is NOT
+        deleted or modified (FR-006)."""
+        from schwab_mcp.tokens import retry_call
+
+        token_store = tmp_path / "tokens.db"
+        token_store.write_text("dummy token data")
+        mtime_before = token_store.stat().st_mtime_ns
+
+        def always_fail() -> str:
+            raise RuntimeError("network error")
+
+        with pytest.raises(Exception):
+            retry_call(always_fail, retries=2)
+
+        assert token_store.exists(), (
+            "Token store was deleted on failure (FR-006)"
+        )
+        mtime_after = token_store.stat().st_mtime_ns
+        assert mtime_after == mtime_before, (
+            "Token store was modified on failure (FR-006)"
+        )
+
+    def test_retry_call_retries_with_short_waits(self, monkeypatch: object) -> None:
+        """When ``fn`` fails, verify there is a short ``time.sleep`` wait
+        between retries.  The actual delay is mocked away."""
+        from schwab_mcp.tokens import retry_call
+
+        sleep_times: list[float] = []
+
+        def mock_sleep(seconds: float) -> None:
+            sleep_times.append(seconds)
+
+        monkeypatch.setattr("time.sleep", mock_sleep)  # type: ignore[arg-type]
+
+        calls: list[object] = []
+
+        def always_fail() -> str:
+            calls.append(None)
+            raise RuntimeError("transient")
+
+        with pytest.raises(Exception):
+            retry_call(always_fail, retries=2)
+
+        assert len(sleep_times) == 2, (
+            f"Expected a short wait before each of the 2 retries, "
+            f"got {len(sleep_times)} sleep calls"
+        )
+        for s in sleep_times:
+            assert s > 0, f"Wait time must be positive, got {s}"

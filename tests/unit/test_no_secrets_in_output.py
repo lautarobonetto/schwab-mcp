@@ -22,9 +22,11 @@ from schwab_mcp.cli import main
 from schwab_mcp.log import (
     _installed_filters,
     _RedactionFilter,
+    auth_event,
     clear_secrets,
     register_secret,
 )
+from schwab_mcp.renewal import AuthHealth, RenewalOutcome
 
 # ---------------------------------------------------------------------------
 # Constants — the fake defaults that the test environment configures
@@ -444,4 +446,181 @@ class TestAuthUrlUsability:
         assert opened["url"] == printed_urls[0], (
             f"Browser URL {opened['url']!r} differs from printed URL "
             f"{printed_urls[0]!r}"
+        )
+
+
+# ===================================================================
+# Renewal JSON output — zero secrets in serialised payloads (FR-004, SC-005)
+# ===================================================================
+
+
+class TestRenewalOutcomeJsonNoSecrets:
+    """``RenewalOutcome.to_json()`` and ``AuthHealth.to_json()`` serialise
+    to JSON that contains zero credential/token/authorization-URL material
+    (FR-004, SC-005).
+
+    These types carry only classification fields (outcome, state, etc.)
+    and timing metadata — never raw secrets.  Registering secrets and
+    inspecting the output confirms they do not leak.
+    """
+
+    def test_renewal_outcome_json_has_no_secrets(self):
+        """All four ``RenewalOutcome`` variants produce JSON free of any
+        registered secret."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_REFRESH_TOKEN)
+        register_secret(TEST_APP_SECRET)
+        register_secret(FAKE_ID_TOKEN)
+        register_secret(FAKE_AUTH_CODE)
+
+        outcomes = [
+            RenewalOutcome(
+                outcome="renewed",
+                expires_in_seconds=1800,
+                retryable=False,
+                detail="access_renewed",
+            ),
+            RenewalOutcome(
+                outcome="not_needed",
+                expires_in_seconds=3600,
+                retryable=False,
+                detail="still_valid",
+            ),
+            RenewalOutcome(
+                outcome="transient_failure",
+                expires_in_seconds=None,
+                retryable=True,
+                detail="provider_unreachable",
+            ),
+            RenewalOutcome(
+                outcome="reauth_required",
+                expires_in_seconds=None,
+                retryable=False,
+                detail="refresh_rejected",
+            ),
+        ]
+        for outcome in outcomes:
+            json_text = outcome.to_json()
+            for secret in SECRET_MATERIAL:
+                assert secret not in json_text, (
+                    f"Secret {secret!r} leaked into RenewalOutcome JSON: "
+                    f"{json_text}"
+                )
+
+    def test_auth_health_json_has_no_secrets(self):
+        """All ``AuthHealth`` state variants produce JSON free of any
+        registered secret."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_REFRESH_TOKEN)
+        register_secret(TEST_APP_SECRET)
+        register_secret(FAKE_ID_TOKEN)
+        register_secret(FAKE_AUTH_CODE)
+
+        states = [
+            AuthHealth(
+                state="valid",
+                access_expires_in_seconds=1800,
+                refresh_expires_in_seconds=600000,
+            ),
+            AuthHealth(
+                state="reauth_required",
+                access_expires_in_seconds=None,
+                refresh_expires_in_seconds=None,
+            ),
+            AuthHealth(
+                state="store_absent",
+                access_expires_in_seconds=None,
+                refresh_expires_in_seconds=None,
+            ),
+            AuthHealth(
+                state="store_corrupted",
+                access_expires_in_seconds=None,
+                refresh_expires_in_seconds=None,
+            ),
+        ]
+        for health in states:
+            json_text = health.to_json()
+            for secret in SECRET_MATERIAL:
+                assert secret not in json_text, (
+                    f"Secret {secret!r} leaked into AuthHealth JSON: "
+                    f"{json_text}"
+                )
+
+
+# ===================================================================
+# Renewal event lines — zero secrets in auth_event output (FR-004, SC-005)
+# ===================================================================
+
+
+class TestRenewalEventLinesNoSecrets:
+    """``auth_event()`` lines for ``renew_*`` events
+    (``renew_start``, ``renewal_success``, ``renewal_failure``) must have
+    all secret material redacted from the ``detail`` field before the line
+    reaches stderr (FR-004, SC-005).
+
+    The redaction is defence-in-depth: event consumers (parsers, logs)
+    should never encounter raw credentials even if the caller accidentally
+    includes them.
+    """
+
+    def test_renew_start_event_redacts_secrets(self, capsys):
+        """``renew_start`` event with secret-bearing ``detail`` text gets
+        secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_REFRESH_TOKEN)
+
+        auth_event(
+            "renew_start", "initiated",
+            detail=f"token={FAKE_ACCESS_TOKEN}",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_ACCESS_TOKEN not in captured.err, (
+            "Access token leaked in renew_start stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
+        )
+
+    def test_renewal_success_event_redacts_secrets(self, capsys):
+        """``renewal_success`` event with secret-bearing ``detail`` text
+        gets secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_REFRESH_TOKEN)
+        register_secret(FAKE_ACCESS_TOKEN)
+
+        auth_event(
+            "renewal_success", "ok",
+            detail=f"refreshed token={FAKE_REFRESH_TOKEN}",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_REFRESH_TOKEN not in captured.err, (
+            "Refresh token leaked in renewal_success stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
+        )
+
+    def test_renewal_failure_event_redacts_secrets(self, capsys):
+        """``renewal_failure`` event with secret-bearing ``detail`` text
+        gets secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_AUTH_CODE)
+
+        auth_event(
+            "renewal_failure", "reauth_required",
+            detail=f"auth_code={FAKE_AUTH_CODE} reason=expired",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_AUTH_CODE not in captured.err, (
+            "Auth code leaked in renewal_failure stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
         )

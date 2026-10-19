@@ -22,7 +22,7 @@ from schwab_mcp.errors import (
     TokenStoreCorruptedError,
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
-from schwab_mcp.tokens import peek_store_status, retry_once
+from schwab_mcp.tokens import peek_store_status, retry_call
 
 _logger = logging.getLogger(__name__)
 
@@ -112,13 +112,14 @@ def run_serve() -> None:
     #    validation — never before the outcome, and never for auxiliary
     #    transitions like loading the store or reaching ready state).
     # ------------------------------------------------------------------
+    auth_event("renew_start", "initiated", detail="margin_trigger")
     try:
-        retry_once(client.linked_accounts)
+        retry_call(client.linked_accounts, retries=1)
     except ConnectivityError:
         auth_event(
             "renewal_failure",
             "connectivity",
-            detail="run: schwab-mcp auth",
+            detail="retries exhausted",
         )
         raise
 
