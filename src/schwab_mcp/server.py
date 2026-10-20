@@ -126,10 +126,29 @@ def run_serve() -> None:
     auth_event("renewal_success", "ok", detail="access token renewed")
 
     # ------------------------------------------------------------------
-    # 5. Connect MCPServer stdio transport and signal ready
+    # 5. Register tools and connect MCPServer stdio transport
     # ------------------------------------------------------------------
     mcp = MCPServer("schwab-mcp")
-    # This feature registers no tools (tools arrive in a later feature).
+
+    # Register the get_open_positions tool (003-list-open-positions).
+    # The client is bound via a closure so the MCP input schema only
+    # exposes the ``extended`` parameter.
+    from schwab_mcp.positions import get_open_positions as _get_open_positions
+
+    def _get_open_positions_wrapper(extended: bool = False) -> object:
+        return _get_open_positions(client, extended=extended)
+
+    _get_open_positions_wrapper.__name__ = "get_open_positions"
+    _get_open_positions_wrapper.__qualname__ = "get_open_positions"
+    mcp.add_tool(
+        _get_open_positions_wrapper,
+        name="get_open_positions",
+        description=(
+            "Fetch all open positions across all linked accounts. "
+            "Returns the curated set of metadata per position; "
+            "use extended=true for full provider passthrough."
+        ),
+    )
 
     # Run the stdio transport — this call blocks until the server exits.
     try:

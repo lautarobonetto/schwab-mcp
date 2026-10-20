@@ -15,6 +15,9 @@ ALLOWED_EVENTS = frozenset({
     "renew_start",
     "renewal_success",
     "renewal_failure",
+    "positions_query_start",
+    "positions_query_success",
+    "positions_query_failure",
 })
 
 _ALLOWED_OUTCOMES = {
@@ -24,6 +27,9 @@ _ALLOWED_OUTCOMES = {
     "renew_start": {"initiated"},
     "renewal_success": {"ok", "not_needed"},
     "renewal_failure": {"connectivity", "reauth_required"},
+    "positions_query_start": {"initiated"},
+    "positions_query_success": {"ok", "partial_failure"},
+    "positions_query_failure": {"transient", "reauth", "error"},
 }
 
 

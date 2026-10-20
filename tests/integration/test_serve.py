@@ -146,6 +146,11 @@ class FakeMCPServer:
         """Non-blocking stub — returns immediately."""
         _record("MCPServer.run_stdio_async")
 
+    def add_tool(self, fn: Any, name: str = "", description: str = "") -> None:
+        """Register a tool (stub — records the call)."""
+        _record("MCPServer.add_tool", name)
+        self._tools.append(name)
+
     def list_tools(self) -> list[Any]:
         """Return the list of registered tools."""
         return list(self._tools)
@@ -739,11 +744,11 @@ class TestZeroTools:
     """The server startup (this feature) must register zero MCP tools.
     Tools arrive in a later feature."""
 
-    def test_no_tools_after_startup(
+    def test_get_open_positions_tool_registered(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """After ``cli_main(["serve"])`` completes, the MCPServer must expose no
-        tools via ``list_tools()``."""
+        """After ``cli_main(["serve"])`` completes, the MCPServer must expose
+        the ``get_open_positions`` tool."""
         _make_token_db(tmp_path / "tokens.db")
 
         monkeypatch.setattr(
@@ -758,12 +763,8 @@ class TestZeroTools:
         )
         mcp = FakeMCPServer._instances[0]
         tools = mcp.list_tools()
-        assert len(tools) == 0, (
-            f"Expected zero MCP tools after serve startup, "
-            f"got {len(tools)}: {tools}"
-        )
-        assert tools == [], (
-            f"Expected empty tool list, got {tools}"
+        assert "get_open_positions" in tools, (
+            f"Expected get_open_positions in registered tools, got {tools}"
         )
 
     def test_server_object_created_with_correct_name(

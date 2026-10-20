@@ -624,3 +624,232 @@ class TestRenewalEventLinesNoSecrets:
             "Expected redacted output containing *** in stderr, "
             f"got: {captured.err!r}"
         )
+
+
+# ===================================================================
+# Positions tool — zero secrets in all outcome forms (FR-008, SC-005)
+# ===================================================================
+
+
+class TestPositionsToolNoSecrets:
+    """All five outcome forms of ``PositionsResult`` produce JSON that
+    contains zero registered secrets and no raw account numbers (FR-008,
+    SC-005).
+
+    Covers:
+    - ``ok`` with positions (detail ``data_received``)
+    - ``ok`` with no positions (detail ``no_positions``)
+    - ``partial_failure`` with ``accounts_failed``
+    - ``transient_failure`` (``retryable=True``)
+    - ``reauth_required``
+    """
+
+    # ------------------------------------------------------------------
+    # Secrets sweep for each outcome form
+    # ------------------------------------------------------------------
+
+    def test_ok_with_positions_has_no_secrets(self) -> None:
+        """``ok`` outcome with positions → JSON contains zero secrets."""
+        from schwab_mcp.positions import PositionEntry, PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = PositionEntry(
+            account_hash="hash123",
+            symbol="SPY",
+            instrument_type="EQUITY",
+            description="SPDR S&P 500 ETF Trust",
+            quantity=10.0,
+            average_price=580.25,
+            market_value=5910.0,
+            unrealized_pl=107.5,
+            price_timestamp="2026-10-20T14:03:11+00:00",
+        )
+        result = PositionsResult(
+            outcome="ok",
+            positions=[entry],
+            detail="data_received",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into ok-with-positions JSON"
+            )
+
+    def test_ok_empty_has_no_secrets(self) -> None:
+        """``ok`` outcome with empty positions → JSON contains zero secrets."""
+        from schwab_mcp.positions import PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = PositionsResult(
+            outcome="ok",
+            positions=[],
+            detail="no_positions",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into ok-empty JSON"
+            )
+
+    def test_partial_failure_has_no_secrets(self) -> None:
+        """``partial_failure`` with ``accounts_failed`` → JSON zero secrets."""
+        from schwab_mcp.positions import PositionEntry, PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = PositionEntry(
+            account_hash="hash123",
+            symbol="SPY",
+            instrument_type="EQUITY",
+            description="Test",
+            quantity=10.0,
+            average_price=100.0,
+            market_value=1000.0,
+            unrealized_pl=0.0,
+            price_timestamp="2026-10-20T14:03:11+00:00",
+        )
+        result = PositionsResult(
+            outcome="partial_failure",
+            positions=[entry],
+            detail="account_failed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            accounts_failed=[
+                {"account_hash": "hash789", "detail": "provider_error"},
+            ],
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into partial_failure JSON"
+            )
+
+    def test_transient_failure_has_no_secrets(self) -> None:
+        """``transient_failure`` → JSON contains zero secrets."""
+        from schwab_mcp.positions import PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = PositionsResult(
+            outcome="transient_failure",
+            positions=[],
+            detail="provider_unreachable",
+            retryable=True,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into transient_failure JSON"
+            )
+
+    def test_reauth_required_has_no_secrets(self) -> None:
+        """``reauth_required`` → JSON contains zero secrets."""
+        from schwab_mcp.positions import PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = PositionsResult(
+            outcome="reauth_required",
+            positions=[],
+            detail="reauth_needed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into reauth_required JSON"
+            )
+
+    # ------------------------------------------------------------------
+    # Raw account number sweep (FR-008)
+    # ------------------------------------------------------------------
+
+    def test_ok_with_positions_no_raw_account_number(self) -> None:
+        """The ``ok`` outcome JSON contains no raw account number
+        (only opaque ``account_hash``)."""
+        from schwab_mcp.positions import PositionEntry, PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = PositionEntry(
+            account_hash="hash123",
+            symbol="SPY",
+            instrument_type="EQUITY",
+            description="Test",
+            quantity=10.0,
+            average_price=100.0,
+            market_value=1000.0,
+            unrealized_pl=0.0,
+            price_timestamp="2026-10-20T14:03:11+00:00",
+        )
+        result = PositionsResult(
+            outcome="ok",
+            positions=[entry],
+            detail="data_received",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        assert "10000001" not in json_text, (
+            "Raw account number leaked in ok-with-positions JSON"
+        )
+        assert "12345678" not in json_text, (
+            "Raw account number leaked in ok-with-positions JSON"
+        )
+
+    def test_partial_failure_no_raw_account_number(self) -> None:
+        """The ``partial_failure`` JSON contains no raw account number."""
+        from schwab_mcp.positions import PositionEntry, PositionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = PositionEntry(
+            account_hash="hash123",
+            symbol="SPY",
+            instrument_type="EQUITY",
+            description="Test",
+            quantity=10.0,
+            average_price=100.0,
+            market_value=1000.0,
+            unrealized_pl=0.0,
+            price_timestamp="2026-10-20T14:03:11+00:00",
+        )
+        result = PositionsResult(
+            outcome="partial_failure",
+            positions=[entry],
+            detail="account_failed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            accounts_failed=[
+                {"account_hash": "hash789", "detail": "provider_error"},
+            ],
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        assert "10000001" not in json_text, (
+            "Raw account number leaked in partial_failure JSON"
+        )
+        assert "12345678" not in json_text, (
+            "Raw account number leaked in partial_failure JSON"
+        )

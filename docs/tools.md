@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.2.0 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.3.0 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -13,13 +13,12 @@ El proyecto expone **dos superficies**, con roles distintos:
 
 | Superficie | Cómo se invoca | Estado en esta versión |
 |------------|----------------|------------------------|
-| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **registra 0 tools** todavía |
+| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **1 tool registrada** (`get_open_positions`) |
 | CLI one-shot | El agente corre `schwab-mcp <comando>` por shell | **Superficie principal del agente** hoy |
 
-La superficie de tools MCP está reservada para features futuras. En la
-versión 0.2.0 todo lo que un agente necesita —verificar salud de
-autenticación y forzar renovación— se hace con los comandos one-shot
-descritos abajo.
+La herramienta ``get_open_positions`` (primera tool MCP registrada)
+está disponible a través del servidor ``serve``, complementando los
+comandos one-shot descritos abajo.
 
 Garantías transversales de **todos** los comandos agent-facing:
 
@@ -32,6 +31,74 @@ Garantías transversales de **todos** los comandos agent-facing:
   adicional (stderr incluido).
 - **Tiempo acotado**: ningún comando se cuelga; presupuestos por comando.
 - **Seguros ante concurrencia**: coordinación por lock; corrompen nada.
+
+---
+
+## `get_open_positions` (primera tool MCP)
+
+Primera herramienta MCP registrada por el servidor ``serve`` (feature
+``003-list-open-positions``). Recupera todas las tenencias efectivas de
+todas las cuentas vinculadas en una sola llamada upstream, con resultados
+estructurados auto-clasificantes.
+
+### Invocación
+
+```json
+{"name": "get_open_positions", "arguments": {}}
+```
+
+### Argumentos (input schema)
+
+| Campo | Tipo | Default | Semántica |
+|-------|------|---------|-----------|
+| ``extended`` | bool | ``false`` | ``false`` (default): solo el set curado (compacto). ``true``: cada posición agrega el objeto ``extended`` con el passthrough completo del proveedor. |
+
+Sin otros parámetros en v1: la consulta cubre siempre **todas** las
+cuentas vinculadas.
+
+### Output schema
+
+Exactamente un objeto ``PositionsResult`` por invocación. Campos:
+
+| Campo | Tipo | Valores |
+|-------|------|---------|
+| ``outcome`` | enum cerrado | ``ok`` · ``partial_failure`` · ``transient_failure`` · ``reauth_required`` |
+| ``positions`` | array | Entradas ``PositionEntry``; ``[]`` válido solo con ``outcome: "ok"`` |
+| ``accounts_failed`` | array \| ausente | Solo ``partial_failure``: ``[{account_hash, detail}]``, ``detail ∈ {provider_error, transient}`` |
+| ``retryable`` | bool | ``true`` solo cuando ``outcome == "transient_failure"`` |
+| ``detail`` | enum cerrado | ``data_received`` · ``no_positions`` · ``account_failed`` · ``provider_unreachable`` · ``reauth_needed`` · ``store_absent`` · ``store_corrupted`` |
+| ``retrieved_at`` | string ISO-8601 UTC | Momento de recuperación del payload del proveedor |
+
+El esquema completo de ``PositionEntry`` y las reglas de validación
+cruzada están en el
+[data model](../specs/003-list-open-positions/data-model.md).
+
+### Error mapping
+
+| Condición | ``outcome`` | ``retryable`` | Acción del agente |
+|-----------|-------------|---------------|-------------------|
+| Red/proveedor no disponible | ``transient_failure`` | ``true`` | Reintentar con backoff |
+| Refresh rechazado / store corrupto | ``reauth_required`` | ``false`` | Notificar al dueño (``schwab-mcp auth``), monitorear con ``auth-status`` |
+| Algunas cuentas fallaron, otras no | ``partial_failure`` | ``false`` | Evaluar si reintentar; datos parciales en ``positions`` |
+| Todas las cuentas respondieron | ``ok`` | ``false`` | Continuar normalmente |
+
+### Garantías
+
+- **Read-only**: no coloca órdenes ni mueve dinero.
+- **Sin secretos**: ningún token/credencial en la salida.
+- **Presupuesto**: ≤ 5 s de latencia; ≤ 8 KB default (≈ 2 000 tokens),
+  ≤ 16 KB extended.
+- **Sin reintentos internos** ante fallo transitorio (FR-007): el agente
+  decide.
+
+### Referencia
+
+- Contrato completo:
+  [`specs/003-list-open-positions/contracts/mcp-tools.md`](../specs/003-list-open-positions/contracts/mcp-tools.md)
+- Data model:
+  [`specs/003-list-open-positions/data-model.md`](../specs/003-list-open-positions/data-model.md)
+- Eventos de auditoría:
+  [`specs/003-list-open-positions/contracts/events.md`](../specs/003-list-open-positions/contracts/events.md)
 
 ---
 
@@ -169,8 +236,9 @@ de fallo de autenticación. No consume cuota del proveedor.
 
 ## `schwab-mcp serve` (servidor MCP)
 
-Servidor MCP de tipo **stdio**, headless. No registra tools en esta
-versión, pero es el proceso que un cliente MCP (opencode, Claude
+Servidor MCP de tipo **stdio**, headless. Registra 1 tool
+(``get_open_positions``) y es el proceso que un cliente MCP (opencode,
+Claude
 Desktop, etc.) lanza y con el que habla por stdio.
 
 Al arrancar:
@@ -223,6 +291,12 @@ Interpretación:
 
 ## Referencias normativas
 
+- Contrato de la tool MCP ``get_open_positions``:
+  [specs/003-list-open-positions/contracts/mcp-tools.md](../specs/003-list-open-positions/contracts/mcp-tools.md)
+- Data model de posiciones:
+  [specs/003-list-open-positions/data-model.md](../specs/003-list-open-positions/data-model.md)
+- Eventos de auditoría de posiciones:
+  [specs/003-list-open-positions/contracts/events.md](../specs/003-list-open-positions/contracts/events.md)
 - Contrato CLI completo:
   [specs/002-automated-token-renewal/contracts/cli.md](../specs/002-automated-token-renewal/contracts/cli.md)
 - Contrato de eventos de renovación:

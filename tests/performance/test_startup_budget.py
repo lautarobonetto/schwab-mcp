@@ -60,6 +60,10 @@ class FakeMCPServer:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    def add_tool(self, fn: Any, name: str = "", description: str = "") -> None:
+        """Register a tool (stub — no-op for performance test)."""
+        pass
+
     async def run_stdio_async(self) -> None:
         """No-op; returns immediately instead of blocking on stdio."""
         return
