@@ -61,6 +61,30 @@ payload size for each tool. Changes that measurably increase token usage or
 latency beyond declared budgets MUST NOT be accepted without an explicit,
 recorded justification.
 
+### VI. Graph-First Code Discovery (codebase-memory-mcp)
+
+Whenever code in this repository MUST be analyzed, located, understood, or
+its impact evaluated (planning, impact analysis, refactoring, bug
+investigation, architecture review), agents and developers MUST first
+consult the **codebase-memory-mcp** knowledge graph before falling back to
+grep/glob/manual file reading. Graph tool priority:
+
+1. `search_graph` — find functions, classes, routes, variables by pattern.
+2. `trace_path` — trace who calls a function or what it calls.
+3. `get_code_snippet` — read specific function/class source code.
+4. `check_index_coverage` — validate candidate paths and missed ranges
+   before claims.
+5. `query_graph` — run Cypher queries for complex patterns.
+6. `get_architecture` — high-level project summary.
+
+The graph project for this repository is
+`Users-lautarobonetto-projects-schwab-mcp-v2` (the entry whose `root_path`
+contains the working directory). Fallback to grep/glob/file-search is
+allowed only for: string literals, error messages, config values,
+non-code files (Dockerfiles, shell scripts, configs), or when graph tools
+return insufficient results. When the fallback is used because of a coverage
+gap, the gap MUST be noted in the analysis output.
+
 ## Repository Layout
 
 The repository layout is fixed and non-negotiable. Every file created in
@@ -125,6 +149,20 @@ All changes follow the Spec Kit flow (`/speckit.specify` →
 6. **Layout gate**: every new or moved file is inside its designated
    directory (`src/`, `tests/`, `docs/`); every temporary artifact is inside
    `tmp/`; `tmp/` remains git-ignored (Repository Layout).
+7. **Graph currency gate**: after any step in the Spec Kit flow (or any
+   other change) modifies code, the codebase-memory-mcp index for this
+   repository MUST be refreshed (re-index via `index_repository`, or
+   equivalent auto-refresh) before any subsequent graph-based analysis is
+   trusted (Principle VI).
+
+### Index Currency Rule
+
+Any command or agent action that changes code (Spec Kit commands —
+`/speckit.implement`, `/speckit.converge`, hook executions, ad-hoc edits —
+included) MUST leave the codebase-memory-mcp index up to date. The index
+MUST be refreshed within the same workflow step that produced the change,
+before a later phase consumes graph evidence. Analysis based on a stale
+index (older than the last code change) is non-compliant.
 
 ### Commit Discipline
 
@@ -165,4 +203,4 @@ are part of the compliance review.
   Kit plan documents; agents MUST consult the constitution at the start of
   plan and implement phases.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-19
+**Version**: 1.4.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-23
