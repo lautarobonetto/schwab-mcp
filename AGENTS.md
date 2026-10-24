@@ -24,6 +24,28 @@ negociable y prima sobre cualquier otra práctica. Resumen no normativo:
   enumere los cambios; **documentación afectada actualizada e incluida
   en el mismo commit**.
 
+## Análisis de trades
+
+Al analizar trades de un periodo determinado, si algún trade o cadena de
+trades no tiene sentido (posición o saldo que no cierra, venta sin compra
+previa, etc.), **no tratarlo como dato faltante o erróneo**: la cadena
+probablemente comenzó **antes** del periodo analizado. Proceder así:
+
+1. Identificar el trade huérfano dentro del periodo.
+2. Buscar la apertura con el historial **filtrado por el instrumento**
+   (`symbol`), en ventanas de tiempo **anteriores**, sucesivamente hacia
+   atrás (la tool acepta hasta 1 año por pedido).
+3. Declarar la estrategia de búsqueda **antes** de cada pedido (filtro,
+   ventana y por qué), para que el proceso sea auditable.
+4. Escalar a un pedido **sin filtro** solo si el barrido filtrado agotó
+   su alcance sin encontrar la apertura: puede tratarse de un roll con
+   símbolo distinto, una asignación o una transferencia entre cuentas,
+   que el filtro por símbolo no captura.
+5. Repetir hasta reconstruir la transacción de apertura que explique el
+   estado inicial (compra, asignación, depósito, transferencia, etc.).
+6. Re-analizar el periodo con el contexto completo, de modo que la cadena
+   tenga sentido de punta a punta antes de concluir.
+
 ## Flujo de trabajo
 
 Spec Kit: `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` →
