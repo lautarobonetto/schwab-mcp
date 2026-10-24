@@ -6,6 +6,28 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.6.1] - 2026-10-24
+
+Bug fix — **`trade_time` epoch cero se reportaba como operación del
+1970** (hallazgo live en la primera consulta real de la tool, NOK).
+
+### Fixed
+
+- **`trade_time` de contratos sin operación**: el proveedor manda
+  `tradeTimeInLong=0` (y `tradeTime=null`) para contratos que nunca
+  operaron; la conversión epoch→ISO los mostraba como
+  `1970-01-01T00:00:00+00:00`, inventando una marca temporal inexistente.
+  Ahora epoch `0` (en cualquiera de las dos formas del campo) se reporta
+  como `null` en su columna (FR-007: no inventar datos). En la consulta
+  live de NOK afectaba 96 de 10.074 piernas.
+
+### Validación
+
+- 2 tests de regresión (`tests/unit/test_options_chain_mapping.py`,
+  `TestSerializeLeg`) reproducen el defecto (epoch `0` directo y vía
+  fallback `tradeTimeInLong=0`) y fallan sin el fix.
+- Suite completa: **989 tests**, 0 skipped, 0 failed.
+
 ## [0.6.0] - 2026-10-24
 
 Feature 008 — **Extracción de cadena de opciones con filtros**

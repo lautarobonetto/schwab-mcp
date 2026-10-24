@@ -319,10 +319,15 @@ def _trade_time_value(raw: Any) -> Any:
 
     Epoch milliseconds (the ``tradeTime``/``tradeTimeInLong`` live shape)
     are converted; strings pass through; anything else keeps its value.
+    A zero epoch means "never traded" (the live provider sends
+    ``tradeTimeInLong=0`` for those contracts — found live 2026-10-24)
+    and maps to ``None`` (FR-007: never invent data).
     """
     if raw is None:
         return None
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        if raw == 0:
+            return None
         return datetime.fromtimestamp(
             raw / 1000, timezone.utc
         ).isoformat(timespec="seconds")

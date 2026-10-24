@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.6.0 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.6.1 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -382,8 +382,10 @@ Forma **columnar** de cada fila de strike
 - Las 5 griegas (`delta`, `gamma`, `theta`, `vega`, `rho`) están
   presentes por contrato o con `null` explícito (FR-006/FR-007).
 - Redondeo determinista: precios/valores 2 decimales; griegas e IV 4
-  decimales; `volume`/`open_interest`/`multiplier` sin redondeo;
-  `trade_time` en ISO-8601 UTC.
+  decimales; `volume`/`open_interest`/`multiplier` sin redondeo
+  (enteros: los floats integrales de la fuente se normalizan a `int`);
+  `trade_time` en ISO-8601 UTC — `null` cuando el contrato nunca operó
+  (la fuente manda epoch `0`; FR-007: no inventar datos).
 
 #### Selección de strikes (resumen normativo)
 

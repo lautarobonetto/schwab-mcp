@@ -279,6 +279,24 @@ class TestSerializeLeg:
 
         assert leg[_index("trade_time")] is None
 
+    def test_trade_time_epoch_zero_is_none(self) -> None:
+        """Regression (found live 2026-10-24): the provider sends
+        ``tradeTimeInLong=0`` for contracts that never traded; the column
+        must read ``null`` (FR-007: never invent data), not the epoch-zero
+        instant ``1970-01-01T00:00:00+00:00``."""
+        contract = build_contract("CALL", 250.0, tradeTime=0)
+        leg = _leg(contract)
+
+        assert leg[_index("trade_time")] is None
+
+    def test_trade_time_fallback_epoch_zero_is_none(self) -> None:
+        """Same regression for the ``tradeTimeInLong`` fallback shape: 0
+        means "no trade" and yields ``None``."""
+        contract = build_contract("CALL", 250.0, tradeTime=None, tradeTimeInLong=0)
+        leg = _leg(contract)
+
+        assert leg[_index("trade_time")] is None
+
     def test_deliverable_note_passthrough(self) -> None:
         """``deliverableNote`` passes through as-is (default ``None``)."""
         note = "DELIVER 100 SHARES OF TEST"
