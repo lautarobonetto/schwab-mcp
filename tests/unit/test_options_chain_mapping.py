@@ -717,3 +717,88 @@ class TestMetaData:
         result = build_chain_result(payload, _query())
 
         assert result["data_state"] == "delayed"
+
+
+# =============================================================================
+# Test class: integral-float normalization (T024, TDD Red)
+# =============================================================================
+
+
+class TestIntegralNormalization:
+    """``serialize_leg`` normalizes integral floats to ``int`` in the three
+    integer columns declared by data-model §1 — ``volume``, ``open_interest``
+    and ``multiplier`` ("sin redondeo ... (enteros)").
+
+    Found live 2026-10-24: the provider sends ``multiplier`` as ``100.0``
+    (and possibly integral floats for volume/open_interest); the curated
+    array must report the integer ``100``, not the float. Non-integral
+    values must NOT be silently truncated.
+    """
+
+    def test_multiplier_integral_float_becomes_int(self) -> None:
+        """``multiplier=100.0`` → column value ``100`` typed ``int``.
+
+        ``100.0 == 100`` is True in Python, so ``isinstance`` is what pins
+        the type — the current passthrough fails only the type assertion.
+        """
+        contract = build_contract("CALL", 250.0, multiplier=100.0)
+        leg = _leg(contract)
+
+        assert leg[_index("multiplier")] == 100
+        assert isinstance(leg[_index("multiplier")], int)
+
+    def test_volume_and_open_interest_integral_floats_become_ints(self) -> None:
+        """Integral-float ``totalVolume``/``openInterest`` → int columns."""
+        contract = build_contract(
+            "PUT", 250.0, totalVolume=2500.0, openInterest=920.0
+        )
+        leg = _leg(contract)
+
+        assert leg[_index("volume")] == 2500
+        assert isinstance(leg[_index("volume")], int)
+        assert leg[_index("open_interest")] == 920
+        assert isinstance(leg[_index("open_interest")], int)
+
+    def test_non_integral_volume_is_not_truncated(self) -> None:
+        """A non-integral float stays a float — no silent ``int()`` chop."""
+        contract = build_contract("PUT", 250.0, totalVolume=2500.5)
+        leg = _leg(contract)
+
+        assert leg[_index("volume")] == 2500.5
+        assert isinstance(leg[_index("volume")], float)
+
+    def test_int_inputs_stay_ints(self) -> None:
+        """Already-int inputs pass through unchanged and stay int-typed."""
+        contract = build_contract(
+            "CALL", 250.0, totalVolume=2500, openInterest=920, multiplier=100
+        )
+        leg = _leg(contract)
+
+        assert isinstance(leg[_index("volume")], int)
+        assert isinstance(leg[_index("open_interest")], int)
+        assert isinstance(leg[_index("multiplier")], int)
+
+    def test_end_to_end_build_chain_result_call_multiplier_is_int(self) -> None:
+        """End-to-end: a payload row's ``call`` leg carries an ``int``
+        multiplier column through ``build_chain_result``."""
+        exp = chain_expiry_date(7)
+        calls = build_expiration_map(
+            exp, "CALL", [250.0], overrides={"multiplier": 100.0}
+        )
+        puts = build_expiration_map(exp, "PUT", [250.0])
+        payload = build_chain_payload(calls, puts)
+
+        from schwab_mcp.options_chain import build_chain_result
+
+        result = build_chain_result(payload, _query())
+        expiration = next(
+            e for e in result["expirations"] if e["expiration_date"] == exp
+        )
+        row = next(r for r in expiration["strikes"] if r["strike"] == 250.0)
+
+        def pad(values: list) -> list:
+            return list(values) + [None] * (23 - len(values))
+
+        leg = pad(row["call"])
+        assert leg[_index("multiplier")] == 100
+        assert isinstance(leg[_index("multiplier")], int)

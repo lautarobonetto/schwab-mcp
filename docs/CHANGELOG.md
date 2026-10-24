@@ -72,6 +72,26 @@ Feature 008 — **Extracción de cadena de opciones con filtros**
   vencimientos ≤60 DTE produce ~7,5k tokens con `delta_target` + ambos
   tipos (el presupuesto <6.000 aplica al fixture de 12 vencimientos).
 
+### Changed (convergencia, misma fecha)
+
+- **Re-baseline del presupuesto `delta_target` a ≤ 8.000 tokens** (T023,
+  decisión del usuario): la medición live de la convergencia (SPY ~7.334,
+  QQQ ~7.214, AAPL ~4.640, TSLA ~5.074 tokens) mostró que cadenas anchas
+  de 16 vencimientos superan el tope de <6.000; la ventana de 5 strikes
+  por tipo aplica por vencimiento (FR-004) y el volumen escala con los
+  vencimientos dentro del tope de DTE. Justificación registrada en
+  `specs/008-extract-option-chain/plan.md` (Complexity Tracking) y
+  `docs/tools.md`; el test de presupuestos agrega un caso de cadena ancha
+  (16 vencimientos) que fija el nuevo tope.
+- **Normalización de enteros en `serialize_leg`** (T024): `multiplier`
+  llega como float del proveedor live (`100.0`) y ahora se serializa como
+  entero (`volume`/`open_interest`/`multiplier`), sin truncar valores no
+  integrales (regresión con test).
+- **Test del escenario "fuente caída"** (T022): la suite de integración
+  fija el camino 5xx/408/429 (quickstart S4): `ConnectivityError`
+  accionable, evento de auditoría `provider_unreachable`, 1 upcall, sin
+  cadena parcial. Suite completa tras la convergencia: **987 tests**.
+
 ## [0.5.1] - 2026-10-24
 
 Bug fix — **`get_transaction_history` curaba todo trade como `CURRENCY_USD`**

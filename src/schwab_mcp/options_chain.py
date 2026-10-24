@@ -98,6 +98,11 @@ _PROVIDER_KEY_MAP: dict[str, str] = {
     "deliverable_note": "deliverableNote",
 }
 
+_INTEGER_COLUMNS = frozenset({"volume", "open_interest", "multiplier"})
+"""Curated columns declared as integers (data-model §1); integral floats
+from the provider (e.g. live ``multiplier=100.0``) are coerced to ``int``
+without truncating non-integral values (found live 2026-10-24)."""
+
 _PRICE_COLUMNS = frozenset(
     {
         "bid",
@@ -345,6 +350,10 @@ def serialize_leg(contract: dict) -> list:
             values.append(None)
         elif name == "trade_time":
             values.append(_trade_time_value(raw))
+        elif name in _INTEGER_COLUMNS:
+            values.append(
+                int(raw) if isinstance(raw, float) and raw.is_integer() else raw
+            )
         elif name in _PRICE_COLUMNS:
             values.append(round(float(raw), 2))
         elif name in _GREEK_COLUMNS:

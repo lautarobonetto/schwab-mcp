@@ -410,14 +410,20 @@ antes de invocarla:
 | Filtros | Tamaño esperado | Presupuesto normativo |
 |---------|-----------------|-----------------------|
 | Por defecto (cadena ancha: ~12 vencimientos × ≤ 100 filas de strike) | ~95–106k tokens | **≤ 110.000 tokens** |
-| Con `delta_target` (12 vencimientos × ≤ 5 strikes × 2 tipos) | ~5k tokens | **< 6.000 tokens** |
+| Con `delta_target` (subyacente típico: 10–12 vencimientos) | ~4,5–5k tokens | **≤ 8.000 tokens** |
+| Con `delta_target` (cadena ancha live: 16 vencimientos, SPY/QQQ) | ~7,2–7,3k tokens | **≤ 8.000 tokens** |
 
 > **Justificación registrada del crecimiento** (Principio V): los
 > presupuestos se ajustaron el 2026-10-24 por decisión del usuario
 > porque la medición honesta de las filas de ambas piernas con las 23
 > columnas exigidas da ~80–88 tokens por fila, y el contenido de la
 > respuesta está fijado por FR-002/FR-006 (no admite recorte sin violar
-> la spec). La justificación completa del crecimiento está registrada en
+> la spec). **Re-baseline posterior (misma fecha, convergencia T023)**:
+> el presupuesto de `delta_target` pasó de <6.000 a ≤8.000 porque la
+> ventana de 5 strikes por tipo aplica **por vencimiento** (FR-004) y el
+> volumen escala con los vencimientos que el tope de DTE deja pasar —
+> cadenas live de 16 vencimientos (SPY/QQQ) miden ~7,2–7,3k tokens.
+> La justificación completa del crecimiento está registrada en
 > [`specs/008-extract-option-chain/plan.md`](../specs/008-extract-option-chain/plan.md)
 > (Complexity Tracking).
 

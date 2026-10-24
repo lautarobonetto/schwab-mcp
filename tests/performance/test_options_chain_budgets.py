@@ -44,7 +44,10 @@ STRIKES = [round(226.5 + STRIKE_STEP * i, 1) for i in range(100)]
 
 # 12 expirations inside the default DTE window (dte_max_effective = 60) in
 # ~12 steps, matching a real weekly/monthly chain of a liquid underlying.
+# WIDE_EXPIRATION_DTES is the live wide-chain shape (SPY/QQQ, found live
+# 2026-10-24): 16 expirations within the 60-day cap.
 EXPIRATION_DTES = (7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57, 60)
+WIDE_EXPIRATION_DTES = (4, 7, 11, 14, 18, 21, 25, 28, 32, 35, 39, 42, 46, 49, 53, 60)
 
 MAX_STRIKES = 50          # default max_strikes per side (FR-012 bound)
 LATENCY_BUDGET_S = 5.0    # <= 5 s p95 per invocation (plan.md)
@@ -64,17 +67,21 @@ def _delta_ladder(kind: str) -> list[float]:
     return [round(-0.95 + i * 0.01, 4) for i in range(len(STRIKES))]
 
 
-def _build_representative_payload(with_delta_spread: bool = False) -> dict:
+def _build_representative_payload(
+    with_delta_spread: bool = False,
+    expirations: tuple[int, ...] = EXPIRATION_DTES,
+) -> dict:
     """Build the representative liquid-underlying ``option_chains`` payload.
 
-    12 expirations x 100 strikes x both legs (call + put maps), rows built via
-    ``build_contract`` (realistic rounded values).  With *with_delta_spread*
-    the contracts carry the delta ladder of :func:`_delta_ladder` instead of
-    the builder defaults.
+    Defaults to 12 expirations × 100 strikes × both legs (call + put maps),
+    rows built via ``build_contract`` (realistic rounded values).  With
+    *with_delta_spread* the contracts carry the delta ladder of
+    :func:`_delta_ladder` instead of the builder defaults.  *expirations*
+    overrides the DTE list (e.g. the 16-expiration live wide-chain shape).
     """
     call_map: dict[str, dict] = {}
     put_map: dict[str, dict] = {}
-    for dte in EXPIRATION_DTES:
+    for dte in expirations:
         exp_date = chain_expiry_date(dte)
         call_deltas = _delta_ladder("CALL") if with_delta_spread else None
         put_deltas = _delta_ladder("PUT") if with_delta_spread else None
@@ -142,11 +149,19 @@ class TestOptionsChainDefaultTokenBudget:
 
 
 class TestOptionsChainDeltaTokenBudget:
-    """delta_target token budget: < 6.000 tokens (SC-002, adjusted)."""
+    """delta_target token budget: ≤ 8.000 tokens (SC-002, adjusted).
+
+    Re-baselined 2026-10-24 (second adjustment, user decision): live wide
+    chains with 16 expirations (SPY ~7.3k, QQQ ~7.2k tokens) exceed the
+    former 6.000 bound while typical underlyings (AAPL ~4.6k, TSLA ~5.1k)
+    stay well under it.  The per-expiration delta window is fixed by
+    FR-004 (≤ 5 strikes per type), so the budget must scale with the
+    expiration count the DTE cap lets through.
+    """
 
     @pytest.mark.performance
     def test_delta_token_budget(self) -> None:
-        """delta_target=0.20 serializes within 6.000 tokens (SC-005 shape)."""
+        """delta_target=0.20 serializes within 8.000 tokens (SC-005 shape)."""
         client = FakeChainClient(_build_representative_payload(with_delta_spread=True))
         result = get_option_chain(client, "TEST", option_type="both", delta_target=0.20)
         assert result["outcome"] == "ok"
@@ -163,10 +178,27 @@ class TestOptionsChainDeltaTokenBudget:
             assert len(call_rows) == 5
             assert len(put_rows) == 5
         tokens = _token_count(result)
-        # Budget: 6.000 tokens (adjusted 2026-10-24 by user decision from
-        # 3.000; honest measurement is ~4,5–5k).
-        assert tokens < 6_000, (
-            f"delta_target response is {tokens:.0f} tokens, budget is 6.000"
+        # Budget: 8.000 tokens (re-baselined 2026-10-24 by user decision from
+        # 6.000; live wide chains measure ~7.2–7.3k for 16 expirations).
+        assert tokens <= 8_000, (
+            f"delta_target response is {tokens:.0f} tokens, budget is 8.000"
+        )
+
+    @pytest.mark.performance
+    def test_delta_token_budget_wide_chain(self) -> None:
+        """Wide chain (16 expirations, the live SPY/QQQ shape) stays within
+        the 8.000-token budget — the case that motivated the re-baseline."""
+        payload = _build_representative_payload(
+            with_delta_spread=True, expirations=WIDE_EXPIRATION_DTES
+        )
+        client = FakeChainClient(payload)
+        result = get_option_chain(client, "TEST", option_type="both", delta_target=0.20)
+        assert result["outcome"] == "ok"
+        assert len(result["expirations"]) == 16
+        tokens = _token_count(result)
+        assert tokens <= 8_000, (
+            f"wide-chain delta_target response is {tokens:.0f} tokens, "
+            f"budget is 8.000"
         )
 
 

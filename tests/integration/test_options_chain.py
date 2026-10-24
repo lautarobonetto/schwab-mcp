@@ -911,3 +911,98 @@ class TestSc004SingleInvocationUs3:
         assert not (keys & PAGINATION_KEYS), (
             f"pagination keys leaked into the response: {sorted(keys & PAGINATION_KEYS)}"
         )
+
+
+# =============================================================================
+# T022 — quickstart S4 "Fuente caída": provider 5xx/408/429 (FR-013)
+# =============================================================================
+
+
+class TestSourceDownTransient:
+    """Quickstart S4 "Fuente caída" (contracts/mcp-tools.md §4, FR-013).
+
+    When the provider answers a transient failure status (5xx, 408, 429),
+    ``response_json`` maps it through the shared taxonomy and
+    ``tokens.retry_call`` wraps it in ``ConnectivityError`` (the original as
+    ``__cause__``).  The orchestration re-raises after emitting the
+    ``options_chain_query_failure`` audit event with
+    ``transient``/``provider_unreachable`` — the exception is the ONLY
+    outcome: exactly one upstream call, never a partial chain.
+
+    The fetch uses ``retry_call(..., retries=0, ...)`` so no retry sleep
+    occurs; each test completes without real waiting.
+    """
+
+    class _DownClient:
+        """Provider double whose ``option_chains`` answers a failure status."""
+
+        def __init__(self, status: int) -> None:
+            self._status = status
+            self.calls: list[dict] = []
+
+        def option_chains(self, symbol, **kwargs):
+            self.calls.append({"symbol": symbol, **kwargs})
+            return build_response(None, status=self._status)
+
+    @pytest.mark.parametrize("status", [500, 408, 429], ids=["500", "408", "429"])
+    def test_transient_status_raises_connectivity_error_without_partial_chain(
+        self, status
+    ) -> None:
+        """A 5xx/408/429 provider answer raises ``ConnectivityError`` with an
+        actionable message, exactly one upstream call, and no partial chain."""
+        from schwab_mcp.errors import ConnectivityError
+        from schwab_mcp.options_chain import ChainDataError, get_option_chain
+
+        client = self._DownClient(status)
+
+        with pytest.raises(ConnectivityError) as excinfo:
+            get_option_chain(client, "TEST")
+
+        # Actionable message (the taxonomy message or the retry wrapper's
+        # detail — both name connectivity/unreachability).
+        message = str(excinfo.value)
+        assert "Check connectivity" in message or "unreachable" in message, (
+            f"ConnectivityError message must be actionable, got: {message!r}"
+        )
+
+        # The original provider error is preserved as __cause__.
+        assert excinfo.value.__cause__ is not None, (
+            "ConnectivityError must carry the original taxonomy error as __cause__"
+        )
+
+        # FR-013: no partial-chain confusion — this is NOT a ChainDataError.
+        assert not isinstance(excinfo.value, ChainDataError), (
+            "a transient provider failure must not surface as ChainDataError"
+        )
+
+        # Exactly one upstream call; the exception is the only outcome.
+        assert len(client.calls) == 1, (
+            "exactly one option_chains call expected for a transient failure"
+        )
+        assert client.calls[0]["symbol"] == "TEST"
+
+    @pytest.mark.parametrize("status", [500, 408, 429], ids=["500", "408", "429"])
+    def test_transient_status_emits_failure_audit_event(
+        self, status, capsys
+    ) -> None:
+        """The orchestration emits ``options_chain_query_failure`` with
+        outcome=``transient`` and detail=``provider_unreachable`` on stderr."""
+        from schwab_mcp.errors import ConnectivityError
+        from schwab_mcp.options_chain import get_option_chain
+
+        client = self._DownClient(status)
+
+        with pytest.raises(ConnectivityError):
+            get_option_chain(client, "TEST")
+
+        stderr = capsys.readouterr().err
+        assert "options_chain_query_failure" in stderr, (
+            f"audit event 'options_chain_query_failure' expected on stderr, "
+            f"got:\n{stderr}"
+        )
+        assert "transient" in stderr, (
+            f"outcome 'transient' expected on stderr, got:\n{stderr}"
+        )
+        assert "provider_unreachable" in stderr, (
+            f"detail 'provider_unreachable' expected on stderr, got:\n{stderr}"
+        )
