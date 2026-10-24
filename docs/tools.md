@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.5.1 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.6.0 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -13,12 +13,13 @@ El proyecto expone **dos superficies**, con roles distintos:
 
 | Superficie | Cómo se invoca | Estado en esta versión |
 |------------|----------------|------------------------|
-| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **2 tools registradas** (`get_open_positions` y `get_transaction_history`) |
+| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **3 tools registradas** (`get_open_positions`, `get_transaction_history` y `get_option_chain`) |
 | CLI one-shot | El agente corre `schwab-mcp <comando>` por shell | **Superficie principal del agente** hoy |
 
-Las herramientas ``get_open_positions`` y ``get_transaction_history``
-(primera y segunda tool MCP registradas) están disponibles a través del
-servidor ``serve``, complementando los comandos one-shot descritos abajo.
+Las herramientas ``get_open_positions``, ``get_transaction_history`` y
+``get_option_chain`` (primera, segunda y tercera tool MCP registradas)
+están disponibles a través del servidor ``serve``, complementando los
+comandos one-shot descritos abajo.
 
 Garantías transversales de **todos** los comandos agent-facing:
 
@@ -304,6 +305,251 @@ identificadores internos como `CURRENCY_USD` producían
 
 ---
 
+## `get_option_chain` (tercera tool MCP)
+
+Tercera herramienta MCP registrada por el servidor ``serve`` (feature
+``008-extract-option-chain``). Recupera la cadena de opciones de un
+subyacente en **una sola invocación**, con selección determinista de
+strikes (ventana simétrica al dinero o ventana por delta) y filtro por
+DTE. Solo lectura: no coloca órdenes ni mueve dinero.
+
+### Invocación
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AAPL"}}
+```
+
+### Argumentos (input schema)
+
+| Campo | Tipo | Default | Semántica |
+|-------|------|---------|-----------|
+| `symbol` | string | — (obligatorio) | Instrumento subyacente. No vacío, sin espacios internos; se pasa tal cual al proveedor. |
+| `max_strikes` | int | `50` | ≥ 1. Strikes por lado del dinero (ATM incluido) por vencimiento: hasta `2 × max_strikes` filas. Con `delta_target` no reduce esa ventana. |
+| `option_type` | enum `both` \| `calls` \| `puts` | `both` | Qué piernas incluye la respuesta. |
+| `delta_target` | number \| null | `null` | Si presente: `0 < \|delta_target\| < 1`. Selecciona, por vencimiento y por tipo incluido, hasta 5 strikes alrededor del contrato con \|delta\| más cercana al objetivo. |
+| `dte_max` | int \| null | `null` | Si presente: ≥ 1 (días de calendario). **`null` no significa "sin tope"**: aplica el tope vigente de 60 días (FR-005). |
+| `extended` | bool | `false` | `false` (default): set curado compacto. `true`: agrega `provider` con el payload crudo del proveedor (patrón 003/006). |
+
+### Output schema
+
+Exactamente un objeto resultado por invocación. Estados de resultado
+(`outcome` es el marcador explícito):
+
+| `outcome` | `detail` | Significado para el agente |
+|-----------|----------|---------------------------|
+| `ok` | `chain_retrieved` | Cadena completa en `expirations` |
+| `no_options_listed` | `no_options_listed` | El instrumento no tiene opciones listadas (resultado estructurado, **no** error) |
+| `no_expirations_in_range` | `no_expirations_in_range: dte_max_effective=N excludes all expirations` | Hay vencimientos, pero el tope de DTE los excluye a todos; `expirations: []` |
+
+Metadatos (`ok`):
+
+| Campo | Tipo | Semántica |
+|-------|------|-----------|
+| `symbol` | string | Eco del instrumento consultado |
+| `generated_at` | string ISO-8601 UTC | Momento de la consulta |
+| `data_state` | enum cerrado | `realtime` · `delayed` (frescura reportada por la fuente) |
+| `underlying_price` | float \| null | Precio vigente del subyacente |
+| `filters` | objeto | Eco de la consulta efectiva: `{max_strikes, option_type, delta_target, dte_max_requested, dte_max_effective}`. `dte_max_effective` es 60 o el valor pedido — el agente siempre puede verificar el tope aplicado. |
+| `contract_fields` | array de strings | Orden de columnas de cada array de pierna (23 columnas, ver abajo) |
+| `expirations` | array | Vencimientos ordenados por `expiration_date` ascendente |
+
+Cada vencimiento: `{expiration_date: "YYYY-MM-DD", dte: int,
+atm_strike: float, strikes: [...]}` — `dte` en días de calendario;
+`atm_strike` es el strike más cercano a `underlying_price` (empates: el
+menor); `strikes` ordenados por strike ascendente.
+
+#### Columnas de cada pierna (`contract_fields`, orden fijo)
+
+```json
+["bid", "ask", "last", "mark", "mark_change", "mark_pct_change",
+ "high", "low", "open", "close", "volume", "open_interest",
+ "iv", "delta", "gamma", "theta", "vega", "rho",
+ "theoretical_value", "time_value", "multiplier", "trade_time",
+ "deliverable_note"]
+```
+
+Forma **columnar** de cada fila de strike
+(`{strike: float, call: [...], put: [...]}`):
+
+- Cada pierna es un **array posicional** en el orden de `contract_fields`
+  (declarado en la propia respuesta). El array puede traer menos
+  elementos cuando los campos finales no están informados.
+- Campo ausente en la fuente → `null` explícito en su columna
+  (FR-007); nunca se inventan valores.
+- `call`/`put` **ausente** (no `null`) cuando el tipo está excluido por
+  `option_type` o el strike quedó fuera de la ventana de delta de ese
+  tipo. La fila existe si al menos una pierna incluida la seleccionó.
+- Las 5 griegas (`delta`, `gamma`, `theta`, `vega`, `rho`) están
+  presentes por contrato o con `null` explícito (FR-006/FR-007).
+- Redondeo determinista: precios/valores 2 decimales; griegas e IV 4
+  decimales; `volume`/`open_interest`/`multiplier` sin redondeo;
+  `trade_time` en ISO-8601 UTC.
+
+#### Selección de strikes (resumen normativo)
+
+- **Sin `delta_target`**: por vencimiento, hasta `max_strikes` strikes
+  más cercanos por debajo y por encima de `atm_strike` (ATM incluido si
+  existe) → ≤ `2 × max_strikes` filas por vencimiento.
+- **Con `delta_target`**: por vencimiento y **por tipo incluido**,
+  contrato con \|delta\| más cercana al objetivo + 2 contiguos por lado
+  → hasta 5 strikes por tipo. `max_strikes` no interviene.
+- **DTE**: solo vencimientos con `dte ≤ dte_max_effective`.
+
+#### `extended=true`
+
+Agrega `provider` con el payload crudo de la fuente (sin curado). Los
+campos estructurales excluidos del formato curado (`skipBars`,
+`isPitRanged`, `executable`, `settlementType`, `deliverables`) son
+accesibles por esta vía.
+
+### Tamaño esperado del payload (Presupuesto, Principio V)
+
+**Esta tool es la de mayor payload de la superficie MCP** — presupuestala
+antes de invocarla:
+
+| Filtros | Tamaño esperado | Presupuesto normativo |
+|---------|-----------------|-----------------------|
+| Por defecto (cadena ancha: ~12 vencimientos × ≤ 100 filas de strike) | ~95–106k tokens | **≤ 110.000 tokens** |
+| Con `delta_target` (12 vencimientos × ≤ 5 strikes × 2 tipos) | ~5k tokens | **< 6.000 tokens** |
+
+> **Justificación registrada del crecimiento** (Principio V): los
+> presupuestos se ajustaron el 2026-10-24 por decisión del usuario
+> porque la medición honesta de las filas de ambas piernas con las 23
+> columnas exigidas da ~80–88 tokens por fila, y el contenido de la
+> respuesta está fijado por FR-002/FR-006 (no admite recorte sin violar
+> la spec). La justificación completa del crecimiento está registrada en
+> [`specs/008-extract-option-chain/plan.md`](../specs/008-extract-option-chain/plan.md)
+> (Complexity Tracking).
+
+**Consejo para el agente**: si solo necesitás un slice de la cadena,
+preferí `delta_target`, `max_strikes` chico o `dte_max` bajo — reducen el
+payload sin paginar (la tool no pagina). El límite FR-012 garantiza que
+la respuesta nunca excede `expirations × types × strikes`.
+
+### Errores de validación (error estándar de tool MCP, sin upcalls)
+
+Todos ocurren **antes de cualquier upcall** (FR-008) con mensaje
+accionable que nombra el parámetro y la restricción:
+
+| Condición | Mensaje esperado |
+|-----------|------------------|
+| `symbol` vacío o solo espacios | Nombra `symbol` y la restricción de no vacío |
+| `symbol` con espacios internos | Nombra `symbol` y la restricción |
+| `max_strikes ≤ 0` | Nombra `max_strikes` y `>= 1` |
+| `option_type` fuera del enum | Nombra `option_type` y los valores `both, calls, puts` |
+| `\|delta_target\| ∉ (0,1)` | Nombra `delta_target` y `0 < \|delta_target\| < 1` |
+| `dte_max ≤ 0` | Nombra `dte_max` y `>= 1` |
+
+### Errores de fuente (mapeo estándar compartido)
+
+| Condición | Comportamiento | Acción del agente |
+|-----------|----------------|-------------------|
+| Vencimiento entero sin datos (FR-013, `ChainDataError`) | **Error** estructurado que nombra la fecha y el tipo; **nunca** cadena parcial | Reintentar más tarde o reducir el alcance; no confiar en datos parciales |
+| 401/403 | Re-autenticación requerida | Playbook de `renew` (`reauth_required`) |
+| 5xx/408/429 | Fallo transitorio | Reintentar con backoff |
+| Otro 4xx | El proveedor revisó y rechazó el pedido | Corregir parámetros; no reintentar idéntico |
+
+La taxonomía de errores de proveedor es la **compartida** con
+`get_open_positions` y `get_transaction_history`
+(`provider.response_json`): ver sus secciones de error para el detalle
+del manejo de `reauth_required` y fallos transitorios. FR-013: una
+asimetría a nivel de **fecha** entre los mapas incluidos (un vencimiento
+con datos en un tipo y sin datos en el otro) es cadena parcial → error;
+la asimetría a nivel de **strike** es normal: ese strike conserva solo
+la pierna existente y la fila omite la otra clave.
+
+### Ejemplos
+
+**Cadena por defecto** (todos los vencimientos ≤ 60 DTE, ambos tipos):
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AAPL"}}
+```
+
+Respuesta (truncada; el payload real es enorme):
+
+```json
+{
+  "outcome": "ok",
+  "detail": "chain_retrieved",
+  "symbol": "AAPL",
+  "generated_at": "2026-10-24T15:04:05+00:00",
+  "data_state": "realtime",
+  "underlying_price": 251.31,
+  "filters": {"max_strikes": 50, "option_type": "both", "delta_target": null,
+              "dte_max_requested": null, "dte_max_effective": 60},
+  "contract_fields": ["bid", "ask", "...", "trade_time", "deliverable_note"],
+  "expirations": [
+    {"expiration_date": "2026-10-30", "dte": 6, "atm_strike": 251.0,
+     "strikes": [
+       {"strike": 250.0,
+        "call": [25.10, 25.30, "...", 100, "2026-10-24T15:00:00+00:00", null],
+        "put":  [6.05, 6.15, "...", 100, "2026-10-24T15:00:00+00:00", null]},
+       "... (hasta 100 filas de strike, ordenadas por strike)"
+     ]},
+    "... (hasta ~12 vencimientos, ordenados por fecha)"
+  ]
+}
+```
+
+**Puts con delta objetivo** (ventana por tipo, ≤ 5 strikes/vencimiento):
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AAPL", "option_type": "puts", "delta_target": 0.20}}
+```
+
+Solo claves `put` por fila (sin `call`); por vencimiento, ≤ 5 strikes
+alrededor del contrato con \|delta\| ≈ 0.20. Payload típico ~5k tokens.
+
+**Límites explícitos** (slice corto):
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AAPL", "max_strikes": 10, "dte_max": 7}}
+```
+
+≤ 20 filas de strike por vencimiento (2 × 10, centradas en `atm_strike`),
+solo vencimientos con `dte ≤ 7` (`filters.dte_max_effective == 7`). Si el
+vencimiento más próximo vence más lejos → `no_expirations_in_range`
+estructurado, no error genérico.
+
+**Edge: instrumento sin opciones**:
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "ZZZZZZ"}}
+```
+
+```json
+{"outcome": "no_options_listed", "detail": "no_options_listed",
+ "symbol": "ZZZZZZ", "generated_at": "2026-10-24T15:04:05+00:00"}
+```
+
+### Garantías
+
+- **Una sola invocación devuelve la cadena completa** dentro de los
+  límites pedidos (FR-011): sin paginación, sin `cursor`/`offset`/
+  `has_more` en la respuesta.
+- **Límites respetados al 100%** (`max_strikes`, `option_type`, DTE)
+  (FR-012, SC-006); la respuesta nunca excede
+  `expirations × types × strikes`.
+- **Griegas completas**: las 5 griegas y el resto de `contract_fields`
+  presentes por contrato o con `null` explícito (FR-006/FR-007).
+- **Determinista**: selección de strikes reproducible para los mismos
+  datos de entrada.
+- **Read-only**, **sin estado entre invocaciones** y **sin credenciales**
+  en la salida (credential safety de la constitución).
+- **Presupuesto**: ≤ 5 s p95 de latencia por invocación.
+
+### Referencia
+
+- Contrato completo:
+  [`specs/008-extract-option-chain/contracts/mcp-tools.md`](../specs/008-extract-option-chain/contracts/mcp-tools.md)
+- Data model (orden de `contract_fields`, algoritmos de selección):
+  [`specs/008-extract-option-chain/data-model.md`](../specs/008-extract-option-chain/data-model.md)
+- Escenarios de uso (S1–S4):
+  [`specs/008-extract-option-chain/quickstart.md`](../specs/008-extract-option-chain/quickstart.md)
+
+---
+
 ## `schwab-mcp renew`
 
 Renovación explícita del access credential usando el refresh credential
@@ -438,8 +684,9 @@ de fallo de autenticación. No consume cuota del proveedor.
 
 ## `schwab-mcp serve` (servidor MCP)
 
-Servidor MCP de tipo **stdio**, headless. Registra 2 tools
-(``get_open_positions`` y ``get_transaction_history``) y es el proceso
+Servidor MCP de tipo **stdio**, headless. Registra 3 tools
+(``get_open_positions``, ``get_transaction_history`` y
+``get_option_chain``) y es el proceso
 que un cliente MCP (opencode, Claude Desktop, etc.) lanza y con el que
 habla por stdio.
 
@@ -511,4 +758,10 @@ Interpretación:
   [specs/006-transaction-history/data-model.md](../specs/006-transaction-history/data-model.md)
 - Eventos de auditoría de transacciones:
   [specs/006-transaction-history/contracts/events.md](../specs/006-transaction-history/contracts/events.md)
+- Contrato de la tool MCP ``get_option_chain``:
+  [specs/008-extract-option-chain/contracts/mcp-tools.md](../specs/008-extract-option-chain/contracts/mcp-tools.md)
+- Data model de la cadena de opciones:
+  [specs/008-extract-option-chain/data-model.md](../specs/008-extract-option-chain/data-model.md)
+- Guía de validación de la cadena de opciones:
+  [specs/008-extract-option-chain/quickstart.md](../specs/008-extract-option-chain/quickstart.md)
 - [Guía de uso](./uso.md) · [Guía de instalación](./instalacion.md)

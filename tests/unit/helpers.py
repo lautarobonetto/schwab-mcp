@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import requests
 
@@ -18,3 +19,123 @@ def build_response(payload, status: int = 200) -> requests.Response:
     if payload is not None:
         r._content = json.dumps(payload).encode()
     return r
+
+
+# =============================================================================
+# Option chain fixtures (feature 008 — single source of contract field names)
+# =============================================================================
+
+
+def build_contract(
+    kind: str,
+    strike: float,
+    *,
+    delta: float | None = None,
+    expiration_date: str | None = None,
+    **overrides,
+) -> dict:
+    """Build a provider option-contract dict (schwabdev ``option_chains`` shape).
+
+    *kind* is ``"CALL"`` or ``"PUT"``.  All source fields from research R6 are
+    present with plausible defaults; *overrides* replaces any of them
+    (pass ``field=None`` to simulate a missing field for FR-007 tests).
+    """
+    base_delta = 0.5 if kind == "CALL" else -0.5
+    contract = {
+        "putCall": kind,
+        "symbol": f"TEST  {expiration_date or '261030'}{kind[0]}{int(strike * 1000):08d}",
+        "strikePrice": float(strike),
+        "bid": round(10.0 + strike % 7, 2),
+        "ask": round(10.2 + strike % 7, 2),
+        "last": round(10.1 + strike % 7, 2),
+        "mark": round(10.1 + strike % 7, 2),
+        "markChange": round(0.1 + strike % 3, 2),
+        "markPercentChange": round(0.5 + strike % 4, 2),
+        "highPrice": round(11.0 + strike % 7, 2),
+        "lowPrice": round(9.0 + strike % 7, 2),
+        "openPrice": round(10.0 + strike % 7, 2),
+        "closePrice": round(10.0 + strike % 7, 2),
+        "totalVolume": int(100 + strike % 900),
+        "openInterest": int(500 + strike % 4000),
+        "volatility": round(0.2105 + (strike % 5) / 100, 4),
+        "delta": round(base_delta - (strike % 3) / 100, 4),
+        "gamma": round(0.0310 + (strike % 2) / 1000, 4),
+        "theta": round(-0.0840 - (strike % 3) / 1000, 4),
+        "vega": round(0.0620 + (strike % 2) / 1000, 4),
+        "rho": round(-0.0118 - (strike % 2) / 1000, 4),
+        "theoreticalOptionValue": round(10.1 + strike % 7, 2),
+        "timeValue": round(2.5 + strike % 3, 2),
+        "multiplier": 100,
+        "tradeTime": 1792854000000,
+        "deliverableNote": None,
+    }
+    if delta is not None:
+        contract["delta"] = float(delta)
+    contract.update(overrides)
+    return contract
+
+
+def build_expiration_map(
+    expiration_date: str,
+    kind: str,
+    strikes: list[float],
+    *,
+    deltas: list[float] | None = None,
+    missing_strikes: list[float] | None = None,
+    overrides: dict | None = None,
+) -> dict:
+    """Build one ``callExpDateMap``/``putExpDateMap`` entry.
+
+    Returns ``{expiration_date: {key: contract}}``.  *deltas* (same length as
+    *strikes*) sets per-strike deltas.  *missing_strikes* are omitted entirely
+    (a whole contract missing from the map).  *overrides* applies to every
+    contract of the map.
+    """
+    contracts: dict[str, dict] = {}
+    missing = set(missing_strikes or [])
+    for i, strike in enumerate(strikes):
+        if strike in missing:
+            continue
+        delta = deltas[i] if deltas is not None else None
+        key = f"{expiration_date}:{'XX'}:{int(strike * 1000):08d}:{kind}"
+        contracts[key] = build_contract(
+            kind,
+            strike,
+            delta=delta,
+            expiration_date=expiration_date,
+            **(overrides or {}),
+        )
+    return {expiration_date: contracts}
+
+
+def build_chain_payload(
+    call_map: dict | None = None,
+    put_map: dict | None = None,
+    *,
+    symbol: str = "TEST",
+    underlying_price: float | None = 251.31,
+    is_delayed: bool = False,
+    **overrides,
+) -> dict:
+    """Build a provider ``option_chains`` payload (research R1 shape).
+
+    *call_map* / *put_map* are outputs of :func:`build_expiration_map`
+    (multiple maps can be merged with ``{**a, **b}``).  Pass ``None`` (default)
+    to simulate an entirely absent map; pass ``{}`` for an empty one.
+    """
+    payload = {
+        "symbol": symbol,
+        "status": "SUCCESS",
+        "isDelayed": is_delayed,
+        "underlyingPrice": underlying_price,
+        "callExpDateMap": call_map,
+        "putExpDateMap": put_map,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def chain_expiry_date(days_ahead: int, today=None) -> str:
+    """ISO date *days_ahead* calendar days from *today* (default today)."""
+    base = today or date.today()
+    return (base + timedelta(days=days_ahead)).isoformat()

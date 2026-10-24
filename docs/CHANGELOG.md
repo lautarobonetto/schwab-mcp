@@ -6,6 +6,72 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.6.0] - 2026-10-24
+
+Feature 008 — **Extracción de cadena de opciones con filtros**
+(spec: `specs/008-extract-option-chain/`).
+
+### Added
+
+- **Tool `get_option_chain`** (tercera tool MCP, solo lectura): extrae la
+  cadena de opciones de un subyacente en **una sola invocación** (sin
+  paginación, FR-011), con filtros acotadores opcionales: `max_strikes`
+  (default 50, por lado del dinero y por vencimiento), `option_type`
+  (`both|calls|puts`, default `both`), `delta_target` (ventana de hasta 5
+  strikes por tipo alrededor del contrato con |delta| más cercana;
+  independiente por tipo y no reducida por `max_strikes`), `dte_max`
+  (default: tope vigente 60 días) y `extended` (payload crudo del
+  proveedor bajo `provider`).
+- **Esquema columnar compacto**: por fila de strike, cada pierna como array
+  posicional con orden fijo de 23 columnas declarado en `contract_fields`
+  (todas las griegas + valores técnicos); campo ausente → `null` explícito
+  (FR-006/FR-007); redondeo determinista 2 decimales (precios) / 4
+  (griegas e IV); `trade_time` ISO-8601 UTC.
+- **Estados estructurados** (FR-009): `ok`/`chain_retrieved`,
+  `no_options_listed`, `no_expirations_in_range` (tope vigente en `detail`
+  y eco `filters` con `dte_max_effective`); validación de filtros **antes**
+  de cualquier upcall con mensajes accionables (FR-008); `ChainDataError`
+  ante un vencimiento entero sin datos — error sin cadena parcial (FR-013).
+- **Selección determinista** (data-model §3): ventana simétrica de strikes
+  alrededor del ATM (≤ 2×`max_strikes` filas por vencimiento, ATM incluido,
+  empate al strike más bajo); ventana por delta = anchor ± 2 contiguos por
+  tipo (≤ 5); DTE en días de calendario con post-filtro de bordes;
+  expansión interna de `strikeCount` (`max(límite, 100)` con
+  `delta_target`, un solo re-fetch a 200 cuando el objetivo no queda
+  acotado).
+- **Presupuestos medibles** (Principio V): ≤ **110.000 tokens** con
+  defaults y < **6.000** con `delta_target` para el fixture
+  representativo (~12 vencimientos × 100 filas); latencia ≤ 5 s p95.
+  **Ajuste registrado**: la medición real del formato (23 columnas por
+  pierna, ~80–88 tokens por fila con ambas piernas) da ~95–106k / ~4,5–5k
+  — por encima de los 75k/3k de SC-002 — y el contenido de la respuesta
+  está fijado por FR-002/FR-006; los presupuestos se ajustaron por
+  decisión del usuario con justificación en
+  `specs/008-extract-option-chain/plan.md` (Complexity Tracking) y
+  `docs/tools.md`.
+- Auditoría: eventos `options_chain_query_{start,success,failure}` en la
+  taxonomía de `log.py`.
+
+### Fixed (hallazgos live 2026-10-24, con tests de regresión)
+
+- Claves de `*ExpDateMap` con sufijo (`2026-10-23:-1`) normalizadas a
+  `YYYY-MM-DD` (el parseo anterior fallaba en vivo).
+- Entradas de vencimiento como listas indexadas por strike
+  (`{"737.0": [contract]}`) parseadas además de la forma dict.
+- HTTP 400 del proveedor para símbolos sin opciones (`ZZZZZZ`) mapeado al
+  estado estructurado `no_options_listed` en vez de error de transporte.
+
+### Validación
+
+- Suite completa: **975 tests**, 0 skipped, 0 failed (baseline pre-feature:
+  842).
+- Gates del quickstart: unit 93, integración 30, performance 5.
+- Validación live S1–S4 contra el proveedor real (token vigente): **24/24
+  checks**, incl. SC-005 (ventanas por tipo con delta, una invocación por
+  escenario). S1 SPY defaults: 1,4 s / ~67k tokens. Nota live: SPY con 16
+  vencimientos ≤60 DTE produce ~7,5k tokens con `delta_target` + ambos
+  tipos (el presupuesto <6.000 aplica al fixture de 12 vencimientos).
+
 ## [0.5.1] - 2026-10-24
 
 Bug fix — **`get_transaction_history` curaba todo trade como `CURRENCY_USD`**

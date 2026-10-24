@@ -21,6 +21,9 @@ ALLOWED_EVENTS = frozenset({
     "transactions_query_start",
     "transactions_query_success",
     "transactions_query_failure",
+    "options_chain_query_start",
+    "options_chain_query_success",
+    "options_chain_query_failure",
 })
 
 _ALLOWED_OUTCOMES = {
@@ -36,6 +39,18 @@ _ALLOWED_OUTCOMES = {
     "transactions_query_start": {"initiated"},
     "transactions_query_success": {"ok", "partial_failure"},
     "transactions_query_failure": {"transient", "reauth", "validation"},
+    "options_chain_query_start": {"initiated"},
+    "options_chain_query_success": {
+        "ok",
+        "no_options_listed",
+        "no_expirations_in_range",
+    },
+    "options_chain_query_failure": {
+        "transient",
+        "reauth",
+        "validation",
+        "error",
+    },
 }
 
 

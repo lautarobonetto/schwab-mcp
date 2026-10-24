@@ -183,6 +183,43 @@ def run_serve() -> None:
         ),
     )
 
+    # Register the get_option_chain tool (008-extract-option-chain).
+    from schwab_mcp.options_chain import (
+        get_option_chain_tool as _get_option_chain,
+    )
+
+    def _get_option_chain_wrapper(
+        symbol: str,
+        max_strikes: int = 50,
+        option_type: str = "both",
+        delta_target: float | None = None,
+        dte_max: int | None = None,
+        extended: bool = False,
+    ) -> object:
+        return _get_option_chain(
+            client,
+            symbol=symbol,
+            max_strikes=max_strikes,
+            option_type=option_type,
+            delta_target=delta_target,
+            dte_max=dte_max,
+            extended=extended,
+        )
+
+    _get_option_chain_wrapper.__name__ = "get_option_chain"
+    _get_option_chain_wrapper.__qualname__ = "get_option_chain"
+    mcp.add_tool(
+        _get_option_chain_wrapper,
+        name="get_option_chain",
+        description=(
+            "Extract the option chain of an underlying with bounding "
+            "filters (strikes per side, option type, target delta, max DTE). "
+            "Returns the full curated chain in one invocation with all "
+            "greeks and technical values; use extended=true for full "
+            "provider passthrough."
+        ),
+    )
+
     # Run the stdio transport — this call blocks until the server exits.
     try:
         asyncio.run(mcp.run_stdio_async())
