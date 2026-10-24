@@ -46,6 +46,19 @@ probablemente comenzó **antes** del periodo analizado. Proceder así:
 6. Re-analizar el periodo con el contexto completo, de modo que la cadena
    tenga sentido de punta a punta antes de concluir.
 
+## Fuentes de datos de mercado (MCP)
+
+Al analizar el portfolio, repartir las consultas según la fuente:
+
+| Necesidad | MCP |
+|-----------|-----|
+| Posiciones, transacciones, option chains | `schwab` |
+| Calendario de earnings, dividendos (ex-date, record date, pago), balances y estados financieros, ratios | `fmp` (remote, configurado en `~/.config/opencode/opencode.json`) |
+
+- Schwab **no** expone earnings calendar, dividendos ni fundamentals: esas consultas van siempre por FMP.
+- Las fechas de earnings de FMP son **estimaciones**; si el dato es crítico, confirmar contra el IR de la empresa.
+- La API key de FMP vive solo en el config global de OpenCode; jamás en logs, outputs ni git (credential safety).
+
 ## Flujo de trabajo
 
 Spec Kit: `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` →
