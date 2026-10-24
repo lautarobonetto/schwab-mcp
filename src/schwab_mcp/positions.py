@@ -7,7 +7,6 @@ MCP tool of the server.
 
 from __future__ import annotations
 
-import hashlib
 import time
 from datetime import datetime, timezone
 from enum import Enum
@@ -21,6 +20,7 @@ from schwab_mcp.errors import (
     TokenStoreCorruptedError,
 )
 from schwab_mcp.log import auth_event
+from schwab_mcp.provider import response_json
 
 
 class InstrumentType(str, Enum):
@@ -172,9 +172,71 @@ class PositionsResult(BaseModel):
 # =============================================================================
 
 
-def _hash_account(account_number: str) -> str:
-    """Produce an opaque hash from a raw Schwab account number."""
-    return hashlib.sha256(account_number.encode()).hexdigest()[:8]
+def _parse_occ_option_symbol(symbol: str) -> tuple[float | None, str | None]:
+    """Extract ``(strike, ISO expiry)`` from an OCC option symbol.
+
+    The real ``instrument`` objects for options carry ``putCall`` and
+    ``underlyingSymbol`` but not ``strikePrice``/``expirationDate`` (found
+    live 2026-10-24) — strike and expiry are encoded in the standard OCC
+    symbol (e.g. ``AMD   261120P00090000`` → strike 90.0, expiry
+    2026-11-20).  Parsing is right-anchored: the last 15 characters are
+    always ``YYMMDD + C/P + strike×1000`` (8 digits), regardless of how
+    the root is padded.
+    """
+    tail = (symbol or "")[-15:]
+    if len(tail) < 15 or tail[6] not in "CP":
+        return None, None
+    yymmdd, strike_millis = tail[:6], tail[7:]
+    if not (yymmdd.isdigit() and strike_millis.isdigit()):
+        return None, None
+    strike = int(strike_millis) / 1000.0
+    expiry = f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
+    return strike, expiry
+
+
+def _normalize_positions_payload(raw: Any, hash_by_number: dict) -> dict:
+    """Normalize the provider payload into the legacy ``accountDetails`` form.
+
+    The real bulk endpoint returns a top-level **list** of
+    ``{"aggregatedBalance", "securitiesAccount": {...}}`` elements (found
+    live 2026-10-23); the orchestration historically assumed a
+    ``{"accountDetails": [...]}`` dict.  This function accepts both shapes
+    and attaches the provider's opaque ``accountHash`` — resolved from
+    ``linked_accounts()`` by matching ``accountNumber`` — to each entry.
+    Accounts with no resolvable hash carry none: the orchestration reports
+    them as explicit per-account failures (never silently dropped, never
+    locally hashed).
+    """
+    if isinstance(raw, list):
+        entries = []
+        for element in raw:
+            if not isinstance(element, dict):
+                continue
+            sa = element.get("securitiesAccount")
+            if isinstance(sa, dict):
+                entries.append({
+                    "accountNumber": sa.get("accountNumber", ""),
+                    "positions": sa.get("positions", []),
+                })
+    elif isinstance(raw, dict):
+        entries = list(raw.get("accountDetails", []))
+    else:
+        entries = []
+
+    normalized = []
+    for entry in entries:
+        number = entry.get("accountNumber", "")
+        item = {
+            "accountNumber": number,
+            "positions": entry.get("positions", []),
+        }
+        if "error" in entry:
+            item["error"] = entry["error"]
+        resolved = hash_by_number.get(number)
+        if resolved:
+            item["accountHash"] = resolved
+        normalized.append(item)
+    return {"accountDetails": normalized}
 
 
 def _compute_unrealized_pl(
@@ -385,7 +447,13 @@ def get_open_positions(
     auth_event("positions_query_start", "initiated", detail=mode)
 
     try:
-        payload = client.account_details_all(fields="positions")
+        # Two upcalls: the opaque account identifiers come from
+        # ``linked_accounts()`` (``hashValue``, matched by ``accountNumber``)
+        # and the positions from the bulk endpoint.  Both return SDK
+        # ``Response`` objects — ``response_json`` unwraps and classifies
+        # non-2xx statuses (bug positions-response-unwrap).
+        listing = response_json(client.linked_accounts())
+        raw = response_json(client.account_details_all(fields="positions"))
     except ConnectivityError:
         auth_event(
             "positions_query_failure",
@@ -426,11 +494,34 @@ def get_open_positions(
             retrieved_at=retrieved_at,
         )
 
+    # Resolve the provider's opaque account hashes by accountNumber and
+    # normalize the real payload shape (bug positions-response-unwrap).
+    hash_by_number: dict = {}
+    if isinstance(listing, list):
+        for item in listing:
+            if isinstance(item, dict) and item.get("accountNumber"):
+                hash_by_number[item["accountNumber"]] = item.get("hashValue", "")
+
+    provider_payload = _normalize_positions_payload(raw, hash_by_number)
+
+    # Accounts without a resolvable provider hash are explicit per-account
+    # failures — never silently dropped, never locally hashed.
+    matched: list = []
+    unmatched: list = []
+    for entry in provider_payload["accountDetails"]:
+        (matched if entry.get("accountHash") else unmatched).append(entry)
+
+    accounts_failed_list = [
+        {"account_hash": f"unmatched-account-{i}", "detail": "provider_error"}
+        for i, _ in enumerate(unmatched, start=1)
+    ]
+    working = {"accountDetails": matched}
+
     # Check for per-account failures (FR-010 / D7)
-    accounts_failed_list = _detect_account_failures(payload, retrieved_at)
+    accounts_failed_list += _detect_account_failures(working, retrieved_at)
     if accounts_failed_list:
         # Some or all accounts failed — isolate per-account
-        successful_accounts = _extract_successful_accounts(payload)
+        successful_accounts = _extract_successful_accounts(working)
         if successful_accounts:
             # Partial failure: some worked, some didn't
             internal_payload = _transform_provider_payload(
@@ -455,7 +546,7 @@ def get_open_positions(
             )
     else:
         # All accounts succeeded — normal mapping path
-        internal_payload = _transform_provider_payload(payload, retrieved_at, extended=extended)
+        internal_payload = _transform_provider_payload(working, retrieved_at, extended=extended)
         pos_result = map_provider_positions(internal_payload, extended=extended)
 
     # Override timestamps
@@ -492,8 +583,7 @@ def _detect_account_failures(provider_payload: dict, retrieved_at: str) -> list[
 
     for account in account_details:
         if "error" in account:
-            account_number = account.get("accountNumber", "")
-            account_hash = _hash_account(account_number)
+            account_hash = account.get("accountHash") or "unmatched-account"
             # Classify the error detail
             err = account["error"]
             error_detail = "transient" if isinstance(err, dict) and err.get("transient") else "provider_error"
@@ -536,7 +626,10 @@ def _transform_provider_payload(
 
     for account in account_details:
         account_number = account.get("accountNumber", "")
-        account_hash = _hash_account(account_number)
+        # The opaque identifier is the provider's ``accountHash`` (resolved
+        # from ``linked_accounts()`` by ``accountNumber`` in the
+        # orchestration) — never a locally computed hash of the raw number.
+        account_hash = account.get("accountHash", "")
         positions_raw: list[dict] = account.get("positions", [])
         positions_out: list[dict] = []
 
@@ -557,13 +650,24 @@ def _transform_provider_payload(
                 ),
             }
 
-            # Map option-specific fields from instrument sub-object
+            # Map option-specific fields from instrument sub-object.
+            # Real OPTION instruments carry ``putCall``/``underlyingSymbol``
+            # but NOT ``strikePrice``/``expirationDate`` — those are encoded
+            # in the OCC symbol (found live 2026-10-24).
             asset_type = instrument.get("assetType", "")
             if asset_type == "OPTION":
                 entry["underlyingSymbol"] = instrument.get("underlyingSymbol", "")
                 entry["putCall"] = instrument.get("putCall", "CALL")
-                entry["strikePrice"] = instrument.get("strikePrice", 0.0)
-                entry["expirationDate"] = instrument.get("expirationDate", "")
+                strike = instrument.get("strikePrice")
+                expiry = instrument.get("expirationDate")
+                if strike is None:
+                    strike, parsed_expiry = _parse_occ_option_symbol(
+                        instrument.get("symbol", "")
+                    )
+                    if expiry is None:
+                        expiry = parsed_expiry
+                entry["strikePrice"] = strike
+                entry["expirationDate"] = expiry or ""
 
             # Passthrough extended fields at the position level
             if extended:

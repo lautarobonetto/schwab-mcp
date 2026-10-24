@@ -181,7 +181,7 @@ específico. Ninguna se cuelga ni muestra tracebacks.
 
 | Síntoma | Causa | Solución |
 |---------|-------|---------|
-| `ValueError: callback_url cannot be a path (endswith "/")` | `SCHWAB_CALLBACK_URL` con barra final | Quitá la barra en el env y re-sourceá |
+| `ValueError: callback_url cannot be a path (endswith "/")` | Versión vieja del paquete: la barra final ya se normaliza en `load_config()` | Actualizá el código; con la versión actual ambas formas funcionan |
 | `invalid_grant: RedirectURI does not match` | Mezclaste URLs de corridas distintas | Corrida fresca: abrí la URL impresa por **esa** corrida y pegá el redirect en **esa misma** terminal |
 | `4001 Session rejected` en el login | Cookies viejas del browser (con app `Ready for Use`) | Ventana incógnito con la URL impresa, o limpiá cookies de `schwab.com` |
 | El CLI usa valores que ya cambiaste en el env | La shell conserva las variables viejas | `set -a; source ~/.schwab-mcp/env; set +a` y verificá con `echo` |

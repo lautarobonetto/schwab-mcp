@@ -97,8 +97,14 @@ def load_config() -> Config:
     _log.register_secret(app_secret)
 
     # --- Optional: callback URL --------------------------------------------
+    # Normalized: the Schwab developer portal may REQUIRE a trailing slash
+    # in the registered callback (the app goes to error state without it),
+    # but schwabdev rejects callbacks ending in ``/``.  Strip trailing
+    # slashes here so both spellings work (found live 2026-10-24).
     raw_callback = os.environ.get(_ENV_CALLBACK_URL)
-    callback_url = raw_callback.strip() if raw_callback else _DEFAULT_CALLBACK_URL
+    callback_url = (
+        (raw_callback.strip() if raw_callback else _DEFAULT_CALLBACK_URL)
+    ).rstrip("/") or _DEFAULT_CALLBACK_URL
 
     # --- Optional: token DB path -------------------------------------------
     raw_token_db = os.environ.get(_ENV_TOKEN_DB)

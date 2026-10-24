@@ -58,6 +58,25 @@ class FakePositionsClient:
             raise self._error
         return self._payload
 
+    def linked_accounts(self):
+        """Fake account listing with provider-style opaque hashes.
+
+        Derives the ``accountNumber`` list from the configured payload so
+        the orchestration's cross-reference resolves; hashes are opaque and
+        never equal the raw numbers.
+        """
+        numbers: list[str] = []
+        if isinstance(self._payload, dict):
+            for a in self._payload.get("accountDetails", []):
+                n = a.get("accountNumber", "")
+                if n:
+                    numbers.append(n)
+        from tests.unit.helpers import build_response
+
+        return build_response(
+            [{"hashValue": f"hash-{n}", "accountNumber": n} for n in numbers]
+        )
+
 
 # =============================================================================
 # Payload fixtures

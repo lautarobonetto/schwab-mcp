@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.3.0 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.4.0 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -13,12 +13,12 @@ El proyecto expone **dos superficies**, con roles distintos:
 
 | Superficie | Cómo se invoca | Estado en esta versión |
 |------------|----------------|------------------------|
-| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **1 tool registrada** (`get_open_positions`) |
+| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **2 tools registradas** (`get_open_positions` y `get_transaction_history`) |
 | CLI one-shot | El agente corre `schwab-mcp <comando>` por shell | **Superficie principal del agente** hoy |
 
-La herramienta ``get_open_positions`` (primera tool MCP registrada)
-está disponible a través del servidor ``serve``, complementando los
-comandos one-shot descritos abajo.
+Las herramientas ``get_open_positions`` y ``get_transaction_history``
+(primera y segunda tool MCP registradas) están disponibles a través del
+servidor ``serve``, complementando los comandos one-shot descritos abajo.
 
 Garantías transversales de **todos** los comandos agent-facing:
 
@@ -69,6 +69,11 @@ Exactamente un objeto ``PositionsResult`` por invocación. Campos:
 | ``detail`` | enum cerrado | ``data_received`` · ``no_positions`` · ``account_failed`` · ``provider_unreachable`` · ``reauth_needed`` · ``store_absent`` · ``store_corrupted`` |
 | ``retrieved_at`` | string ISO-8601 UTC | Momento de recuperación del payload del proveedor |
 
+El ``account_hash`` es el ``hashValue`` opaco del proveedor (de
+``linked_accounts()``, cruzado por ``accountNumber``) — el mismo
+identificador que expone ``get_transaction_history``, consistente en toda
+la superficie MCP.
+
 El esquema completo de ``PositionEntry`` y las reglas de validación
 cruzada están en el
 [data model](../specs/003-list-open-positions/data-model.md).
@@ -99,6 +104,197 @@ cruzada están en el
   [`specs/003-list-open-positions/data-model.md`](../specs/003-list-open-positions/data-model.md)
 - Eventos de auditoría:
   [`specs/003-list-open-positions/contracts/events.md`](../specs/003-list-open-positions/contracts/events.md)
+
+---
+
+## `get_transaction_history` (segunda tool MCP)
+
+Segunda herramienta MCP registrada por el servidor ``serve`` (feature
+``006-transaction-history``). Recupera el historial de transacciones de
+todas las cuentas vinculadas en un rango de fechas, con resultados
+estructurados y paginación determinista.
+
+### Invocación
+
+```json
+{
+  "name": "get_transaction_history",
+  "arguments": {
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30"
+  }
+}
+```
+
+Con filtro por instrumento y paginación:
+
+```json
+{
+  "name": "get_transaction_history",
+  "arguments": {
+    "start_date": "2026-01-01",
+    "end_date": "2026-09-30",
+    "symbol": "AAPL",
+    "offset": 50
+  }
+}
+```
+
+### Argumentos (input schema)
+
+| Campo | Tipo | Default | Semántica |
+|-------|------|---------|-----------|
+| `start_date` | string | obligatorio | Fecha inicio del rango, `YYYY-MM-DD`. Borde **inclusivo**, interpretado en America/New_York. |
+| `end_date` | string | obligatorio | Fecha fin del rango, `YYYY-MM-DD`. Borde **inclusivo**; no puede ser futura. |
+| `symbol` | string \| ausente | sin filtro | Si está presente: solo movimientos de ese instrumento. Se valida contra el proveedor antes de consultar el historial. |
+| `extended` | bool | `false` | `false` (default): set curado compacto. `true`: cada movimiento agrega `extended` con el passthrough del proveedor (type original, descripción completa, fees, netAmount, transferItems…). |
+| `offset` | int | `0` | Continuación de paginación: repetir la misma consulta con el `next_offset` recibido. |
+
+Ventana máxima: **1 año** (366 días calendario) entre `start_date` y
+`end_date`. Rangos mayores → error de validación que indica el máximo
+y sugiere dividir la consulta.
+
+### Output schema
+
+Exactamente un objeto `TransactionsResult` por invocación:
+
+| Campo | Tipo | Presencia | Semántica |
+|-------|------|-----------|-----------|
+| `outcome` | enum cerrado | siempre | `ok` · `partial_failure` · `transient_failure` · `reauth_required` |
+| `detail` | enum cerrado | siempre | `history_retrieved` · `no_movements` · `no_movements_for_instrument` · `account_failed` · `provider_unreachable` · `reauth_needed` |
+| `retryable` | bool | siempre | `true` solo cuando `outcome == "transient_failure"` |
+| `retrieved_at` | string ISO-8601 UTC | siempre | Momento de recuperación del payload del proveedor |
+| `total_count` | int | `outcome=ok` | Total de movimientos del rango completo (todas las páginas) |
+| `movements` | array | `outcome=ok` | Lista de entradas `MovementEntry` (ver data-model); `[]` válido solo con `no_movements`/`no_movements_for_instrument` |
+| `returned` | int | `outcome=ok` | Cantidad de movimientos en esta página (≤ 50) |
+| `has_more` | bool | `outcome=ok` | `true` si quedan movimientos por entregar |
+| `next_offset` | int \| ausente | solo `has_more=true` | Offset para la solicitar la siguiente página |
+| `accounts_failed` | array \| ausente | solo `partial_failure` | `[{"account_hash": str, "detail": "provider_error"|"transient"}]` |
+| `offset_echo` | int | `outcome=ok` | Offset efectivo aplicado a esta página |
+
+Ejemplo de respuesta (`ok`, primera página):
+
+```json
+{
+  "outcome": "ok",
+  "detail": "history_retrieved",
+  "retryable": false,
+  "retrieved_at": "2026-10-23T14:00:00+00:00",
+  "total_count": 137,
+  "returned": 50,
+  "has_more": true,
+  "next_offset": 50,
+  "offset_echo": 0,
+  "movements": [
+    {
+      "account_hash": "AB12CD34EF56GH78",
+      "occurred_at": "2026-09-03T15:45:00-04:00",
+      "category": "trade",
+      "description": "You SOLD 10 shares of AAPL",
+      "amount": -2318.9,
+      "currency": "USD",
+      "symbol": "AAPL",
+      "instrument_type": "EQUITY"
+    }
+  ]
+}
+```
+
+Cada `MovementEntry` contiene:
+
+| Campo | Tipo | Presencia | Semántica |
+|-------|------|-----------|-----------|
+| `account_hash` | string | siempre | Identificador opaco de la cuenta (nunca número de cuenta) |
+| `occurred_at` | string ISO-8601 | siempre | Fecha/hora del movimiento (timezone del proveedor) |
+| `category` | enum cerrado | siempre | Categoría normalizada: `trade` · `transfer` · `dividend_or_interest` · `adjustment` · `other` |
+| `description` | string | siempre | Descripción legible, **truncada a 80 caracteres** en default (texto completo en `extended`) |
+| `amount` | float | siempre | Efecto monetario principal (signo del proveedor, no reinterpretado) |
+| `currency` | string | siempre | Moneda del movimiento (default `"USD"`) |
+| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado |
+| `instrument_type` | string \| ausente | solo si hay instrumento | Tipo de activo (`EQUITY`, `ETF`, `OPTION`, …) |
+| `extended` | object \| ausente | solo `extended=true` | Passthrough del proveedor: type original, descripción completa, fees, netAmount, transferItems… |
+
+### Semántica de outcomes y `detail`
+
+| Outcome | `detail` | Significado para el agente |
+|---------|----------|---------------------------|
+| `ok` | `history_retrieved` | Historial recuperado; paginar con `next_offset` si `has_more` |
+| `ok` | `no_movements` | Rango válido, sin movimientos en ninguna cuenta |
+| `ok` | `no_movements_for_instrument` | Símbolo válido, sin movimientos de ese instrumento en el rango |
+| `partial_failure` | `account_failed` | Algunas cuentas fallaron (ver `accounts_failed`); datos parciales en `movements` |
+| `transient_failure` | `provider_unreachable` | Fallo transitorio en el primer intento; reintentar con backoff |
+| `reauth_required` | `reauth_needed` | Mismo playbook: no reintentar, notificar al dueño |
+
+### Errores de validación (error estándar de tool MCP, sin upcalls)
+
+| Condición | Mensaje esperado |
+|-----------|------------------|
+| `start_date`/`end_date` ausente o mal formada | Indica el formato esperado `YYYY-MM-DD` |
+| `end_date < start_date` | Nombra ambas fechas |
+| Rango > 366 días | Indica el máximo de 1 año y sugiere dividir en consultas consecutivas |
+| `end_date` futura | Indica que la fecha fin no puede ser futura |
+| `symbol` presente pero inexistente/typo | `instrument_not_found`, nombra el símbolo |
+| `offset < 0` | Indica el valor mínimo |
+
+Errores por cuenta (`accounts_failed[].detail`): `provider_error` ·
+`transient` (mismo vocabulario de `get_open_positions`).
+
+### Paginación
+
+- **Límite**: máximo **50** movimientos por página.
+- **Orden**: `occurred_at` ascendente; desempate por `account_hash` y `activityId`.
+- **Continuación**: cuando `has_more=true`, repetir la misma consulta con `offset=<next_offset>`.
+- **Invariante**: recorrer con `next_offset` entrega la unión completa sin duplicados ni omisiones, sobre el snapshot del historial al momento de la consulta.
+- **Caveat de stateless**: la tool es stateless; si llegan movimientos nuevos entre páginas, el offset puede desplazarse. Paginar pronto.
+
+### Garantías
+
+- **Read-only**: no coloca órdenes ni mueve dinero.
+- **Sin secretos**: ningún token/credencial en la salida; `account_hash` opaco.
+- **Presupuesto**: ≤ 5 s p95 de latencia; ≤ 16 KB página default (50 movimientos); ≤ 64 KB extended.
+- **Sin truncado silencioso**: tope upstream de 3000 manejado con bisección y deduplicación.
+- **Sin reintentos internos** ante fallo transitorio (FR-010): el agente decide.
+- **Determinista**: salida reproducible para la misma consulta sin cambios subyacentes.
+
+### Caveat operacional
+
+El proveedor puede devolver `200 OK + []` para `/transactions` cuando
+la app registrada o la cuenta carecen de permiso de lectura de
+transacciones (p. ej. cuenta sin thinkorswim habilitado). Desde la
+respuesta es indistinguible de un vacío genuino: la tool reporta
+`ok / no_movements`. Diagnóstico sugerido: si la cuenta muestra
+actividad en schwab.com y varios rangos amplios devuelven
+`no_movements` persistentemente, la causa probable es el permiso de
+la app/cuenta — no datos.
+
+Adicionalmente, algunos movimientos referencian identificadores
+internos del proveedor (p. ej. la pata de caja `CURRENCY_USD` en
+conversiones de divisa) que el endpoint `instruments` de búsqueda por
+símbolo **no resuelve**: filtrar por ellos produce
+`instrument_not_found` aunque el símbolo aparezca en los movimientos.
+Es el comportamiento esperado — el filtro se valida contra el índice
+de instrumentos negociables, no contra los identificadores internos
+de las patas de cada movimiento.
+
+Sobre el filtro `symbol` y las opciones: el parámetro matchea el
+símbolo registrado en cada transacción, y las transacciones de
+opciones se registran con su **símbolo OCC** (p. ej.
+`NOK   261218P00011000`), no con el subyacente. Filtrar por el
+subyacente (`NOK`) devuelve `no_movements_for_instrument` aunque haya
+habido operaciones de opciones sobre ese subyacente, y filtrar por el
+símbolo OCC exacto es rechazado por el endpoint con HTTP 400
+(`Invalid Symbol`). Para encontrar toda la actividad de opciones de
+un subyacente, consultar el rango **sin filtro** y filtrar del lado
+del agente (por el prefijo del símbolo o el `underlyingSymbol`).
+
+### Referencia
+
+- Contrato completo:
+  [`specs/006-transaction-history/contracts/mcp-tools.md`](../specs/006-transaction-history/contracts/mcp-tools.md)
+- Data model:
+  [`specs/006-transaction-history/data-model.md`](../specs/006-transaction-history/data-model.md)
+- Eventos de auditoría:
+  [`specs/006-transaction-history/contracts/events.md`](../specs/006-transaction-history/contracts/events.md)
 
 ---
 
@@ -236,10 +432,10 @@ de fallo de autenticación. No consume cuota del proveedor.
 
 ## `schwab-mcp serve` (servidor MCP)
 
-Servidor MCP de tipo **stdio**, headless. Registra 1 tool
-(``get_open_positions``) y es el proceso que un cliente MCP (opencode,
-Claude
-Desktop, etc.) lanza y con el que habla por stdio.
+Servidor MCP de tipo **stdio**, headless. Registra 2 tools
+(``get_open_positions`` y ``get_transaction_history``) y es el proceso
+que un cliente MCP (opencode, Claude Desktop, etc.) lanza y con el que
+habla por stdio.
 
 Al arrancar:
 
@@ -303,4 +499,10 @@ Interpretación:
   [specs/002-automated-token-renewal/contracts/events.md](../specs/002-automated-token-renewal/contracts/events.md)
 - Modelo de datos (enums cerrados):
   [specs/002-automated-token-renewal/data-model.md](../specs/002-automated-token-renewal/data-model.md)
+- Contrato de la tool MCP ``get_transaction_history``:
+  [specs/006-transaction-history/contracts/mcp-tools.md](../specs/006-transaction-history/contracts/mcp-tools.md)
+- Data model de transacciones:
+  [specs/006-transaction-history/data-model.md](../specs/006-transaction-history/data-model.md)
+- Eventos de auditoría de transacciones:
+  [specs/006-transaction-history/contracts/events.md](../specs/006-transaction-history/contracts/events.md)
 - [Guía de uso](./uso.md) · [Guía de instalación](./instalacion.md)

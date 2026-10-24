@@ -176,3 +176,25 @@ estado; la tool nunca inicia flujos de autorización (el guard hook de
 `serve` lo garantiza).
 
 **Rationale**: Reuse del mecanismo probado de 002; sin locks nuevos (KISS).
+
+---
+
+## Corrección post-implementación (2026-10-24)
+
+La forma de payload asumida en esta investigación
+(`{"accountDetails": [{"accountNumber", "positions"}]}` con respuestas ya
+parseadas) **no coincide con el contrato real del SDK/endpoint**:
+
+- `Client.account_details_all()` devuelve `requests.Response` (el body
+  debe unwrapearse con `.json()` — ver `schwab_mcp.provider.response_json`,
+  introducido por el fix de la feature 006).
+- El payload real es una **lista top-level** de
+  `{"aggregatedBalance", "securitiesAccount": {...}}`.
+- El `securitiesAccount` real no trae el hash de cuenta: el identificador
+  opaco es el `hashValue` de `linked_accounts()`, cruzado por
+  `accountNumber`.
+- Los instrumentos OPTION reales no traen `strikePrice` ni
+  `expirationDate`: se derivan del símbolo OCC.
+
+Detectado y corregido en el bug `positions-response-unwrap`
+(`.specify/bugs/positions-response-unwrap/`).

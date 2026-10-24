@@ -31,6 +31,19 @@ class FakePositionsClient:
             time.sleep(self._delay)
         return self._payload
 
+    def linked_accounts(self):
+        """Fake account listing with provider-style opaque hashes."""
+        numbers = [
+            a.get("accountNumber", "")
+            for a in self._payload.get("accountDetails", [])
+            if a.get("accountNumber")
+        ]
+        from tests.unit.helpers import build_response
+
+        return build_response(
+            [{"hashValue": f"hash-{n}", "accountNumber": n} for n in numbers]
+        )
+
 
 def _build_fifty_positions_payload(with_extended: bool = False) -> dict:
     """Build a payload with 50 positions across 2 accounts."""

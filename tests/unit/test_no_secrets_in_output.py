@@ -853,3 +853,400 @@ class TestPositionsToolNoSecrets:
         assert "12345678" not in json_text, (
             "Raw account number leaked in partial_failure JSON"
         )
+
+
+# ===================================================================
+# Transactions tool — zero secrets in all outcome forms (FR-006, SC-003)
+# ===================================================================
+
+
+class TestTransactionsToolNoSecrets:
+    """All outcome forms of ``TransactionsResult`` produce JSON that
+    contains zero registered secrets and no raw account numbers (FR-006,
+    SC-003).
+
+    Covers:
+    - ``ok`` with movements (detail ``history_retrieved``)
+    - ``ok`` with no movements (detail ``no_movements``)
+    - ``ok`` with no movements for a filtered instrument
+    - ``partial_failure`` with ``accounts_failed``
+    - ``transient_failure`` (``retryable=True``)
+    - ``reauth_required``
+    - Extended movements with provider passthrough data
+    """
+
+    # ------------------------------------------------------------------
+    # Secrets sweep for each outcome form
+    # ------------------------------------------------------------------
+
+    def test_ok_with_movements_has_no_secrets(self) -> None:
+        """``ok`` outcome with movements → JSON contains zero secrets."""
+        from schwab_mcp.transactions import MovementEntry, TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = MovementEntry(
+            account_hash="hash123",
+            occurred_at="2026-10-20T14:03:11+00:00",
+            category="trade",
+            description="Bought 100 SPY @ 580.25",
+            amount=58025.0,
+            currency="USD",
+            symbol="SPY",
+            instrument_type="EQUITY",
+        )
+        result = TransactionsResult(
+            outcome="ok",
+            detail="history_retrieved",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            total_count=1,
+            movements=[entry],
+            returned=1,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into ok-with-movements JSON"
+            )
+
+    def test_ok_empty_has_no_secrets(self) -> None:
+        """``ok`` outcome with empty movements (no_movements) → JSON zero secrets."""
+        from schwab_mcp.transactions import TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = TransactionsResult(
+            outcome="ok",
+            detail="no_movements",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            total_count=0,
+            movements=[],
+            returned=0,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into ok-empty JSON"
+            )
+
+    def test_ok_empty_for_instrument_has_no_secrets(self) -> None:
+        """``ok`` outcome with no_movements_for_instrument → JSON zero secrets."""
+        from schwab_mcp.transactions import TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = TransactionsResult(
+            outcome="ok",
+            detail="no_movements_for_instrument",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            total_count=0,
+            movements=[],
+            returned=0,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into ok-empty-for-instrument JSON"
+            )
+
+    def test_partial_failure_has_no_secrets(self) -> None:
+        """``partial_failure`` with ``accounts_failed`` → JSON zero secrets."""
+        from schwab_mcp.transactions import MovementEntry, TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = MovementEntry(
+            account_hash="hash123",
+            occurred_at="2026-10-20T14:03:11+00:00",
+            category="trade",
+            description="Bought 100 SPY @ 580.25",
+            amount=58025.0,
+            currency="USD",
+            symbol="SPY",
+            instrument_type="EQUITY",
+        )
+        result = TransactionsResult(
+            outcome="partial_failure",
+            detail="account_failed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            movements=[entry],
+            total_count=1,
+            returned=1,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+            accounts_failed=[
+                {"account_hash": "hash789", "detail": "provider_error"},
+            ],
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into partial_failure JSON"
+            )
+
+    def test_transient_failure_has_no_secrets(self) -> None:
+        """``transient_failure`` → JSON contains zero secrets."""
+        from schwab_mcp.transactions import TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = TransactionsResult(
+            outcome="transient_failure",
+            detail="provider_unreachable",
+            retryable=True,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into transient_failure JSON"
+            )
+
+    def test_reauth_required_has_no_secrets(self) -> None:
+        """``reauth_required`` → JSON contains zero secrets."""
+        from schwab_mcp.transactions import TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        result = TransactionsResult(
+            outcome="reauth_required",
+            detail="reauth_needed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into reauth_required JSON"
+            )
+
+    def test_ok_with_extended_movements_has_no_secrets(self) -> None:
+        """``ok`` outcome with extended movements (provider passthrough) →
+        JSON contains zero secrets even with provider data in fields."""
+        from schwab_mcp.transactions import MovementEntry, TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = MovementEntry(
+            account_hash="hash123",
+            occurred_at="2026-10-20T14:03:11+00:00",
+            category="trade",
+            description="Bought 100 SPY @ 580.25",
+            amount=58025.0,
+            currency="USD",
+            symbol="SPY",
+            instrument_type="EQUITY",
+            extended={
+                "type": "TRADE",
+                "description": "Bought 100 SPY @ 580.25",
+                "fees": 1.50,
+                "commission": 0.50,
+                "netAmount": 58025.0,
+                "settlementDate": "2026-10-22",
+                "transferItems": None,
+                "activityId": "98765",
+            },
+        )
+        result = TransactionsResult(
+            outcome="ok",
+            detail="history_retrieved",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            total_count=1,
+            movements=[entry],
+            returned=1,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        for secret in SECRET_MATERIAL:
+            assert secret not in json_text, (
+                f"Secret {secret!r} leaked into extended-movements JSON"
+            )
+
+    # ------------------------------------------------------------------
+    # Raw account number sweep (FR-006)
+    # ------------------------------------------------------------------
+
+    def test_ok_with_movements_no_raw_account_number(self) -> None:
+        """The ``ok`` outcome JSON contains no raw account number
+        (only opaque ``account_hash``)."""
+        from schwab_mcp.transactions import MovementEntry, TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = MovementEntry(
+            account_hash="hash123",
+            occurred_at="2026-10-20T14:03:11+00:00",
+            category="trade",
+            description="Test",
+            amount=100.0,
+            currency="USD",
+        )
+        result = TransactionsResult(
+            outcome="ok",
+            detail="history_retrieved",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            total_count=1,
+            movements=[entry],
+            returned=1,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        assert "10000001" not in json_text, (
+            "Raw account number leaked in ok-with-movements JSON"
+        )
+        assert "12345678" not in json_text, (
+            "Raw account number leaked in ok-with-movements JSON"
+        )
+
+    def test_partial_failure_no_raw_account_number(self) -> None:
+        """The ``partial_failure`` JSON contains no raw account number."""
+        from schwab_mcp.transactions import MovementEntry, TransactionsResult
+
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+        entry = MovementEntry(
+            account_hash="hash123",
+            occurred_at="2026-10-20T14:03:11+00:00",
+            category="trade",
+            description="Test",
+            amount=100.0,
+            currency="USD",
+        )
+        result = TransactionsResult(
+            outcome="partial_failure",
+            detail="account_failed",
+            retryable=False,
+            retrieved_at="2026-10-20T14:03:11+00:00",
+            movements=[entry],
+            total_count=1,
+            returned=1,
+            has_more=False,
+            next_offset=None,
+            offset_echo=0,
+            accounts_failed=[
+                {"account_hash": "hash789", "detail": "provider_error"},
+            ],
+        )
+        json_text = result.model_dump_json(exclude_none=True)
+        assert "10000001" not in json_text, (
+            "Raw account number leaked in partial_failure JSON"
+        )
+        assert "12345678" not in json_text, (
+            "Raw account number leaked in partial_failure JSON"
+        )
+
+
+# ===================================================================
+# Transactions events — zero secrets in auth_event output (FR-006, SC-003)
+# ===================================================================
+
+
+class TestTransactionsEventLinesNoSecrets:
+    """``auth_event()`` lines for transaction query events
+    (``transactions_query_start``, ``transactions_query_success``,
+    ``transactions_query_failure``) must have all secret material redacted
+    from the ``detail`` field before the line reaches stderr (FR-006,
+    SC-003).
+
+    The redaction is defence-in-depth: event consumers (parsers, logs)
+    should never encounter raw credentials even if the caller accidentally
+    includes them.
+    """
+
+    def test_transactions_query_start_event_redacts_secrets(self, capsys):
+        """``transactions_query_start`` event with secret-bearing ``detail``
+        text gets secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_REFRESH_TOKEN)
+
+        auth_event(
+            "transactions_query_start", "initiated",
+            detail=f"token={FAKE_ACCESS_TOKEN}",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_ACCESS_TOKEN not in captured.err, (
+            "Access token leaked in transactions_query_start stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
+        )
+
+    def test_transactions_query_success_event_redacts_secrets(self, capsys):
+        """``transactions_query_success`` event with secret-bearing ``detail``
+        text gets secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_REFRESH_TOKEN)
+
+        auth_event(
+            "transactions_query_success", "ok",
+            detail=f"refreshed token={FAKE_REFRESH_TOKEN}",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_REFRESH_TOKEN not in captured.err, (
+            "Refresh token leaked in transactions_query_success stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
+        )
+
+    def test_transactions_query_failure_event_redacts_secrets(self, capsys):
+        """``transactions_query_failure`` event with secret-bearing ``detail``
+        text gets secrets replaced with ``***``."""
+        clear_secrets()
+        register_secret(FAKE_ACCESS_TOKEN)
+        register_secret(FAKE_AUTH_CODE)
+
+        auth_event(
+            "transactions_query_failure", "validation",
+            detail=f"auth_code={FAKE_AUTH_CODE} reason=invalid",
+        )
+        captured = capsys.readouterr()
+        assert FAKE_AUTH_CODE not in captured.err, (
+            "Auth code leaked in transactions_query_failure stderr"
+        )
+        assert "***" in captured.err, (
+            "Expected redacted output containing *** in stderr, "
+            f"got: {captured.err!r}"
+        )

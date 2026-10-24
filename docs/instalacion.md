@@ -34,10 +34,12 @@ En [developer.schwab.com](https://developer.schwab.com) → **My Apps**:
    `4001 Session rejected`).
 2. Agregá **ambas APIs** a la app: *Accounts and Trading Production* y
    *Market Data Production*.
-3. Callback URL: `https://127.0.0.1` **sin barra final**. La librería
-   `schwabdev` rechaza callbacks que terminan en `/`. Si el portal muestra
-   la URL con barra, ignorá el detalle visual: en tu configuración local
-   va siempre sin barra.
+3. Callback URL: `https://127.0.0.1` — **registrá en el portal la forma
+   que el portal exija** (algunas apps requieren la barra final
+   `https://127.0.0.1/`; sin ella el portal marca la app en error). No
+   importa la forma: `load_config()` normaliza el valor local quitando
+   barras finales, porque la librería `schwabdev` rechaza callbacks que
+   terminan en `/`.
 4. Copiá el **App Key** y el **App Secret** de esta misma app. Si tenés
    varias apps en el portal, verificá que key y secret pertenezcan a la
    misma: mezclarlas produce fallos difíciles de diagnosticar.
@@ -62,7 +64,7 @@ chmod 600 ~/.schwab-mcp/env
 |----------|-------------|---------|-------------|
 | `SCHWAB_APP_KEY` | sí | — | App key (client ID) de tu app de Schwab |
 | `SCHWAB_APP_SECRET` | sí | — | App secret, de la **misma** app |
-| `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback registrado en el portal. Sin barra final, `https` |
+| `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback registrado en el portal. `https` obligatorio; la barra final es opcional (se normaliza automáticamente) |
 | `SCHWAB_TOKEN_DB` | no | `~/.schwab-mcp/tokens.db` | Ruta del store de tokens (SQLite). Fuera del repo; permisos forzados a `0o600` |
 
 ## 4. Cargar las credenciales en el shell
@@ -81,7 +83,7 @@ set -a; source ~/.schwab-mcp/env; set +a
 >
 > ```sh
 > echo "$SCHWAB_APP_KEY"       # la key correcta
-> echo "$SCHWAB_CALLBACK_URL"  # sin barra final
+> echo "$SCHWAB_CALLBACK_URL"  # la misma URL registrada en el portal (con o sin barra final)
 > ```
 
 ## 5. Verificar la instalación

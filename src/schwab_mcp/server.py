@@ -150,6 +150,39 @@ def run_serve() -> None:
         ),
     )
 
+    # Register the get_transaction_history tool (006-transaction-history).
+    from schwab_mcp.transactions import (
+        get_transaction_history_tool as _get_transaction_history,
+    )
+
+    def _get_transaction_history_wrapper(
+        start_date: str,
+        end_date: str,
+        symbol: str | None = None,
+        extended: bool = False,
+        offset: int = 0,
+    ) -> object:
+        return _get_transaction_history(
+            client,
+            start_date=start_date,
+            end_date=end_date,
+            symbol=symbol,
+            extended=extended,
+            offset=offset,
+        )
+
+    _get_transaction_history_wrapper.__name__ = "get_transaction_history"
+    _get_transaction_history_wrapper.__qualname__ = "get_transaction_history"
+    mcp.add_tool(
+        _get_transaction_history_wrapper,
+        name="get_transaction_history",
+        description=(
+            "Retrieve transaction history for a date range across all "
+            "linked accounts. Returns structured movements with outcome "
+            "classification; use extended=true for full provider passthrough."
+        ),
+    )
+
     # Run the stdio transport — this call blocks until the server exits.
     try:
         asyncio.run(mcp.run_stdio_async())

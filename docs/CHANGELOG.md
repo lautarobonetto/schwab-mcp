@@ -6,6 +6,155 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.4.0] - 2026-10-23
+
+Feature 006 — **Historial completo de movimientos** (spec:
+`specs/006-transaction-history/`).
+
+### Added
+
+- **`get_transaction_history` tool MCP**: recupera el historial completo de
+  movimientos de todas las cuentas vinculadas en un rango de fechas (1
+  `linked_accounts` + 1 `transactions` por cuenta, con la lista completa de
+  los 15 tipos upstream separados por comas). Cada movimiento se reporta con
+  una categoría normalizada de un **enum cerrado**: `trade`, `transfer`,
+  `dividend_or_interest`, `adjustment`, `other` (fallback para tipos
+  desconocidos); `interest`, `dividend`, `fee` y `corporate_action` quedan
+  reservados sin mapeo upstream en v1 (el proveedor reporta dividendos e
+  intereses como un único tipo indistinguible).
+- **Input schema y filtros**: `start_date` / `end_date` obligatorios
+  (`YYYY-MM-DD`, bordes inclusivos, interpretados en America/New_York) con
+  validación previa a toda upcall: rango ≤ 1 año (366 días), `end_date` ≥
+  `start_date`, `end_date` no futura, `offset` ≥ 0; `symbol` opcional para
+  filtrar por instrumento (validado contra el proveedor vía
+  `instruments(..., "symbol-search")` — símbolo inexistente → error
+  `instrument_not_found`, no vacío ambiguo); `extended: bool = false` para el
+  detalle extendido on-demand.
+- **Tope upstream de 3000 movimientos**: split por bisección del rango con
+  deduplicación por `(account_hash, activityId)` — sin truncado silencioso
+  ni duplicados.
+- **Output estructurado (`TransactionsResult`)**: contiene `outcome`
+  (`ok` · `partial_failure` · `transient_failure` · `reauth_required`),
+  `detail` (`history_retrieved` · `no_movements` ·
+  `no_movements_for_instrument` · `account_failed` · `provider_unreachable`
+  · `reauth_needed`), `retryable`, `retrieved_at`, `total_count`,
+  `movements` (array de `MovementEntry`), `returned`, `has_more`,
+  `next_offset`/`offset_echo` (paginación explícita de 50 movimientos por
+  página, orden cronológico ascendente con desempate por `account_hash` y
+  `activityId`), y `accounts_failed` (solo en `partial_failure`, con
+  `provider_error`/`transient` por cuenta — resultado parcial explícito,
+  nunca cuentas descartadas en silencio).
+- **Cada movimiento (`MovementEntry`)**: `account_hash` (opaco, nunca número
+  de cuenta), `occurred_at` (ISO-8601), `category` (enum cerrado),
+  `description` (truncada a 80 caracteres en el modo default), `amount`,
+  `currency` (default `"USD"`, sin conversión), y opcionalmente `symbol`,
+  `instrument_type` y `extended` (solo con `extended=true`: type original
+  del proveedor, descripción completa, `fees`, `commissions`, `netAmount`,
+  `settlementDate`, `transferItems`, `activityId`).
+- **Sin reintentos internos** ante fallo transitorio: se reporta
+  `transient_failure/provider_unreachable` con `retryable=true` al primer
+  intento, para que el agente aplique su propio playbook.
+- **Error mapping**: consistente con el resto del servidor
+  (`ConnectivityError`→`transient_failure`,
+  `ReauthorizationRequiredError`→`reauth_required`, errores por
+  cuenta→`partial_failure`).
+- **Auditoría**: evento `transactions_query_start` → terminal
+  `transactions_query_success` (ok/partial) o
+  `transactions_query_failure` (transient/reauth/validation) en stderr,
+  sin secretos y sin texto del proveedor sin redactar.
+- **Documentación**: contrato de tool MCP, data model, eventos de auditoría
+  y checklist en `specs/006-transaction-history/`. Sección completa de la
+  tool en `docs/tools.md`.
+
+### Fixed
+
+- **Manejo de respuestas del SDK en vivo** (hallado en prueba manual contra
+  la API real 2026-10-23): el cliente `schwabdev` devuelve
+  `requests.Response` — la orquestación unwrapea el body JSON vía
+  `schwab_mcp.provider.response_json` (única fuente de verdad, reutilizable
+  por otras tools) y clasifica estados HTTP (401/403 → reauth, 5xx/408/429 →
+  transitorio, resto de 4xx → `provider_error` por cuenta). Sin esto, toda
+  invocación en vivo fallaba con `AttributeError` pese a la suite verde
+  (los fakes devolvían dicts).
+- **Forma real del payload**: `linked_accounts()` usa `hashValue` (no
+  `accountHash`); `transactions` responde una lista JSON en el nivel
+  superior (no `{"transactions": [...]}`); el timestamp vive en `time` (no
+  `transactionDate`); el instrumento viaja dentro de `transferItems[].instrument`
+  con `assetType`. El mapper acepta ambas formas.
+- **Fechas para el proveedor**: la API rechaza `YYYY-MM-DD` crudo
+  (`'2026-09-01' is not a valid value for startDate`); se envían datetimes
+  ISO-8601 acotados en America/New_York (medianoche a 23:59:59 locales,
+  offset DST real) — bordes inclusivos según spec.
+- **Proyección de búsqueda de instrumentos**: el validador del SDK exige
+  `symbol-search` (minúsculas); `SYMBOL_SEARCH` era rechazado.
+- **Errores accionables en el canal MCP**: los errores de validación y
+  `instrument_not_found` se convierten en `ToolError` en el límite de la
+  tool (`get_transaction_history_tool`), de modo que el mensaje accionable
+  llega al agente en lugar del texto genérico del SDK (FR-009d, SC-005).
+- **`SCHWAB_CALLBACK_URL` con barra final** (hallado en vivo 2026-10-24):
+  el portal de desarrollo de Schwab puede **exigir** la barra final en el
+  callback registrado (sin ella la app pasa a estado de error y no se
+  puede enviar a aprobar), mientras que `schwabdev` rechaza callbacks que
+  terminan en `/`. `load_config()` ahora normaliza el valor (quita barras
+  finales), así que ambas formas funcionan sin tocar el registro de la
+  app.
+- **`get_open_positions` en vivo** (bug `positions-response-unwrap`,
+  2026-10-24): la tool fallaba en toda invocación real por tres razones
+  encadenadas — el SDK devuelve `requests.Response` sin parsear (ahora
+  unwrapeado con `schwab_mcp.provider.response_json`, la misma fuente de
+  verdad que 006), el payload real es una lista top-level de
+  `{aggregatedBalance, securitiesAccount}` (no el dict `accountDetails`
+  asumido), y el identificador de cuenta ahora es el `hashValue` opaco del
+  proveedor cruzado por `accountNumber` con `linked_accounts()` (se retiró
+  el hash local SHA-256 truncado del número de cuenta). **Breaking**: los
+  valores de `account_hash` cambian — ahora son consistentes con
+  `get_transaction_history`. Además, los instrumentos OPTION reales no
+  traen `strikePrice`/`expirationDate`: se derivan del símbolo OCC.
+
+### Changed
+
+- `src/schwab_mcp/server.py`: registro de `get_transaction_history` vía
+  `mcp.add_tool(...)` con wrapper que oculta `client` del input schema MCP.
+- `src/schwab_mcp/transactions.py` (nuevo): modelos Pydantic
+  (`MovementEntry`, `TransactionsResult` con reglas de validación cruzada
+  del data model), enums (`MovementCategory`, `ProviderTransactionType`),
+  mapeo `map_provider_transactions`, orquestación por cuenta, validación de
+  la consulta, validación de símbolo, bisección ante el tope de 3000 y
+  paginación por offset.
+- `src/schwab_mcp/log.py`: agrega los eventos de transacciones
+  (`transactions_query_start`, `transactions_query_success`,
+  `transactions_query_failure`) al vocabulario de auditoría.
+- `docs/tools.md`: documenta `get_transaction_history`, filtros,
+  categorías, paginación, garantías y error mapping.
+- `docs/CHANGELOG.md`: este registro.
+
+### Validación
+
+- Test de registro: la tool aparece en `list_tools()` con nombre exacto.
+- Test de resultado vacío: `movements: []` con `outcome: ok` y
+  `detail: no_movements`.
+- Test de categorías: cada uno de los 15 tipos upstream mapea a la
+  categoría del enum cerrado correcta; tipos no reconocidos→`other`.
+- Test de paginación: orden cronológico, páginas de 50, walk completo
+  (offset 0→50→100) sin duplicados ni omisiones; `total_count` estable.
+- Test de bisección: respuestas en el tope de 3000 disparan split del
+  rango; fusión sin duplicados ni omisiones.
+- Test de validación de fechas: rango > 366 días, `end < start`, fechas
+  mal formadas o futuras, `offset < 0` rechazados antes de toda upcall.
+- Test de filtro por símbolo: solo movimientos del símbolo solicitado;
+  símbolo inexistente→`instrument_not_found`; sin `symbol`, cero upcalls
+  de `instruments`.
+- Test de errores: cada clase de error upstream produce el `outcome`
+  correcto (transitorio al primer intento, re-auth, fallo parcial por
+  cuenta).
+- Test de eventos: exactamente un `transactions_query_start` + un terminal
+  por invocación.
+- Test de no-secretos: ni el resultado ni los eventos contienen tokens,
+  app keys ni números de cuenta.
+- Presupuestos: latencia p95 ≤ 5 s y página default ≤ 16 KB (extended
+  ≤ 64 KB) en `tests/performance/test_transactions_budgets.py`.
+- Suite completa verde (735 tests, 0 skipped).
+
 ## [0.3.0] - 2026-10-20
 
 Feature 003 — **Primera tool MCP: listar posiciones abiertas** (spec:
@@ -194,6 +343,7 @@ Feature 001 — **Capa de acceso OAuth a Schwab** (spec:
   spec en `specs/001-schwab-oauth-access/`.
 - Suite de tests (unit/integration/performance) con gates TDD.
 
+[0.4.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lautarobonetto/schwab-mcp/releases/tag/v0.1.0

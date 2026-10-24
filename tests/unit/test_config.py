@@ -92,6 +92,18 @@ class TestOptionalVars:
         config = load_config()
         assert config["callback_url"] == "https://custom.example.com"
 
+    def test_callback_url_trailing_slash_normalized(self, monkeypatch):
+        """The Schwab developer portal may REQUIRE a trailing slash in the
+        registered callback URL (app goes to error state without it), while
+        schwabdev rejects callbacks ending in ``/``.  ``load_config()``
+        normalizes the value so both spellings work (found live
+        2026-10-24)."""
+        monkeypatch.setenv("SCHWAB_APP_KEY", "some_key")
+        monkeypatch.setenv("SCHWAB_APP_SECRET", "some_secret")
+        monkeypatch.setenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1/")
+        config = load_config()
+        assert config["callback_url"] == "https://127.0.0.1"
+
     def test_token_db_default_when_unset(self, monkeypatch):
         """SCHWAB_TOKEN_DB defaults to ~/.schwab-mcp/tokens.db, EXPANDED to
         an absolute path (FR-012: the default must be usable by the
