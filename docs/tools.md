@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.4.0 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.5.1 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -146,7 +146,7 @@ Con filtro por instrumento y paginación:
 |-------|------|---------|-----------|
 | `start_date` | string | obligatorio | Fecha inicio del rango, `YYYY-MM-DD`. Borde **inclusivo**, interpretado en America/New_York. |
 | `end_date` | string | obligatorio | Fecha fin del rango, `YYYY-MM-DD`. Borde **inclusivo**; no puede ser futura. |
-| `symbol` | string \| ausente | sin filtro | Si está presente: solo movimientos de ese instrumento. Se valida contra el proveedor antes de consultar el historial. |
+| `symbol` | string \| ausente | sin filtro | Si está presente: solo movimientos que **involucran** a ese instrumento (data-model §2): el símbolo registrado coincide exactamente (M1), o es una opción cuyo subyacente (root OCC) coincide (M2), o es un símbolo OCC completo (M3). Comparación **insensible a mayúsculas**. Validación dual: si el directorio no resuelve el filtro, se consulta igual y solo se reporta `instrument_not_found` si ningún movimiento matchea (FR-003). **Ya no se envía upstream** (research R1) — el filtro se aplica localmente. |
 | `extended` | bool | `false` | `false` (default): set curado compacto. `true`: cada movimiento agrega `extended` con el passthrough del proveedor (type original, descripción completa, fees, netAmount, transferItems…). |
 | `offset` | int | `0` | Continuación de paginación: repetir la misma consulta con el `next_offset` recibido. |
 
@@ -195,6 +195,17 @@ Ejemplo de respuesta (`ok`, primera página):
       "currency": "USD",
       "symbol": "AAPL",
       "instrument_type": "EQUITY"
+    },
+    {
+      "account_hash": "AB12CD34EF56GH78",
+      "occurred_at": "2026-09-03T15:46:00-04:00",
+      "category": "trade",
+      "description": "Option trade",
+      "amount": -50.0,
+      "currency": "USD",
+      "symbol": "NOK   261218P00011000",
+      "instrument_type": "OPTION",
+      "underlying_symbol": "NOK"
     }
   ]
 }
@@ -210,8 +221,9 @@ Cada `MovementEntry` contiene:
 | `description` | string | siempre | Descripción legible, **truncada a 80 caracteres** en default (texto completo en `extended`) |
 | `amount` | float | siempre | Efecto monetario principal (signo del proveedor, no reinterpretado) |
 | `currency` | string | siempre | Moneda del movimiento (default `"USD"`) |
-| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado |
+| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado. En trades con patas de efectivo/comisiones (`transferItems`), se cura el **primer instrumento no-divisa** (las patas `CURRENCY_USD` van primero en el payload real); `CURRENCY_USD` solo si el movimiento es genuinamente de efectivo |
 | `instrument_type` | string \| ausente | solo si hay instrumento | Tipo de activo (`EQUITY`, `ETF`, `OPTION`, …) |
+| `underlying_symbol` | string \| ausente | solo movimientos de opción con OCC identificable | Subyacente de la opción: root del símbolo OCC sin padding (p. ej. `"NOK"` desde `"NOK   261218P00011000"`). Ausente para no-opciones. |
 | `extended` | object \| ausente | solo `extended=true` | Passthrough del proveedor: type original, descripción completa, fees, netAmount, transferItems… |
 
 ### Semántica de outcomes y `detail`
@@ -233,7 +245,8 @@ Cada `MovementEntry` contiene:
 | `end_date < start_date` | Nombra ambas fechas |
 | Rango > 366 días | Indica el máximo de 1 año y sugiere dividir en consultas consecutivas |
 | `end_date` futura | Indica que la fecha fin no puede ser futura |
-| `symbol` presente pero inexistente/typo | `instrument_not_found`, nombra el símbolo |
+| `symbol` presente, directorio no resuelve + 0 movimientos matchean | `instrument_not_found`, nombra el símbolo (validación dual) |
+| `symbol` presente, directorio no resuelve + ≥1 movimiento matchea | `ok` con los movimientos que matchean (CURRENCY_USD, OCC no registrado) |
 | `offset < 0` | Indica el valor mínimo |
 
 Errores por cuenta (`accounts_failed[].detail`): `provider_error` ·
@@ -251,7 +264,7 @@ Errores por cuenta (`accounts_failed[].detail`): `provider_error` ·
 
 - **Read-only**: no coloca órdenes ni mueve dinero.
 - **Sin secretos**: ningún token/credencial en la salida; `account_hash` opaco.
-- **Presupuesto**: ≤ 5 s p95 de latencia; ≤ 16 KB página default (50 movimientos); ≤ 64 KB extended.
+- **Presupuesto**: ≤ 5 s p95 de latencia; ≤ 16 KB página default (50 movimientos, **incluyendo** `underlying_symbol` — caso peor verificado: 50 opciones); ≤ 64 KB extended.
 - **Sin truncado silencioso**: tope upstream de 3000 manejado con bisección y deduplicación.
 - **Sin reintentos internos** ante fallo transitorio (FR-010): el agente decide.
 - **Determinista**: salida reproducible para la misma consulta sin cambios subyacentes.
@@ -267,32 +280,25 @@ actividad en schwab.com y varios rangos amplios devuelven
 `no_movements` persistentemente, la causa probable es el permiso de
 la app/cuenta — no datos.
 
-Adicionalmente, algunos movimientos referencian identificadores
-internos del proveedor (p. ej. la pata de caja `CURRENCY_USD` en
-conversiones de divisa) que el endpoint `instruments` de búsqueda por
-símbolo **no resuelve**: filtrar por ellos produce
-`instrument_not_found` aunque el símbolo aparezca en los movimientos.
-Es el comportamiento esperado — el filtro se valida contra el índice
-de instrumentos negociables, no contra los identificadores internos
-de las patas de cada movimiento.
-
-Sobre el filtro `symbol` y las opciones: el parámetro matchea el
-símbolo registrado en cada transacción, y las transacciones de
-opciones se registran con su **símbolo OCC** (p. ej.
-`NOK   261218P00011000`), no con el subyacente. Filtrar por el
-subyacente (`NOK`) devuelve `no_movements_for_instrument` aunque haya
-habido operaciones de opciones sobre ese subyacente, y filtrar por el
-símbolo OCC exacto es rechazado por el endpoint con HTTP 400
-(`Invalid Symbol`). Para encontrar toda la actividad de opciones de
-un subyacente, consultar el rango **sin filtro** y filtrar del lado
-del agente (por el prefijo del símbolo o el `underlyingSymbol`).
+A partir de la versión 0.5.0, la validación del filtro es **dual**
+(FR-003): si el directorio de instrumentos no reconoce el símbolo
+(p. ej. `CURRENCY_USD`, un símbolo OCC completo, un subyacente sin
+entrada en el índice), la tool procede con el barrido igual y solo
+reporta `instrument_not_found` si ningún movimiento matchea el filtro
+en ninguna de las tres formas (M1 símbolo registrado, M2 root de opción,
+M3 OCC completo). Esto reemplaza el comportamiento anterior donde
+identificadores internos como `CURRENCY_USD` producían
+`instrument_not_found` a pesar de tener movimientos.
 
 ### Referencia
 
-- Contrato completo:
+- Contrato completo (base 006):
   [`specs/006-transaction-history/contracts/mcp-tools.md`](../specs/006-transaction-history/contracts/mcp-tools.md)
+- Extensiones filtro/underlying_symbol (007):
+  [`specs/007-underlying-symbol-filter/contracts/mcp-tools.md`](../specs/007-underlying-symbol-filter/contracts/mcp-tools.md)
 - Data model:
-  [`specs/006-transaction-history/data-model.md`](../specs/006-transaction-history/data-model.md)
+  [`specs/006-transaction-history/data-model.md`](../specs/006-transaction-history/data-model.md) ·
+  [`specs/007-underlying-symbol-filter/data-model.md`](../specs/007-underlying-symbol-filter/data-model.md)
 - Eventos de auditoría:
   [`specs/006-transaction-history/contracts/events.md`](../specs/006-transaction-history/contracts/events.md)
 

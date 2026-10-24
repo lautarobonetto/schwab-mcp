@@ -8,6 +8,7 @@ mapping function.
 from __future__ import annotations
 
 import contextlib
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
@@ -35,37 +36,104 @@ class InstrumentNotFoundError(Exception):
 
 
 # =============================================================================
-# Symbol validation
+# Underlying-aware matching (007)
 # =============================================================================
 
+# OCC option symbol pattern: the last 15 characters are always
+# YYMMDD + C/P + 8-digit strike×1000 (right-anchored).
+_OCC_TAIL_RE = re.compile(r"^\d{6}[CP]\d{8}$")
 
-def validate_symbol(client, symbol: str) -> None:
-    """Validate that *symbol* exists via the provider's instruments API.
 
-    Calls ``client.instruments(symbols=[symbol], projection="symbol-search")``
-    (research D6).  If the provider returns an empty result the symbol is
-    considered unknown and ``InstrumentNotFoundError`` is raised with a
-    message naming the symbol.
+def _option_root(symbol: str | None) -> str | None:
+    """Derive the underlying root from an OCC option symbol (data-model §1-R1).
+
+    The root is the portion before the last 15 characters (which encode
+    expiry date, call/put indicator, and strike price × 1000), with padding
+    stripped.  Returns ``None`` when the symbol is not a recognisable OCC
+    option symbol (too short, wrong pattern, or ``None`` input).
 
     Parameters
     ----------
-    client:
-        A schwabdev Client instance (or fake) with an ``instruments()`` method.
     symbol:
-        The symbol to validate (e.g. ``"AAPL"``).
+        The instrument symbol (e.g. ``"AMD   261120P00630000"``).
 
-    Raises
-    ------
-    InstrumentNotFoundError
-        If the provider does not recognise the symbol.
+    Returns
+    -------
+    str | None
+        The underlying root (e.g. ``"AMD"``) or ``None``.
     """
-    result = response_json(
-        client.instruments(symbols=[symbol], projection="symbol-search")
-    )
-    # The provider returns a non-empty list for known symbols and an
-    # empty dict/list for unknown symbols.
-    if not result or (isinstance(result, list) and len(result) == 0):
-        raise InstrumentNotFoundError(f"Instrument not found: {symbol}")
+    if not symbol:
+        return None
+    tail = symbol[-15:]
+    if len(tail) < 15:
+        return None
+    if not _OCC_TAIL_RE.match(tail):
+        return None
+    return symbol[:-15].strip()
+
+
+def _is_currency_instrument(instrument: dict) -> bool:
+    """Check whether an instrument dict is a currency (cash/fee) leg.
+
+    The real provider carries cash and fee legs inside ``transferItems``
+    as ``symbol=CURRENCY_USD`` / ``assetType=CURRENCY`` (found live
+    2026-10-24).  When the asset type is absent, fall back to the
+    ``CURRENCY_*`` symbol prefix so such legs are still classified as
+    currency.
+    """
+    asset_type = instrument.get("assetType") or instrument.get("instrumentType")
+    if asset_type:
+        return str(asset_type).upper() == "CURRENCY"
+    symbol = instrument.get("symbol") or ""
+    return symbol.upper().startswith("CURRENCY_")
+
+
+def movement_involves_filter(
+    symbol: str | None,
+    instrument_type: str | None,
+    filter_symbol: str | None,
+) -> bool:
+    """Check whether a movement involves a given filter instrument (data-model §2).
+
+    Matching is case-insensitive, exact (no fuzzy/substring), across three forms:
+
+    - **M1**: The movement's registered symbol equals the filter.
+    - **M2**: The movement is an option whose OCC root equals the filter.
+    - **M3**: Same as M1 (exact symbol match), listed separately in the
+      data model because the provider historically rejected full OCC symbols.
+
+    Parameters
+    ----------
+    symbol:
+        The movement's instrument symbol (may be ``None``).
+    instrument_type:
+        The movement's instrument type (e.g. ``"OPTION"``, ``"EQUITY"``).
+    filter_symbol:
+        The filter value to match against.
+
+    Returns
+    -------
+    bool
+        ``True`` if the movement involves the filter instrument.
+    """
+    if not filter_symbol:
+        return False
+    if not symbol:
+        return False
+
+    filter_upper = filter_symbol.upper()
+
+    # M1 / M3: exact symbol match (case-insensitive)
+    if symbol.upper() == filter_upper:
+        return True
+
+    # M2: option root match
+    if instrument_type and instrument_type.upper() == "OPTION":
+        root = _option_root(symbol)
+        if root is not None and root.upper() == filter_upper:
+            return True
+
+    return False
 
 
 # =============================================================================
@@ -520,6 +588,11 @@ class MovementEntry(BaseModel):
     instrument_type: Optional[str] = Field(
         None, description="Asset type (only when instrument applies)"
     )
+    underlying_symbol: Optional[str] = Field(
+        None,
+        description="Underlying symbol for option instruments "
+        "(only when instrument_type is OPTION and OCC symbol is identifiable)",
+    )
     extended: Optional[dict] = Field(
         None, description="Extended provider passthrough fields"
     )
@@ -760,24 +833,34 @@ def map_provider_transactions(
         account_hash = tx.get("accountHash", "")
 
         # --- Instrument sub-object ---
-        # The real provider carries the instrument inside ``transferItems``
-        # (each item: {amount, cost, feeType, instrument:{symbol, assetType,
-        # ...}}); an ``instrument`` key at the top level also exists in some
-        # payloads.  Accept both (found live 2026-10-23).
+        # The real provider carries the instruments inside ``transferItems``:
+        # the fee/cash legs come FIRST — each carrying a non-None
+        # ``instrument`` with ``symbol=CURRENCY_USD`` / ``assetType=CURRENCY``
+        # — and the traded instrument comes LAST (found live 2026-10-24, bug
+        # nok-symbol-filter-miss).  A top-level ``instrument`` key also
+        # exists in some payloads.  Collect every candidate in encounter
+        # order and curate the first NON-currency one; fall back to the
+        # first candidate with a symbol so genuine cash-only movements keep
+        # ``CURRENCY_USD``.
+        candidates: list[dict] = []
+        top_instrument = tx.get("instrument")
+        if isinstance(top_instrument, dict) and top_instrument.get("symbol"):
+            candidates.append(top_instrument)
+        for item in tx.get("transferItems") or []:
+            cand = item.get("instrument") if isinstance(item, dict) else None
+            if isinstance(cand, dict) and cand.get("symbol"):
+                candidates.append(cand)
+
+        chosen = next(
+            (cand for cand in candidates if not _is_currency_instrument(cand)),
+            candidates[0] if candidates else None,
+        )
         symbol = None
         instrument_type = None
-        instrument = tx.get("instrument")
-        if not (isinstance(instrument, dict) and instrument.get("symbol")):
-            instrument = None
-            for item in tx.get("transferItems") or []:
-                cand = item.get("instrument") if isinstance(item, dict) else None
-                if isinstance(cand, dict) and cand.get("symbol"):
-                    instrument = cand
-                    break
-        if isinstance(instrument, dict):
-            symbol = instrument.get("symbol")
+        if isinstance(chosen, dict):
+            symbol = chosen.get("symbol")
             instrument_type = (
-                instrument.get("instrumentType") or instrument.get("assetType")
+                chosen.get("instrumentType") or chosen.get("assetType")
             )
 
         # --- Build MovementEntry kwargs ---
@@ -796,6 +879,11 @@ def map_provider_transactions(
             kwargs["symbol"] = symbol
         if instrument_type is not None:
             kwargs["instrument_type"] = instrument_type
+        # Underlying symbol for option movements (007, data-model §1)
+        if instrument_type is not None and instrument_type.upper() == "OPTION" and symbol is not None:
+            root = _option_root(symbol)
+            if root is not None:
+                kwargs["underlying_symbol"] = root
 
         # --- Extended passthrough ---
         if extended:
@@ -820,6 +908,34 @@ def map_provider_transactions(
 # =============================================================================
 
 
+def _symbol_resolved_in_directory(client, symbol: str) -> bool:
+    """Check whether *symbol* is known to the provider's instrument directory.
+
+    Returns ``True`` if the provider returns a non-empty result for the
+    symbol search, ``False`` otherwise.  Never raises — a failed lookup
+    (network error, empty response) is treated as "not resolved" so the
+    caller can proceed with the sweep and apply dual validation.
+
+    This is the "dual validation" lookup (FR-003/research R3): the first
+    upcall of a query with a filter, used to decide whether to emit
+    ``instrument_not_found`` or ``no_movements_for_instrument`` when
+    nothing matches.
+    """
+    try:
+        result = response_json(
+            client.instruments(symbols=[symbol], projection="symbol-search")
+        )
+        # Provider returns a non-empty list for known symbols and empty
+        # dict/list for unknown symbols.
+        return bool(result) and not (
+            isinstance(result, list) and len(result) == 0
+        )
+    except Exception:
+        # Network/transient error → treat as unresolved; the sweeping
+        # loop will handle connectivity errors per account.
+        return False
+
+
 def get_transaction_history(
     client,
     start_date: str,
@@ -834,7 +950,14 @@ def get_transaction_history(
     calling the provider's ``transactions()`` once per account with all 15
     types (research D2).  Results are mapped via ``map_provider_transactions``,
     deduplicated by ``(account_hash, activityId)``, sorted by ``occurred_at``,
-    and wrapped in a ``TransactionsResult``.
+    filtered locally when *symbol* is present (research R1 — the filter no
+    longer travels upstream), and wrapped in a ``TransactionsResult``.
+
+    Dual validation (FR-003): when *symbol* is present, one ``instruments()``
+    upcall is made to check the directory.  If the symbol is not found there
+    and no movement matches the local filter, ``InstrumentNotFoundError`` is
+    raised.  If the symbol IS found or at least one movement matches, the
+    filtered result is returned.
 
     Parameters
     ----------
@@ -851,7 +974,8 @@ def get_transaction_history(
     offset:
         Zero-based pagination offset (echoed back in ``offset_echo``).
     symbol:
-        Optional instrument symbol filter forwarded to ``transactions()``.
+        Optional instrument symbol filter — applied **locally** after
+        fetching all movements (research R1).  No longer sent upstream.
 
     Returns
     -------
@@ -875,10 +999,11 @@ def get_transaction_history(
     retrieved_at = utc_now_iso()
 
     # ------------------------------------------------------------------
-    # 2. Symbol validation (T016) — before any account upcall
+    # 2. Dual validation (FR-003) — directory lookup, no early abort
     # ------------------------------------------------------------------
+    symbol_in_directory = False
     if symbol is not None:
-        validate_symbol(client, symbol)
+        symbol_in_directory = _symbol_resolved_in_directory(client, symbol)
 
     # ------------------------------------------------------------------
     # 3. Get linked accounts (unwrapped from the SDK Response; failures
@@ -910,10 +1035,16 @@ def get_transaction_history(
 
     # No accounts → ok/no_movements
     if not accounts:
-        auth_event("transactions_query_success", "ok", detail="no_movements")
+        detail = (
+            TransactionDetail.no_movements_for_instrument
+            if symbol
+            else TransactionDetail.no_movements
+        )
+        event_detail = "no_movements_for_instrument" if symbol else "no_movements"
+        auth_event("transactions_query_success", "ok", detail=event_detail)
         return TransactionsResult(
             outcome=TransactionOutcome.ok,
-            detail=TransactionDetail.no_movements,
+            detail=detail,
             retryable=False,
             retrieved_at=retrieved_at,
             total_count=0,
@@ -948,6 +1079,7 @@ def get_transaction_history(
         try:
             # ------------------------------------------------------------------
             # 5. Query with bisection support for the 3000-txn upstream limit
+            #     NOTE: ``symbol`` is intentionally NOT sent upstream (R1).
             # ------------------------------------------------------------------
             def _query_fn(
                 acct_hash: str, start_dt: str, end_dt: str, types_str: str
@@ -961,24 +1093,12 @@ def get_transaction_history(
                         startDate=_provider_datetime(start_dt, end_of_day=False),
                         endDate=_provider_datetime(end_dt, end_of_day=True),
                         types=types_str,
-                        symbol=symbol,
                     )
-                    # Unwrap the SDK Response and classify non-2xx statuses;
-                    # inside retry_call the raised errors are wrapped in
-                    # ConnectivityError with the original as __cause__, which
-                    # the per-account handler below maps to outcomes.
                     payload = retry_call(
                         response_json, retries=0, response=response
                     )
-                    # The real provider returns a top-level JSON list of
-                    # transactions; normalize it to the mapper's envelope
-                    # (found live 2026-10-23 — dict-based fakes never caught
-                    # this).
                     if isinstance(payload, list):
                         payload = {"transactions": payload}
-                # Inject account_hash into each raw transaction so that
-                # map_provider_transactions can populate MovementEntry.account_hash
-                # (the provider payload does not always carry accountHash per tx).
                 raw_txs = payload.get("transactions", [])
                 for tx in raw_txs:
                     tx["accountHash"] = acct_hash
@@ -995,12 +1115,9 @@ def get_transaction_history(
             has_any_success = True
 
         except ConnectivityError as exc:
-            # retry_call wraps ALL exceptions in ConnectivityError;
-            # inspect __cause__ to distinguish the original error type.
             cause = exc.__cause__
 
             if isinstance(cause, (ReauthorizationRequiredError, PermissionError)):
-                # Auth failure → reauth_required globally
                 auth_event("transactions_query_failure", "reauth", detail="reauth_needed")
                 return TransactionsResult(
                     outcome=TransactionOutcome.reauth_required,
@@ -1010,9 +1127,7 @@ def get_transaction_history(
                 )
 
             if isinstance(cause, (ConnectivityError, ConnectionError)):
-                # Real connectivity / transient failure
                 if not has_any_success:
-                    # No account has succeeded yet → fail-fast
                     auth_event("transactions_query_failure", "transient", detail="provider_unreachable")
                     return TransactionsResult(
                         outcome=TransactionOutcome.transient_failure,
@@ -1020,7 +1135,6 @@ def get_transaction_history(
                         retryable=True,
                         retrieved_at=retrieved_at,
                     )
-                # Some accounts succeeded → per-account transient failure
                 failed_accounts.append(
                     TransactionAccountFailed(
                         account_hash=account_hash,
@@ -1029,7 +1143,6 @@ def get_transaction_history(
                 )
                 continue
 
-            # Generic / unexpected error → per-account provider_error
             failed_accounts.append(
                 TransactionAccountFailed(
                     account_hash=account_hash,
@@ -1039,7 +1152,7 @@ def get_transaction_history(
             continue
 
     # ------------------------------------------------------------------
-    # 6. Outcome classification
+    # 6. Sort, filter, paginate
     # ------------------------------------------------------------------
     # Sort movements by occurred_at (lexicographic order is valid for
     # ISO-8601 timestamps), with tiebreak by account_hash then activityId
@@ -1052,17 +1165,30 @@ def get_transaction_history(
         )
     )
 
-    # Pagination: compute page slice and metadata for all success paths
-    # (US3, FR-006, clarify Q4: page size 50).
     PAGE_SIZE = 50
+
+    # Apply local filter when symbol is present (R1)
+    filter_match_count: int | None = None
+    if symbol is not None:
+        filtered = [
+            m
+            for m in all_movements
+            if movement_involves_filter(m.symbol, m.instrument_type, symbol)
+        ]
+        filter_match_count = len(filtered)
+        all_movements = filtered
+
+    # Pagination over the (possibly filtered) set
     _total = len(all_movements)
     _page = all_movements[offset : offset + PAGE_SIZE]
     _returned = len(_page)
     _has_more = (offset + PAGE_SIZE) < _total
     _next_offset = offset + PAGE_SIZE if _has_more else None
 
+    # ------------------------------------------------------------------
+    # 7. Outcome classification
+    # ------------------------------------------------------------------
     if failed_accounts and not has_any_success:
-        # All accounts failed → partial_failure with no movements
         auth_event("transactions_query_success", "partial_failure", detail="account_failed")
         return TransactionsResult(
             outcome=TransactionOutcome.partial_failure,
@@ -1079,7 +1205,6 @@ def get_transaction_history(
         )
 
     if failed_accounts and has_any_success:
-        # Some accounts failed, some succeeded → partial_failure
         auth_event("transactions_query_success", "partial_failure", detail="account_failed")
         return TransactionsResult(
             outcome=TransactionOutcome.partial_failure,
@@ -1096,9 +1221,21 @@ def get_transaction_history(
         )
 
     if not all_movements:
-        # All succeeded, no movements — distinguish by symbol presence
-        detail = TransactionDetail.no_movements_for_instrument if symbol else TransactionDetail.no_movements
-        event_detail = "no_movements_for_instrument" if symbol else "no_movements"
+        # No movements after filtering (or none at all).
+        if symbol is not None and filter_match_count == 0 and not symbol_in_directory:
+            # Dual validation: nothing matched AND directory didn't resolve
+            raise InstrumentNotFoundError(f"Instrument not found: {symbol}")
+
+        detail = (
+            TransactionDetail.no_movements_for_instrument
+            if symbol is not None and filter_match_count is not None
+            else TransactionDetail.no_movements
+        )
+        event_detail = (
+            "no_movements_for_instrument"
+            if detail == TransactionDetail.no_movements_for_instrument
+            else "no_movements"
+        )
         auth_event("transactions_query_success", "ok", detail=event_detail)
         return TransactionsResult(
             outcome=TransactionOutcome.ok,
@@ -1114,8 +1251,6 @@ def get_transaction_history(
         )
 
     # All succeeded, with movements
-    # Edge case: offset past end results in an empty page (detail must
-    # be no_movements to satisfy the model validator Rule 1).
     if _returned == 0:
         _detail = TransactionDetail.no_movements
     else:

@@ -1132,9 +1132,9 @@ class TestGetTransactionHistoryEdgeCases:
         assert result.detail == TransactionDetail.history_retrieved
         assert result.total_count is not None and result.total_count >= 1
 
-    def test_symbol_forwarded_to_transactions_when_provided(self) -> None:
-        """When a ``symbol`` is provided, it MUST be forwarded as the
-        ``symbol`` parameter to ``transactions()``."""
+    def test_symbol_not_forwarded_to_transactions_when_provided(self) -> None:
+        """When a ``symbol`` is provided, it is NOT forwarded to
+        ``transactions()`` — filtering happens locally (research R1)."""
         from schwab_mcp.transactions import get_transaction_history
 
         client = FakeClient()
@@ -1149,8 +1149,8 @@ class TestGetTransactionHistoryEdgeCases:
             e for e in client.call_log if e["method"] == "transactions"
         ]
         assert len(tx_calls) == 1
-        assert tx_calls[0]["kwargs"].get("symbol") == "AAPL", (
-            "symbol must be forwarded to transactions()"
+        assert tx_calls[0]["kwargs"].get("symbol") is None, (
+            "symbol should NOT be forwarded to transactions()"
         )
 
     def test_no_symbol_by_default(self) -> None:

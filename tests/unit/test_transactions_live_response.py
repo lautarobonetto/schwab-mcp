@@ -232,6 +232,144 @@ class TestRealProviderShape:
 
 
 # =============================================================================
+# 1c. Multi-leg trade shape (found live 2026-10-24, bug nok-symbol-filter-miss)
+# =============================================================================
+
+
+def _cash_leg(amount: float) -> dict:
+    """A fee/cash transferItem as the real API sends it: the instrument is
+    NOT ``None`` — it is ``CURRENCY_USD`` / ``CURRENCY``."""
+    return {
+        "amount": amount,
+        "instrument": {
+            "symbol": "CURRENCY_USD",
+            "assetType": "CURRENCY",
+            "description": "USD currency",
+        },
+    }
+
+
+def _real_multileg_option_tx() -> dict:
+    """A real option trade as the API sends it (found live 2026-10-24):
+    four fee/cash legs come FIRST — each carrying a non-``None``
+    ``instrument`` with ``symbol=CURRENCY_USD`` / ``assetType=CURRENCY`` —
+    and the traded option leg comes LAST.  Curating the first transferItem
+    with a symbol mislabels the whole trade as ``CURRENCY_USD`` and hides
+    the instrument from the symbol filter."""
+    return {
+        "activityId": "902",
+        "type": "TRADE",
+        "time": "2026-06-05T18:59:46+0000",
+        "netAmount": -11.56,
+        "transferItems": [
+            _cash_leg(5.2),
+            _cash_leg(0.02),
+            _cash_leg(0.1),
+            _cash_leg(0.03),
+            {
+                "amount": -8,
+                "instrument": {
+                    "symbol": "NOK   260821P00013000",
+                    "assetType": "OPTION",
+                    "description": "NOKIA CORP 08/21/2026 $1.30 Put",
+                    "putCall": "PUT",
+                    "underlyingSymbol": "NOK",
+                },
+                "price": 1.44,
+                "positionEffect": "OPENING",
+            },
+        ],
+    }
+
+
+class TestMultiLegTradeShape:
+    def test_option_leg_curated_over_fee_legs(self) -> None:
+        """The traded instrument must win over the CURRENCY_USD fee legs."""
+        client = LiveLikeClient(
+            accounts=["HASHA"],
+            transactions_payload=[_real_multileg_option_tx()],
+        )
+        result = get_transaction_history(client, "2026-06-01", "2026-06-30")
+        entry = result.movements[0]
+        assert entry.symbol == "NOK   260821P00013000", (
+            f"Expected the option OCC symbol, got '{entry.symbol}' — the "
+            "fee/cash legs must not mask the traded instrument"
+        )
+        assert entry.instrument_type == "OPTION"
+        assert entry.underlying_symbol == "NOK"
+
+    def test_symbol_filter_matches_multileg_option(self) -> None:
+        """``symbol="NOK"`` must match the trade whose OCC root is NOK (M2)
+        instead of reporting ``no_movements_for_instrument``."""
+        client = LiveLikeClient(
+            accounts=["HASHA"],
+            transactions_payload=[_real_multileg_option_tx()],
+            instruments_payload=[{"symbol": "NOK", "instrumentType": "EQUITY"}],
+        )
+        result = get_transaction_history(
+            client, "2026-06-01", "2026-06-30", symbol="NOK"
+        )
+        assert result.outcome == "ok"
+        assert result.total_count == 1
+        assert result.movements[0].symbol == "NOK   260821P00013000"
+
+    def test_cash_only_trade_stays_currency(self) -> None:
+        """A movement with only CURRENCY_USD legs keeps ``CURRENCY_USD``
+        as its curated symbol (no regression for genuine cash movements)."""
+        tx = {
+            "activityId": "903",
+            "type": "CASH_RECEIPT",
+            "time": "2026-06-05T18:59:46+0000",
+            "netAmount": 100.0,
+            "transferItems": [_cash_leg(100.0)],
+        }
+        client = LiveLikeClient(
+            accounts=["HASHA"],
+            transactions_payload=[tx],
+        )
+        result = get_transaction_history(client, "2026-06-01", "2026-06-30")
+        entry = result.movements[0]
+        assert entry.symbol == "CURRENCY_USD"
+        assert entry.instrument_type == "CURRENCY"
+
+    def test_first_noncurrency_leg_wins_deterministically(self) -> None:
+        """With several non-currency legs, the first one in encounter order
+        is curated — the rule must be deterministic."""
+        tx = {
+            "activityId": "904",
+            "type": "TRADE",
+            "time": "2026-06-05T18:59:46+0000",
+            "netAmount": 0.0,
+            "transferItems": [
+                {"amount": 1, "instrument": {
+                    "symbol": "AAPL", "assetType": "EQUITY"}},
+                {"amount": -1, "instrument": {
+                    "symbol": "MSFT", "assetType": "EQUITY"}},
+            ],
+        }
+        client = LiveLikeClient(
+            accounts=["HASHA"],
+            transactions_payload=[tx],
+        )
+        result = get_transaction_history(client, "2026-06-01", "2026-06-30")
+        assert result.movements[0].symbol == "AAPL"
+
+    def test_top_level_currency_instrument_not_preferred_over_legs(self) -> None:
+        """A top-level ``CURRENCY`` instrument must not mask the traded
+        instrument carried inside ``transferItems``."""
+        tx = dict(_real_multileg_option_tx())
+        tx["instrument"] = {
+            "symbol": "CURRENCY_USD", "instrumentType": "CURRENCY",
+        }
+        client = LiveLikeClient(
+            accounts=["HASHA"],
+            transactions_payload=[tx],
+        )
+        result = get_transaction_history(client, "2026-06-01", "2026-06-30")
+        assert result.movements[0].symbol == "NOK   260821P00013000"
+
+
+# =============================================================================
 # 2. instruments() Response unwrapping (unknown symbol detection)
 # =============================================================================
 

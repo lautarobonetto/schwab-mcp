@@ -284,6 +284,132 @@ class TestTransactionsDefaultPayloadBudget:
 
 
 # =============================================================================
+# Worst-case default payload (007): 50 movements ALL options with underlying_symbol
+# =============================================================================
+
+
+class TestTransactionsDefaultPayloadAllOptionsBudget:
+    """Worst-case default payload (007) — 50 movements all options with
+    ``underlying_symbol``.  Must stay ≤ 16 KB (SC-003/FR-007)."""
+
+    @pytest.mark.performance
+    def test_default_payload_all_options_under_budget(self) -> None:
+        """50 option movements all with ``underlying_symbol`` must serialize
+        within 16 KB."""
+        _OPTIONS: list[tuple[str, str]] = [
+            ("NOK   261218P00011000", "OPTION"),
+            ("AMD   261120P00630000", "OPTION"),
+            ("SPY   261220C05000000", "OPTION"),
+            ("MSFT  261220P00250000", "OPTION"),
+            ("AAPL  261115C00150000", "OPTION"),
+        ]
+        # Build 50 option transactions across 3 accounts
+        tx_id = 0
+        responses: dict[str, dict] = {}
+        for acct_hash, count in zip(ACCOUNT_HASHES, ACCOUNT_COUNTS):
+            txs: list[dict] = []
+            for j in range(count):
+                tx_id += 1
+                day = 1 + (tx_id // 5)
+                hour = 9 + (tx_id % 8)
+                minute = (tx_id * 3) % 60
+                sym, _ = _OPTIONS[j % len(_OPTIONS)]
+                txs.append(
+                    _build_tx(
+                        activity_id=f"opt-{tx_id:04d}",
+                        acct_hash=acct_hash,
+                        tx_type="TRADE",
+                        description="Option trade",
+                        amount=-50.0,
+                        occurred_at=f"2026-10-{day:02d}T{hour:02d}:{minute:02d}:00+00:00",
+                        settlement_date=f"2026-10-{min(day + 2, 31):02d}",
+                        symbol=sym,
+                        instrument_type="OPTION",
+                        with_extended=False,
+                    )
+                )
+            responses[acct_hash] = {"transactions": txs}
+
+        client = FastFakeClient(
+            accounts=[{"accountHash": h} for h in ACCOUNT_HASHES],
+            tx_responses=responses,
+        )
+        result = get_transaction_history(
+            client,
+            start_date="2026-10-01",
+            end_date="2026-10-20",
+            extended=False,
+        )
+        serialized = result.model_dump_json(exclude_none=True)
+        size = len(serialized.encode("utf-8"))
+        assert size <= 16384, (
+            f"All-options default payload size {size} bytes exceeds 16 KB budget"
+        )
+
+
+# =============================================================================
+# Worst-case extended payload (007): ≤ 64 KB for 50 option movements
+# =============================================================================
+
+
+class TestTransactionsExtendedPayloadAllOptionsBudget:
+    """Worst-case extended payload (007) — 50 option movements with
+    extended=true and ``underlying_symbol``.  Must stay ≤ 64 KB."""
+
+    @pytest.mark.performance
+    def test_extended_payload_all_options_under_budget(self) -> None:
+        """50 option movements with extended=true must serialize within 64 KB."""
+        _OPTIONS: list[tuple[str, str]] = [
+            ("NOK   261218P00011000", "OPTION"),
+            ("AMD   261120P00630000", "OPTION"),
+            ("SPY   261220C05000000", "OPTION"),
+            ("MSFT  261220P00250000", "OPTION"),
+            ("AAPL  261115C00150000", "OPTION"),
+        ]
+        tx_id = 0
+        responses: dict[str, dict] = {}
+        for acct_hash, count in zip(ACCOUNT_HASHES, ACCOUNT_COUNTS):
+            txs: list[dict] = []
+            for j in range(count):
+                tx_id += 1
+                day = 1 + (tx_id // 5)
+                hour = 9 + (tx_id % 8)
+                minute = (tx_id * 3) % 60
+                sym, _ = _OPTIONS[j % len(_OPTIONS)]
+                txs.append(
+                    _build_tx(
+                        activity_id=f"opt-{tx_id:04d}",
+                        acct_hash=acct_hash,
+                        tx_type="TRADE",
+                        description="Option trade",
+                        amount=-50.0,
+                        occurred_at=f"2026-10-{day:02d}T{hour:02d}:{minute:02d}:00+00:00",
+                        settlement_date=f"2026-10-{min(day + 2, 31):02d}",
+                        symbol=sym,
+                        instrument_type="OPTION",
+                        with_extended=True,
+                    )
+                )
+            responses[acct_hash] = {"transactions": txs}
+
+        client = FastFakeClient(
+            accounts=[{"accountHash": h} for h in ACCOUNT_HASHES],
+            tx_responses=responses,
+        )
+        result = get_transaction_history(
+            client,
+            start_date="2026-10-01",
+            end_date="2026-10-20",
+            extended=True,
+        )
+        serialized = result.model_dump_json(exclude_none=True)
+        size = len(serialized.encode("utf-8"))
+        assert size <= 65536, (
+            f"All-options extended payload size {size} bytes exceeds 64 KB budget"
+        )
+
+
+# =============================================================================
 # Extended payload budget (SC-003): ≤ 64 KB for 50 movements
 # =============================================================================
 

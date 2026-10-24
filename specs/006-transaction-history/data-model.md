@@ -86,7 +86,7 @@ America/New_York (clarify Q2): `startDate` = 00:00:00 NY del día inicio,
 | `description` | string | siempre | Descripción legible, **truncada a 80 caracteres** en default (texto completo en `extended`) |
 | `amount` | float | siempre | Efecto monetario principal tal como lo reporta el proveedor (signo del proveedor, no reinterpretado) |
 | `currency` | string | siempre | Moneda del movimiento: usar el campo de moneda del proveedor **si lo expone**; si no, `"USD"` (accounts USD-denominated, research R10). Nunca convertir. |
-| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado |
+| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado; en trades multi-leg se cura el primer instrumento no-divisa de `transferItems` (las patas de fees `CURRENCY_USD` van primero en el payload real) |
 | `instrument_type` | string \| ausente | solo si hay instrumento | Tipo de activo (`EQUITY`, `ETF`, `OPTION`, …) |
 | `extended` | object \| ausente | solo `extended=true` | Passthrough del ítem del proveedor: `type` original, `description` completa, `fees`, `commissions`, `netAmount`, `settlementDate`, `transferItems` (subset relevante), `activityId` |
 

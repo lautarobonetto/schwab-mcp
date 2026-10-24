@@ -6,6 +6,97 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.5.1] - 2026-10-24
+
+Bug fix — **`get_transaction_history` curaba todo trade como `CURRENCY_USD`**
+(bug: `.specify/bugs/nok-symbol-filter-miss/`).
+
+### Fixed
+
+- **`symbol` del movimiento en trades multi-leg**: en el payload real de
+  `/transactions`, cada TRADE trae en `transferItems` primero las patas de
+  efectivo/comisiones (todas con `instrument.symbol = "CURRENCY_USD"`,
+  `assetType = CURRENCY`, no-None) y al final la pata del instrumento
+  negociado. El mapper tomaba el primer item con símbolo → ~131 de 173
+  movimientos `trade` reales quedaban etiquetados `CURRENCY_USD/CURRENCY`
+  con descripción vacía, ocultando el instrumento. Consecuencia: el filtro
+  `symbol=X` (M1/M2/M3) nunca matcheaba y la tool afirmaba falsamente
+  `no_movements_for_instrument` (p. ej. 14 legs de opciones NOK en el
+  período eran invisibles). Ahora el mapper cura el **primer instrumento
+  no-divisa** y solo cae en `CURRENCY_USD` para movimientos genuinamente
+  de efectivo. `underlying_symbol` se deriva del símbolo corregido.
+
+### Validación
+
+- 5 tests de regresión (`tests/unit/test_transactions_live_response.py`,
+  sección multi-leg) reproducen el shape real del payload y fallan sin el
+  fix. Verificación end-to-end en vivo contra el proveedor real: la
+  consulta original del bug retorna 14 legs NOK (pre-fix: 0) y el barrido
+  sin filtro se mantiene en 173 movimientos. Detalle:
+  `.specify/bugs/nok-symbol-filter-miss/`.
+- Suite completa: **842 tests**, 0 skipped, 0 failed.
+
+## [0.5.0] - 2026-10-24
+
+Feature 007 — **Filtro consciente del subyacente y referencia de
+subyacente en opciones** (spec: `specs/007-underlying-symbol-filter/`).
+
+### Added
+
+- **Filtro `symbol` consciente del subyacente**: `symbol="NOK"` devuelve
+  **tanto** los movimientos registrados bajo `NOK` **como** las opciones
+  cuyo root OCC es `NOK` (tres formas de matching: M1 símbolo registrado,
+  M2 root de opción, M3 OCC completo — data-model §2). Comparación
+  **insensible a mayúsculas**; sin fuzzy (substring no matchea). El filtro
+  **ya no viaja upstream** (research R1): se aplica localmente tras el
+  barrido, garantizando subset-consistency por construcción.
+- **Validación dual del filtro (FR-003)**: si el directorio de instrumentos
+  no resuelve el símbolo, la tool **no falla** — procede con el barrido
+  y solo reporta `instrument_not_found` si ningún movimiento matchea en
+  ninguna forma. Esto habilita el filtro por símbolo OCC completo (antes
+  rechazado por el proveedor con HTTP 400) y el filtro `CURRENCY_USD`
+  (antes `instrument_not_found`).
+- **`underlying_symbol` en `MovementEntry`**: cada movimiento de opción
+  con OCC identificable expone el subyacente (root sin padding, p. ej.
+  `"NOK"` desde `"NOK   261218P00011000"`). Campo ausente (excluido por
+  `exclude_none`) para no-opciones y opciones sin OCC identificable.
+
+### Changed
+
+- `src/schwab_mcp/transactions.py`: agrega `_option_root()` y
+  `movement_involves_filter()` (matching puro); `get_transaction_history`
+  ya no envía `symbol` upstream (research R1), aplica validación dual
+  (FR-003) y filtra localmente antes de paginar; `map_provider_transactions`
+  deriva `underlying_symbol` para opciones. Se elimina `validate_symbol()`,
+  muerto tras la validación dual (su lógica de lookup vive ahora en
+  `_symbol_resolved_in_directory()`, única fuente de verdad).
+- `pyproject.toml`: versión del paquete alineada a 0.5.0.
+- `docs/tools.md`: semántica del filtro actualizada (subyacente + opciones,
+  OCC completo, case-insensitive, validación dual); `underlying_symbol`
+  documentado en el schema de `MovementEntry`; caveat de opciones
+  reemplazado por la nueva conducta.
+- `docs/CHANGELOG.md`: este registro.
+
+### Validación
+
+- Test de matching: `_option_root()` con 12 casos (padding, sin padding,
+  root corto/largo, put/call, no-OCC, None, inválidos) — todos pasan.
+- Test del matcher: `movement_involves_filter()` con 21 casos (M1/M2/M3,
+  case-insensitive, sin fuzzy, CURRENCY_USD, None filter) — todos pasan.
+- Tests de filtro US1 (31 tests): no envía symbol upstream, filtro por
+  subyacente incluye opciones, OCC completo, case-insensitivity,
+  subset-consistency, paginación sobre filtrado, validación dual
+  (directory no resuelve + matches → ok; directory no resuelve + 0 matches
+  → error), CURRENCY_USD, partial_failure con filtro.
+- Tests de `underlying_symbol` US2 (13 tests): presente en opciones,
+  ausente en no-opciones, ausente en OCC no identificable, extended sin
+  cambios, sin secretos.
+- Tests de presupuesto: worst-case 50 opciones con `underlying_symbol`
+  ≤ 16 KB default y ≤ 64 KB extended.
+- Legacy tests actualizados: 3 tests adaptados a la nueva semántica
+  (symbol no se envía upstream, validación dual).
+- Suite completa: **837 tests**, 0 skipped, 0 failed.
+
 ## [0.4.0] - 2026-10-23
 
 Feature 006 — **Historial completo de movimientos** (spec:
@@ -343,6 +434,8 @@ Feature 001 — **Capa de acceso OAuth a Schwab** (spec:
   spec en `specs/001-schwab-oauth-access/`.
 - Suite de tests (unit/integration/performance) con gates TDD.
 
+[0.5.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.1.0...v0.2.0

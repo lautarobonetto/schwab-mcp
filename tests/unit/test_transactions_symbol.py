@@ -406,9 +406,11 @@ class TestSymbolValidationOrdering:
             f"transactions() at positions {tx_indices}"
         )
 
-    def test_invalid_symbol_short_circuits_no_transactions(self) -> None:
-        """When the symbol is invalid, NO ``transactions()`` calls are
-        made — the validation short-circuits before any account query."""
+    def test_invalid_symbol_still_proceeds_with_sweep(self) -> None:
+        """When the symbol is not in the directory, ``transactions()``
+        calls ARE made (dual validation FR-003 — proceed with sweep even
+        if directory doesn't resolve), and ``InstrumentNotFoundError`` is
+        raised only after the sweep finds no matches."""
         from schwab_mcp.transactions import get_transaction_history
 
         client = FakeClient()
@@ -424,9 +426,11 @@ class TestSymbolValidationOrdering:
         tx_calls = [
             e for e in client.call_log if e["method"] == "transactions"
         ]
-        assert len(tx_calls) == 0, (
-            f"Expected 0 transactions() calls after invalid symbol, "
-            f"got {len(tx_calls)}"
+        # Dual validation: we sweep even when symbol is unknown,
+        # then error only if nothing matches.
+        assert len(tx_calls) >= 1, (
+            f"Expected at least 1 transactions() call (dual validation"
+            f" proceeds with sweep), got {len(tx_calls)}"
         )
 
 
@@ -655,13 +659,13 @@ class TestFilterNoMovementsForInstrument:
         )
 
 
-class TestFilterForwardedUpstream:
-    """T017.3: The ``symbol`` parameter MUST be forwarded as the
-    ``symbol`` argument to ``transactions()`` (upstream filter)."""
+class TestFilterNotForwardedUpstream:
+    """007: The ``symbol`` parameter is NO LONGER forwarded to
+    ``transactions()`` — filtering happens locally (research R1)."""
 
-    def test_symbol_forwarded_to_transactions(self) -> None:
-        """When ``symbol="MSFT"`` is provided, every
-        ``transactions()`` call receives ``symbol="MSFT"``."""
+    def test_symbol_not_forwarded_to_transactions(self) -> None:
+        """When ``symbol="MSFT"`` is provided, ``transactions()``
+        calls do NOT receive a ``symbol`` parameter (local filtering)."""
         from schwab_mcp.transactions import get_transaction_history
 
         client = FakeClient()
@@ -678,8 +682,9 @@ class TestFilterForwardedUpstream:
         ]
         assert len(tx_calls) >= 1
         for call in tx_calls:
-            assert call["kwargs"].get("symbol") == "MSFT", (
-                f"Expected symbol='MSFT' in transactions() call, "
+            # The symbol kwarg must be None (not sent upstream)
+            assert call["kwargs"].get("symbol") is None, (
+                f"Expected symbol=None in transactions() call, "
                 f"got {call['kwargs'].get('symbol')!r}"
             )
 
