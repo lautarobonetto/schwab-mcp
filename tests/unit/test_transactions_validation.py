@@ -234,10 +234,17 @@ class TestEndDateInFuture:
 
     def test_end_date_tomorrow_rejected(self) -> None:
         """A date of tomorrow is rejected as future."""
-        from datetime import date, timedelta, timezone
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
         from schwab_mcp.transactions import validate_history_query
 
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        # Compute "tomorrow" with the same clock the validator uses
+        # (America/New_York). Using the machine-local date makes this test
+        # timezone-flaky: in the evening, the NY date can already equal
+        # local "tomorrow", so the validator accepts it as today.
+        today_ny = datetime.now(ZoneInfo("America/New_York")).date()
+        tomorrow = (today_ny + timedelta(days=1)).isoformat()
         with pytest.raises((ValueError, TypeError)) as exc:
             validate_history_query(start_date="2026-01-01", end_date=tomorrow)
         msg = str(exc.value)
