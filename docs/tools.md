@@ -5,7 +5,7 @@ Referencia completa de la superficie consumible por un agente de AI
 salida, con semántica exacta para que el agente pueda decidir sin
 intervención humana.
 
-**Versión del documento**: 0.6.1 (ver [CHANGELOG](./CHANGELOG.md)).
+**Versión del documento**: 0.6.2 (ver [CHANGELOG](./CHANGELOG.md)).
 
 ## Cómo se consume este MCP
 
@@ -447,6 +447,69 @@ accionable que nombra el parámetro y la restricción:
 | `option_type` fuera del enum | Nombra `option_type` y los valores `both, calls, puts` |
 | `\|delta_target\| ∉ (0,1)` | Nombra `delta_target` y `0 < \|delta_target\| < 1` |
 | `dte_max ≤ 0` | Nombra `dte_max` y `>= 1` |
+
+### Errores comunes de invocación (trampas reales — leer antes de llamar)
+
+Fallos observados en la práctica con agentes; cada uno produce un error
+de validación evitable:
+
+1. **`option_type` es un enum en PLURAL**: los únicos valores válidos son
+   `both`, `calls`, `puts`. `option_type: "put"` (singular) se rechaza
+   con `option_type must be one of: both, calls, puts`. No traduzcas
+   "quiero los puts" a `"put"` — el enum ya está definido.
+2. **`dte_max` es un tope, NO un mínimo.** No existe `dte_min`. Para
+   buscar vencimientos con **DTE ≥ N**: invocá con `dte_max` máximo
+   permitido y filtrá en el cliente usando `expirations[].dte`. Además,
+   como el tope duro es 60 días, la tool **nunca** puede devolver
+   vencimientos con `dte > 60` — si tu análisis requiere más lejanía,
+   la tool no alcanza y hay que decirlo explícitamente.
+3. **`dte_max: null` no significa "sin tope"**: aplica el tope vigente
+   de 60 días (verificable en `filters.dte_max_effective`).
+4. **Con `delta_target` la ventana es angosta**: hasta **5 strikes por
+   tipo y por vencimiento** alrededor del anchor de delta; `max_strikes`
+   no interviene. Un barrido de toda la cadena (ej. para armar spreads
+   buscando pares de strikes) **no se logra con un solo llamado**: hay
+   que hacer varios con `delta_target` distinto (ej. 0.2, 0.35, 0.5) y
+   mergear por strike, o llamar sin `delta_target` con `max_strikes`
+   grande y aceptar el payload enorme.
+5. **`delta_target` es sobre \|delta\| absoluta**: para puts la delta es
+   negativa, pero `delta_target: 0.2` selecciona el put con
+   |delta| ≈ 0.2 (delta ≈ −0.2). No pasar `delta_target: -0.2`
+   esperando otro resultado — es equivalente.
+6. **`extended: true` multiplica el payload**: incluye el passthrough
+   crudo completo del proveedor. Solo usarlo si realmente se necesita
+   un campo que no está en el formato curado.
+
+### Recetas para estrategias comunes
+
+**Piernas de un short strangle (put y call OTM a |delta| ~0.2), DTE ≥ 45:**
+
+```json
+{"name": "get_option_chain", "arguments": {
+  "symbol": "SPY", "option_type": "both", "delta_target": 0.2, "max_strikes": 3, "extended": true}}
+```
+
+Post-proceso en el cliente: descartar vencimientos con `dte < 45`; el
+put con delta ≈ −0.2 es la pierna corta baja, el call con delta ≈ +0.2
+la corta alta.
+
+**Barrido de puts para armar credit spreads de ancho fijo** (ej. $10):
+
+El ancho se arma con pares de strikes; la ventana de `delta_target` es
+demasiado angosta para cubrir la zona entre el short y el long. Hacer
+**múltiples llamadas con `delta_target` escalonado** (0.2, 0.35, 0.5)
+con `option_type: "puts"` y mergear los strikes dedup by strike; luego
+calcular el crédito de cada par `(S, S − ancho)` en el cliente.
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AMD", "option_type": "puts", "delta_target": 0.35}}
+```
+
+**Slice corto acotado por precio y tiempo:**
+
+```json
+{"name": "get_option_chain", "arguments": {"symbol": "AAPL", "max_strikes": 10, "dte_max": 7}}
+```
 
 ### Errores de fuente (mapeo estándar compartido)
 

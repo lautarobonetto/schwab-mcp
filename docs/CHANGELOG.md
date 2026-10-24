@@ -6,6 +6,24 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.6.2] - 2026-10-24
+
+Documentación — guía anti-errores para agentes que consumen
+`get_option_chain` (hallazgos de uso real).
+
+### Added
+
+- **`docs/tools.md` (`get_option_chain`)**: nueva sección
+  *Errores comunes de invocación* con las 6 trampas reales observadas
+  (enum `option_type` en plural — `put`/`call` singulares se rechazan;
+  `dte_max` es tope y no existe `dte_min` — filtrar DTE ≥ N es
+  post-proceso cliente; `dte_max: null` aplica tope 60; ventana de
+  `delta_target` ≤ 5 strikes por tipo exige múltiples llamadas
+  escalonadas para barrer la cadena; `delta_target` es \|delta\|
+  absoluta; costo de payload de `extended`). Nueva sección *Recetas*
+  con invocaciones correctas para estrategias comunes (piernas de
+  strangle por delta, barrido de puts para credit spreads).
+
 ## [0.6.1] - 2026-10-24
 
 Bug fix — **`trade_time` epoch cero se reportaba como operación del
