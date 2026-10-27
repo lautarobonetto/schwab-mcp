@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "schwab-mcp"
-version = "0.6.3"
+version = "0.6.4"
 description = "Schwab OAuth access layer for local stdio MCP server"
 license = "MIT"
 license-files = ["LICENSE"]

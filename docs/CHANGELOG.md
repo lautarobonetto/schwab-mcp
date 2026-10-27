@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
-## [Unreleased]
+## [0.6.4] - 2026-10-27
+
+Public repository launch: license, CI, disclaimer, and documentation
+alignment for the open-source release. No runtime code changes.
 
 ### Added
 
@@ -615,7 +618,8 @@ Feature 001 — **Schwab OAuth access layer** (spec:
   artifacts in `specs/001-schwab-oauth-access/`.
 - Test suite (unit/integration/performance) with TDD gates.
 
-[0.6.3]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.2...v0.6.3
+[0.6.3]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4
+[0.6.2]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.5.1...v0.6.0
