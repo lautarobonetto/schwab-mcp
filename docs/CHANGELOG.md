@@ -30,6 +30,11 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   reference path-independent in the constitution (Principle VI) and
   documented that the graph is a local, untracked artifact; removed the
   now-obsolete `.codebase-memory/.gitattributes`.
+- **Unofficial disclaimer** in `README.md`: not affiliated with, endorsed
+  by, or sponsored by Charles Schwab & Co., Inc.; read-only by design;
+  API terms compliance is the user's responsibility.
+- **Repository URL** in `docs/installation.md`: the `git clone` placeholder
+  now points to `https://github.com/lautarobonetto/schwab-mcp.git`.
 
 - **English-only migration** (Constitution v1.5.0, Principle VII): all
   documentation, Spec Kit artifacts (`specs/`, `.specify/assessments/`,

@@ -21,7 +21,7 @@ server for accessing the Schwab API.
 ## 1. Install the project
 
 ```sh
-git clone <repository-url> schwab-mcp
+git clone https://github.com/lautarobonetto/schwab-mcp.git schwab-mcp
 cd schwab-mcp
 uv sync
 ```
