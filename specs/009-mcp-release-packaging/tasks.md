@@ -106,7 +106,7 @@ description: "Task list for feature 009-mcp-release-packaging"
 - [X] T024 [US2] Implement version visibility in `src/schwab_mcp/cli.py` to pass T022 (print version in help output; version sourced from package metadata — no new duplicate constant, DRY)
 - [X] T025 [US2] Align `install.sh` failure messages with `docs/release/installation.md` sections to pass T023 (each error names the resolution section; FR-012)
 - [X] T026 [P] [US2] Audit manual coverage against `contracts/manuals-set.md` acceptance mapping (FR-006…FR-015, SC-001, SC-005): fill any gaps found in `docs/release/README.md`, `docs/release/installation.md`, `docs/release/first-run-authentication.md`, `docs/release/usage.md`, `docs/release/troubleshooting.md` (e.g., integrity verification command, upgrade section, report-vs-never-share guidance)
-- [ ] T027 [US2] Execute recipient-journey validation per `specs/009-mcp-release-packaging/quickstart.md` Scenarios 1, 2, 6 (install from package only, guided time ≤ 15 min target SC-001) and record outcomes; fix any manual or script gap discovered, re-running the scenario after each fix
+- [X] T027 [US2] Execute recipient-journey validation per `specs/009-mcp-release-packaging/quickstart.md` Scenarios 1, 2, 6 (install from package only, guided time ≤ 15 min target SC-001) and record outcomes; fix any manual or script gap discovered, re-running the scenario after each fix
 
 **Checkpoint**: User Stories 1 AND 2 work independently: package builds AND a recipient can complete install → auth → serve → tool call using only the package contents.
 
@@ -137,9 +137,9 @@ description: "Task list for feature 009-mcp-release-packaging"
 
 **Purpose**: Documentation currency, full validation, and governance gates.
 
-- [ ] T033 [P] Update documentation for the new capability: `docs/CHANGELOG.md` entry, maintainer release instructions (how to run `schwab-mcp-release build` and distribute) in `docs/uso.md` or a new `docs/release-mantenimiento.md`, and `README.md` pointer — documentation affected by the change MUST be in the same commit (commit discipline)
-- [ ] T034 Run the complete `specs/009-mcp-release-packaging/quickstart.md` validation (Scenarios 1–8) end to end and record results
-- [ ] T035 Run full suite `uv run pytest` — green, 0 skipped (commit gate); refresh the codebase-memory-mcp index for this repository (graph currency gate, constitution Principle VI); verify token-usage gate N/A justification stands (no tool outputs changed)
+- [X] T033 [P] Update documentation for the new capability: `docs/CHANGELOG.md` entry, maintainer release instructions (how to run `schwab-mcp-release build` and distribute) in `docs/uso.md` or a new `docs/release-mantenimiento.md`, and `README.md` pointer — documentation affected by the change MUST be in the same commit (commit discipline)
+- [X] T034 Run the complete `specs/009-mcp-release-packaging/quickstart.md` validation (Scenarios 1–8) end to end and record results
+- [X] T035 Run full suite `uv run pytest` — green, 0 skipped (commit gate); refresh the codebase-memory-mcp index for this repository (graph currency gate, constitution Principle VI); verify token-usage gate N/A justification stands (no tool outputs changed)
 
 ---
 
