@@ -39,7 +39,8 @@ same directory and run:
   ```
 
 **Expected outcome**: one line ending in `OK` (for example
-`schwab-mcp-0.5.1.zip: OK`). If the line says `FAILED`, do not install —
+`schwab-mcp-<version>.zip: OK`, with `<version>` matching your package).
+If the line says `FAILED`, do not install —
 re-download the package and verify again.
 
 Inside the extracted folder, `SHA256SUMS` lists the checksum of every

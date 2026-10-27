@@ -47,6 +47,19 @@ destinatarios que no trabajan con el repo.
   TDD completo, incl. performance < 60 s (SC-002) y pruebas de no-fuga
   de contenido secretoso.
 
+### Fixed
+
+- **Versionado desincronizado**: `pyproject.toml` quedó rezagado en
+  `0.5.1` mientras el changelog registraba hasta `0.6.3` — el build de
+  release estampa la versión de `pyproject.toml` (fuente única, FR-005),
+  así que los paquetes salían con una versión que no correspondía al
+  registro de releases. Alineado a `0.6.3`.
+- **CHANGELOG**: eliminada la entrada `0.3.0` duplicada (conservada la
+  que coincide con los presupuestos reales de los tests: 12/20 KB, no
+  los aspiracionales 8/16 KB); agregados los link-refs `[0.6.x]`.
+- **`docs/release/README.md`**: el ejemplo de verificación de checksum
+  ya no hardcodea una versión (`schwab-mcp-<version>.zip: OK`).
+
 ## [0.6.2] - 2026-10-24
 
 Documentación — guía anti-errores para agentes que consumen
@@ -415,65 +428,6 @@ Feature 006 — **Historial completo de movimientos** (spec:
 
 ## [0.3.0] - 2026-10-20
 
-Feature 003 — **Primera tool MCP: listar posiciones abiertas** (spec:
-`specs/003-list-open-positions/`).
-
-### Added
-
-- **`get_open_positions` tool MCP**: primera herramienta registrada por
-  el servidor `serve`. Recupera todas las tenencias efectivas de todas
-  las cuentas vinculadas en una sola llamada upstream, con resultado
-  estructurado auto-clasificante (`PositionsResult`).
-- **Input schema**: argumento `extended: bool = false` — `false` (default)
-  produce el set curado (compacto); `true` agrega passthrough completo
-  del proveedor como objeto `extended` por entrada.
-- **Output clasificado (`PositionsResult`)**: contiene `outcome` (`ok` ·
-  `partial_failure` · `transient_failure` · `reauth_required`), `positions`
-  (array de `PositionEntry`), `accounts_failed` (solo en fallo parcial),
-  `retryable`, `detail` y `retrieved_at`.
-- **Error mapping**: `ConnectivityError` → `transient_failure` (retryable,
-  sin reintentos internos — FR-007); `ReauthorizationRequiredError` /
-  `TokenStoreCorruptedError` → `reauth_required`; fallo por cuenta
-  (`error` en `accountDetails`) → `partial_failure` con `accounts_failed`
-  clasificando cada fallo como `provider_error` o `transient`.
-- **Consolidación por lote**: posiciones del mismo `(account_hash, symbol)`
-  se consolidan con `average_price` promedio (FR-013).
-- **Auditoría de posiciones**: evento `positions_query_start` → terminal
-  `positions_query_success` / `positions_query_failure` en stderr, sin
-  secretos.
-- **Presupuestos medibles**: ≤ 5 s latencia, ≤ 8 KB default, ≤ 16 KB
-  extended. Crecimiento requiere justificación registrada.
-- **Documentación**: contrato de tool MCP, data model, eventos de auditoría
-  y checklist de requirements en `specs/003-list-open-positions/`. Tabla
-  de superficie MCP actualizada en `docs/tools.md`.
-
-### Changed
-
-- `src/schwab_mcp/server.py`: registro de `get_open_positions` vía
-  `mcp.add_tool(...)` con wrapper que oculta `client` del input schema
-  MCP.
-- `docs/tools.md`: documenta `get_open_positions` como primera tool MCP,
-  actualiza versión del documento a 0.3.0.
-
-### Validación
-
-- Test de registro: la tool aparece en `list_tools()` con nombre exacto
-  y función sincrónica.
-- Test de resultado vacío: `positions: []` con `outcome: ok` y
-  `detail: no_positions`.
-- Test de consolidación: mismo `(account_hash, symbol)` se promedia.
-- Test de fallo por cuenta: `partial_failure` incluye `accounts_failed`.
-- Test de errores: cada clase de error upstream produce el `outcome`
-  correcto (sin reintentos en transitorio).
-- Test de eventos: exactamente un `positions_query_start` + un terminal
-  por invocación.
-- Test de presupuesto de payload: default ≤ 8 KB, extended ≤ 16 KB.
-- Test de latencia: ≤ 5 s en entorno controlado.
-- Tests de rendimiento: marcador `performance`.
-- Suite completa verde.
-
-## [0.3.0] - 2026-10-20
-
 Feature 003 — **List Open Positions** como primera tool MCP real
 (spec: `specs/003-list-open-positions/`).
 
@@ -601,6 +555,10 @@ Feature 001 — **Capa de acceso OAuth a Schwab** (spec:
   spec en `specs/001-schwab-oauth-access/`.
 - Suite de tests (unit/integration/performance) con gates TDD.
 
+[0.6.3]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.2...v0.6.3
+[0.6.2]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.3.0...v0.4.0

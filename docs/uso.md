@@ -7,6 +7,7 @@ instalación completada según la [guía de instalación](./instalacion.md).
 
 | Comando | Para qué |
 |---------|----------|
+| `uv run schwab-mcp --help` | Ayuda; **muestra la versión instalada** — incluila siempre al reportar un problema |
 | `uv run schwab-mcp auth` | Autorización interactiva (browser + paste de URL) |
 | `uv run schwab-mcp serve` | Servidor MCP sobre stdio, headless |
 

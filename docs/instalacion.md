@@ -3,6 +3,11 @@
 Instalación y configuración de `schwab-mcp`, el servidor MCP stdio local
 para acceder a la API de Schwab.
 
+> **¿Recibiste un paquete de distribución** (un `schwab-mcp-<version>.zip`
+> en vez de este repositorio)? Esta guía no es para vos: seguí el
+> `README.md` incluido en el paquete, que arranca por
+> [docs/release/README.md](./release/README.md) en el repo del mantenedor.
+
 ## Requisitos
 
 - **Python 3.11 o superior** (lo exige la librería `schwabdev`).

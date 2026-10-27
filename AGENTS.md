@@ -83,4 +83,5 @@ uv run schwab-mcp --help       # CLI: auth, serve, renew, auth-status
 | Interfaz para agentes de AI que consumen el MCP | [`docs/tools.md`](docs/tools.md) |
 | Uso e instalación (humanos) | [`docs/uso.md`](docs/uso.md) · [`docs/instalacion.md`](docs/instalacion.md) |
 | Historia de cambios | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) |
+| Release y empaquetado para destinatarios | [`docs/release-mantenimiento.md`](docs/release-mantenimiento.md) |
 | Contratos de comandos/eventos | [`specs/*/contracts/`](specs/) |
