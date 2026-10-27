@@ -61,8 +61,8 @@ Inner inventory shipped inside every archive (`manifest.json`).
 | Field | Type | Rules |
 |-------|------|-------|
 | version | string | package version |
-| build_dirty | bool | dirty-tree marker (D4) |
-| members | list[Member] | every archive member with size + sha256 |
+| build_dirty | bool | dirty-tree marker (D4) — records the actual working-tree state at build time |
+| members | list[Member] | every content member with size + sha256 (the 7 shipped files; `manifest.json`/`SHA256SUMS` are the inventories themselves and cannot list their own hash — the outer `.zip.sha256` covers the complete archive) |
 
 ### Manual
 

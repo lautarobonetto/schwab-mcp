@@ -62,7 +62,7 @@ OK     build complete in <seconds>s
 - FR-011: same version + inputs → byte-equivalent archive (normalized timestamps, fixed member order).
 - SC-002: full run < 60 s (covered by a performance test).
 
-**Note on the `CHECKS` line**: the `completeness` field is present from US1; the `exclusion` and `secrets` fields are appended once the US3 scans land (tasks.md T015 asserts the US1-scope line, T032 extends it to the full contract above).
+**Note on the `CHECKS` line**: the `completeness` field was delivered with US1; the `exclusion` and `secrets` fields landed with the US3 scans (tasks.md T015 asserted the US1-scope line during development, T032 extended it to the full contract above — shipped).
 
 ## Version visibility for recipients (FR-005)
 

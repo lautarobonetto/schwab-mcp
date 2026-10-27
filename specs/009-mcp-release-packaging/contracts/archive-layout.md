@@ -33,6 +33,7 @@ schwab-mcp-<version>.zip
 | `install.sh` | Checks Python ≥ 3.11, creates venv, installs wheel, verifies `schwab-mcp --help`; every failure prints an actionable message referencing the matching manual section (FR-012) |
 | `manifest.json` | Fields per data-model: `version`, `build_dirty`, `members[]` (path, size, sha256) |
 | `SHA256SUMS` | One `<sha256>  <member-path>` line per member, sorted by path |
+| Self-reference rule | `manifest.json` and `SHA256SUMS` are the inventory artifacts themselves and therefore describe the *content* members (the 7 shipped files); they cannot list their own hash. The outer `.zip.sha256` covers the complete archive |
 | No secrets | No member may match the secret-scan rules (FR-004); scan failures name the member only |
 | Determinism | Member timestamps normalized to a fixed value; members written in the order above (FR-011) |
 | No credentials | Archive must never contain tokens, API keys, or env files with secrets; the recipient's token DB lives in `~/.schwab-mcp/` on their machine, never in the archive |

@@ -6,6 +6,47 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/): MAJOR para
 cambios incompatibles, MINOR por feature nueva, PATCH por correcciones.
 
+## [0.6.3] - 2026-10-26
+
+Feature 009 — **empaquetamiento de release**: un comando para armar un
+paquete de distribución completo, reproducible y verificable para
+destinatarios que no trabajan con el repo.
+
+### Added
+
+- **`schwab-mcp-release build`** (maintainer-only,
+  `src/schwab_mcp_release/`): produce `dist/schwab-mcp-<version>.zip` +
+  `.zip.sha256` con el wheel del runtime (solo `schwab_mcp`), manuales
+  en inglés, `install.sh`, `manifest.json` y `SHA256SUMS`, todo bajo el
+  directorio envolvente `schwab-mcp-<version>/`. Timestamps y orden de
+  miembros normalizados + `SOURCE_DATE_EPOCH` para el wheel ⇒ builds
+  byte-idénticos (FR-011). Guards: árbol sucio exige `--allow-dirty`
+  (exit 2, `build_dirty` registrado en el manifest) y tres checks antes
+  del éxito — completitud (`MISSING:`/`UNEXPECTED:`), material de
+  desarrollo (`DEV-MATERIAL:`, incluido dentro del wheel) y secretos
+  (`SECRET:`, solo nombre — nunca contenido). Exit codes 0/1/2/3 por
+  contrato (`specs/009-mcp-release-packaging/contracts/`).
+- **`docs/release/`**: cinco manuales recipientes en inglés (README,
+  installation, first-run-authentication, usage, troubleshooting) —
+  prereqs Python ≥ 3.11, `install.sh` con errores accionables, auth
+  con credenciales propias, conexión de cliente de IA, renewal
+  automático, upgrade in-place que preserva `~/.schwab-mcp/tokens.db`,
+  y qué reportar / qué nunca compartir.
+- **`install.sh`** (viaja en el archive): check de Python ≥ 3.11, venv,
+  install del wheel bundled, verificación de `schwab-mcp --help`;
+  mensajes alineados con `manuals/installation.md`; nunca toca
+  `~/.schwab-mcp/`.
+- **`schwab-mcp --help`**: ahora muestra la versión del paquete
+  (fuente: package metadata — FR-005 visibilidad para el destinatario).
+- **`docs/release-mantenimiento.md`**: instrucciones de release para el
+  mantenedor (build, checks, flujo de entrega, reproducibilidad) e
+  historial de validación. **`README.md`** (raíz): overview + punteros.
+- **Tests** (`tests/unit/`): test_release_{version,allowlist,wheel,
+  archive,manifest,checks,checks_dev_material,checks_secrets,cli,
+  build_performance}.py, test_cli_version.py, test_install_script.py —
+  TDD completo, incl. performance < 60 s (SC-002) y pruebas de no-fuga
+  de contenido secretoso.
+
 ## [0.6.2] - 2026-10-24
 
 Documentación — guía anti-errores para agentes que consumen
