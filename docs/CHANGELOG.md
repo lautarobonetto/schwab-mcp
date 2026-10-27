@@ -22,6 +22,14 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   regenerable `.codebase-memory/graph.db.zst` and `.codebase-memory/artifact.json`
   artifacts (now ignored); removed a stale `TODO` from the
   `_map_expirations` docstring in `src/schwab_mcp/options_chain.py`.
+- **Documentation alignment for the public repository**: removed the
+  "Release / distribution to recipients" row from the `README.md`
+  documentation table (maintainer release docs remain in
+  `docs/release-maintenance.md`, still linked from `AGENTS.md`); noted
+  CI in `AGENTS.md` Commands; made the codebase-memory graph project
+  reference path-independent in the constitution (Principle VI) and
+  documented that the graph is a local, untracked artifact; removed the
+  now-obsolete `.codebase-memory/.gitattributes`.
 
 - **English-only migration** (Constitution v1.5.0, Principle VII): all
   documentation, Spec Kit artifacts (`specs/`, `.specify/assessments/`,

@@ -77,9 +77,12 @@ grep/glob/manual file reading. Graph tool priority:
 5. `query_graph` — run Cypher queries for complex patterns.
 6. `get_architecture` — high-level project summary.
 
-The graph project for this repository is
-`Users-lautarobonetto-projects-schwab-mcp-v2` (the entry whose `root_path`
-contains the working directory). Fallback to grep/glob/file-search is
+The graph project for this repository is the `list_projects` entry whose
+`root_path` contains the working directory. Its name is derived from the
+local checkout path, so it differs per clone and per machine — never
+hard-code it. The graph data is a local, regenerable artifact and is NOT
+tracked in git: a fresh clone must be indexed locally before graph
+queries are trusted. Fallback to grep/glob/file-search is
 allowed only for: string literals, error messages, config values,
 non-code files (Dockerfiles, shell scripts, configs), or when graph tools
 return insufficient results. When the fallback is used because of a coverage

@@ -13,7 +13,6 @@ credentials that never leave your computer.
 | Usage, authorization, and troubleshooting | [docs/usage.md](docs/usage.md) |
 | Tools reference for AI agents | [docs/tools.md](docs/tools.md) |
 | Change history | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
-| **Release / distribution to recipients** | [docs/release-maintenance.md](docs/release-maintenance.md) |
 
 ## Commands
 
