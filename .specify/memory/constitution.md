@@ -112,6 +112,15 @@ Rules:
   `pyproject.toml`, `README.md`, `.gitignore`) is exempt from this layout,
   but any code, test, or documentation content referenced by it still
   belongs in its designated directory.
+- **Build-output exemption**: Git-ignored, regenerable build-output
+  directories at the repository root that follow standard tooling
+  conventions (e.g., `dist/` for packaging artifacts) are exempt from
+  this layout. Rationale: build outputs are neither source, tests,
+  documentation, nor scratch — nothing in `tmp/` may ever appear in a
+  release, and a distribution archive is exactly the release artifact.
+  Such directories MUST be listed in `.gitignore`, MUST NEVER be
+  committed, and MUST contain only regenerable artifacts reproducible by
+  the build command.
 
 ## Project Context & Constraints
 
@@ -203,4 +212,4 @@ are part of the compliance review.
   Kit plan documents; agents MUST consult the constitution at the start of
   plan and implement phases.
 
-**Version**: 1.4.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-23
+**Version**: 1.4.1 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-26

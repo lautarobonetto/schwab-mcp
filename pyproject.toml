@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 schwab-mcp = "schwab_mcp.cli:main"
+schwab-mcp-release = "schwab_mcp_release.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -22,8 +23,14 @@ markers = [
 ]
 filterwarnings = ["error"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+# Explicit package list: the shipped wheel contains ONLY the runtime
+# package `schwab_mcp`; the maintainer-only `schwab_mcp_release` tooling
+# is structurally excluded (FR-003; research D2/D3).
+[tool.setuptools]
+packages = ["schwab_mcp"]
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [dependency-groups]
 dev = [

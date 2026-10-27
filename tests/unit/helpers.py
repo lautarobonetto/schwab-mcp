@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import shutil
+import uuid
+import zipfile
 from datetime import date, timedelta
+from pathlib import Path
+from typing import Iterator
 
 import requests
 
@@ -139,3 +145,83 @@ def chain_expiry_date(days_ahead: int, today=None) -> str:
     """ISO date *days_ahead* calendar days from *today* (default today)."""
     base = today or date.today()
     return (base + timedelta(days=days_ahead)).isoformat()
+
+
+# =============================================================================
+# Release-packaging test infrastructure (feature 009)
+# =============================================================================
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+RELEASE_SANDBOX_ROOT = REPO_ROOT / "tmp"
+
+
+@contextlib.contextmanager
+def release_sandbox(name: str = "release") -> Iterator[Path]:
+    """Yield a fresh scratch directory under the repository ``tmp/``.
+
+    Test sandboxes are scratch artifacts and therefore live in ``tmp/``
+    per the constitution layout rules; the directory is removed on exit.
+    """
+    root = RELEASE_SANDBOX_ROOT / f"{name}-{uuid.uuid4().hex[:8]}"
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        yield root
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def make_release_project(root: Path, version: str = "9.9.9") -> Path:
+    """Scaffold a minimal release-build project skeleton under *root*.
+
+    Creates ``pyproject.toml`` (*version*), the five ``docs/release/``
+    manuals and ``src/schwab_mcp_release/install.sh`` — the on-disk source
+    inputs the archive allowlist reads from.
+    """
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "schwab-mcp"\n'
+        f'version = "{version}"\n'
+        'requires-python = ">=3.11"\n'
+    )
+    docs = root / "docs" / "release"
+    docs.mkdir(parents=True, exist_ok=True)
+    for manual in ("README", "installation", "first-run-authentication", "usage", "troubleshooting"):
+        (docs / f"{manual}.md").write_text(f"# {manual}\n\nRecipient manual ({manual}).\n")
+    script_dir = root / "src" / "schwab_mcp_release"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    (script_dir / "install.sh").write_text("#!/bin/sh\nset -eu\nexit 0\n")
+    return root
+
+
+def make_fake_wheel(out_dir: Path, version: str, extra_entries: tuple[str, ...] = ()) -> Path:
+    """Build a minimal, valid, dependency-free wheel for release tests.
+
+    The wheel carries only the ``schwab_mcp`` runtime package plus its
+    ``dist-info`` — mirroring what ``uv build --wheel`` produces — unless
+    *extra_entries* injects additional (possibly forbidden) zip entries.
+    """
+    dist_info = f"schwab_mcp-{version}.dist-info"
+    name = f"schwab_mcp-{version}-py3-none-any.whl"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    wheel_path = out_dir / name
+    entries = {
+        "schwab_mcp/__init__.py": b'"""Runtime package."""\n',
+        "schwab_mcp/cli.py": (
+            b'"""Fake CLI used by release tests."""\n'
+            b"def main() -> None:\n"
+            b'    print("schwab-mcp help")\n'
+        ),
+        f"{dist_info}/METADATA": (
+            f"Metadata-Version: 2.1\nName: schwab-mcp\nVersion: {version}\n".encode()
+        ),
+        f"{dist_info}/WHEEL": b"Wheel-Version: 1.0\nGenerator: tests\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        f"{dist_info}/top_level.txt": b"schwab_mcp\n",
+        f"{dist_info}/entry_points.txt": b"[console_scripts]\nschwab-mcp = schwab_mcp.cli:main\n",
+        f"{dist_info}/RECORD": b"",
+    }
+    for extra in extra_entries:
+        entries[extra] = b"# injected entry\n"
+    with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for entry, data in entries.items():
+            zf.writestr(entry, data)
+    return wheel_path
