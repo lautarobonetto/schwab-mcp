@@ -24,6 +24,8 @@ ALLOWED_EVENTS = frozenset({
     "options_chain_query_start",
     "options_chain_query_success",
     "options_chain_query_failure",
+    "quotes_query_start",
+    "quotes_query_failure",
 })
 
 _ALLOWED_OUTCOMES = {
@@ -50,6 +52,13 @@ _ALLOWED_OUTCOMES = {
         "reauth",
         "validation",
         "error",
+    },
+    "quotes_query_start": {"initiated"},
+    "quotes_query_failure": {
+        "validation",
+        "error",
+        "reauth",
+        "provider_unreachable",
     },
 }
 

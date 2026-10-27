@@ -220,6 +220,29 @@ def run_serve() -> None:
         ),
     )
 
+    # Register the get_quotes tool (010-real-time-quotes).
+    from schwab_mcp.quotes import get_quotes_tool as _get_quotes
+
+    def _get_quotes_wrapper(
+        symbols: str | list[str],
+        extended: bool = False,
+    ) -> object:
+        return _get_quotes(client, symbols=symbols, extended=extended)
+
+    _get_quotes_wrapper.__name__ = "get_quotes"
+    _get_quotes_wrapper.__qualname__ = "get_quotes"
+    mcp.add_tool(
+        _get_quotes_wrapper,
+        name="get_quotes",
+        description=(
+            "Fetch current quotes for 1..20 symbols (equity/ETF, index, or "
+            "option contract) in one invocation: last price, bid/ask, "
+            "volume, net change, freshness (realtime/delayed/closed) and "
+            "last-trade time. Use extended=true for full provider "
+            "passthrough."
+        ),
+    )
+
     # Run the stdio transport — this call blocks until the server exits.
     try:
         asyncio.run(mcp.run_stdio_async())

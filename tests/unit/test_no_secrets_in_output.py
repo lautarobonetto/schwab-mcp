@@ -1250,3 +1250,113 @@ class TestTransactionsEventLinesNoSecrets:
             "Expected redacted output containing *** in stderr, "
             f"got: {captured.err!r}"
         )
+
+# =============================================================================
+# get_quotes tool (feature 010) — FR-010 credential safety
+# =============================================================================
+
+
+class TestQuotesToolNoSecrets:
+    """Every result form of ``get_quotes`` — and its audit events — carry
+    zero registered secrets and no account identifiers (FR-010).
+
+    Covers: ``ok`` curated, ``ok`` extended (raw provider channel),
+    ``quote_unavailable``, ``validation_error``, ``provider_unreachable``,
+    ``reauth_needed``, plus the real ``quotes_query_*`` event lines.
+    """
+
+    def _register(self) -> None:
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+    def _client(self, **kwargs):
+        from tests.unit.fixtures.quotes_payloads import EQUITY_QUOTE_ENTRY
+        from tests.unit.helpers import FakeQuotesClient
+
+        kwargs.setdefault("quotes_payload", {"AAPL": EQUITY_QUOTE_ENTRY})
+        return FakeQuotesClient(**kwargs)
+
+    def _assert_clean(self, result: dict, where: str) -> None:
+        import json as _json
+
+        text = _json.dumps(result)
+        for secret in SECRET_MATERIAL:
+            assert secret not in text, f"Secret {secret!r} leaked into {where}"
+        for marker in ("accountnumber", "account_number", "account_hash"):
+            assert marker not in text.lower(), (
+                f"Account identifier {marker!r} leaked into {where}"
+            )
+
+    def test_ok_curated_has_no_secrets(self) -> None:
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        result = get_quotes(self._client(), "AAPL")
+        assert result["outcome"] == "ok"
+        self._assert_clean(result, "ok curated quotes JSON")
+
+    def test_ok_extended_has_no_secrets(self) -> None:
+        from tests.unit.fixtures.quotes_payloads import EQUITY_ALL_ENTRY
+
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        client = self._client(quotes_payload={"AAPL": EQUITY_ALL_ENTRY})
+        result = get_quotes(client, "AAPL", extended=True)
+        assert result["outcome"] == "ok"
+        assert "provider" in result
+        self._assert_clean(result, "ok extended quotes JSON")
+
+    def test_quote_unavailable_has_no_secrets(self) -> None:
+        from tests.unit.fixtures.quotes_payloads import UNKNOWN_SYMBOL_PAYLOAD
+
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        client = self._client(quotes_payload=dict(UNKNOWN_SYMBOL_PAYLOAD))
+        result = get_quotes(client, "ZOMB")
+        assert result["outcome"] == "quote_unavailable"
+        self._assert_clean(result, "quote_unavailable JSON")
+
+    def test_validation_error_has_no_secrets(self) -> None:
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        result = get_quotes(self._client(), ["BAD SYMBOL"])
+        assert result["outcome"] == "validation_error"
+        self._assert_clean(result, "validation_error JSON")
+
+    def test_provider_unreachable_has_no_secrets(self) -> None:
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        client = self._client(quotes_status=500)
+        result = get_quotes(client, "AAPL")
+        assert result["outcome"] == "provider_unreachable"
+        self._assert_clean(result, "provider_unreachable JSON")
+
+    def test_reauth_needed_has_no_secrets(self) -> None:
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        client = self._client(quotes_status=401)
+        result = get_quotes(client, "AAPL")
+        assert result["outcome"] == "reauth_needed"
+        self._assert_clean(result, "reauth_needed JSON")
+
+    def test_audit_event_lines_have_no_secrets(self, capsys) -> None:
+        """Real ``quotes_query_start``/``quotes_query_failure`` lines on
+        stderr carry zero secrets (FR-010, redaction as defense-in-depth)."""
+        from schwab_mcp.quotes import get_quotes
+
+        self._register()
+        client = self._client(market_hours_status=500)
+        result = get_quotes(client, "AAPL")
+        assert result["outcome"] == "provider_unreachable"
+
+        stderr = capsys.readouterr().err
+        assert "quotes_query_start" in stderr
+        assert "quotes_query_failure" in stderr
+        for secret in SECRET_MATERIAL:
+            assert secret not in stderr, f"Secret {secret!r} leaked into events"

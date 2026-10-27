@@ -5,7 +5,7 @@ Complete reference of the surface consumable by an AI agent
 the output, with exact semantics so the agent can decide without
 human intervention.
 
-**Document version**: 0.6.2 (see [CHANGELOG](./CHANGELOG.md)).
+**Document version**: 0.7.0 (see [CHANGELOG](./CHANGELOG.md)).
 
 ## How this MCP is consumed
 
@@ -13,11 +13,12 @@ The project exposes **two surfaces**, with different roles:
 
 | Surface | How it is invoked | State in this version |
 |------------|----------------|------------------------|
-| MCP server `serve` | MCP client connects over **stdio** | Active transport; **3 tools registered** (`get_open_positions`, `get_transaction_history` and `get_option_chain`) |
+| MCP server `serve` | MCP client connects over **stdio** | Active transport; **4 tools registered** (`get_open_positions`, `get_transaction_history`, `get_option_chain` and `get_quotes`) |
 | One-shot CLI | The agent runs `schwab-mcp <command>` through the shell | **The agent's main surface** today |
 
-The tools ``get_open_positions``, ``get_transaction_history`` and
-``get_option_chain`` (first, second and third MCP tools registered)
+The tools ``get_open_positions``, ``get_transaction_history``,
+``get_option_chain`` and ``get_quotes`` (first, second, third and
+fourth MCP tools registered)
 are available through the ``serve`` server, complementing the
 one-shot commands described below.
 
@@ -620,6 +621,149 @@ nearest expiration expires further out → structured
   [`specs/008-extract-option-chain/data-model.md`](../specs/008-extract-option-chain/data-model.md)
 - Usage scenarios (S1–S4):
   [`specs/008-extract-option-chain/quickstart.md`](../specs/008-extract-option-chain/quickstart.md)
+
+---
+
+## `get_quotes` (fourth MCP tool)
+
+Fourth MCP tool registered by the ``serve`` server (feature
+``010-real-time-quotes``). Current quotes for **1..20 distinct symbols** —
+equity/ETF, index, or option-contract symbols — in **one invocation**:
+last price, bid/ask, volume, net change (absolute and percent), quote
+freshness (``data_state``) and last-trade time. Curated-first (C-09):
+compact output by default, the complete raw provider payload on request.
+
+### Invocation
+
+```json
+{"name": "get_quotes", "arguments": {"symbols": "AAPL"}}
+{"name": "get_quotes", "arguments": {"symbols": ["AAPL", "$SPX", "AAPL  261028C00345000"]}}
+```
+
+### Arguments (input schema)
+
+| Field | Type | Default | Semantics |
+|-------|------|---------|-----------|
+| `symbols` | string \| list[string] | — (mandatory) | 1..20 distinct after normalization (strip + uppercase + de-duplicate). A single string is a one-symbol convenience. |
+| `extended` | bool | `false` | `true`: adds the raw provider payload channel (`provider`) alongside the curated view. |
+
+### Symbol-kind grammars (normalized uppercase)
+
+| Kind | Grammar | Examples |
+|------|---------|----------|
+| Index | `$` + `[A-Z0-9]{1,5}` | `$SPX`, `$VIX`, `$DJI` |
+| Option contract | root (≤ 6 chars, `.` allowed) + optional separator (` `/`_`) + `YYMMDD` + `C`/`P` + strike (literal, or 8-digit OCC-encoded) | `AAPL 251127C200`, `AAPL_251127P200.5`, `AAPL  261028C00345000` |
+| Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
+
+Option-contract symbols are quoted by their **canonical OCC form**
+(root padded to six columns + 8-digit strike × 1000, e.g.
+`AAPL  261028C00345000`); compact spellings are accepted and rewritten
+automatically, and several spellings of one contract count as ONE
+distinct symbol. **Tip:** pass the exact symbol strings returned by
+`get_open_positions` / `get_transaction_history` — they are already
+canonical.
+
+### Output schema (`ok`)
+
+```json
+{
+  "outcome": "ok",
+  "detail": "quotes_retrieved",
+  "requested_count": 2,
+  "extended": false,
+  "quote_fields": ["symbol", "description", "last", "bid", "ask",
+                    "volume", "net_change", "net_change_pct",
+                    "data_state", "trade_time"],
+  "quotes": {
+    "AAPL": {"symbol": "AAPL", "description": null, "last": 346.18,
+              "bid": 346.18, "ask": 346.2, "volume": 12672238,
+              "net_change": 2.27, "net_change_pct": 0.66,
+              "data_state": "realtime",
+              "trade_time": "2026-10-27T16:14:38+00:00"}
+  }
+}
+```
+
+Conventions:
+
+- `quotes` is an **object keyed by symbol**: exactly one entry per
+  distinct requested symbol; every requested symbol is present on
+  success.
+- `null` = not reported by the source (FR-012) — never defaulted,
+  substituted, or interpolated. In particular `description` is usually
+  `null`: the source only reports it in the raw/extended payload.
+- Rounding: equity/ETF/index prices 2 decimals; option-contract prices
+  4 decimals; `net_change_pct` 2 decimals (computed as
+  `net_change / closePrice × 100`, `null` when the close price is
+  missing or 0).
+- `extended=true`: the success response additionally carries `provider`
+  — the complete raw source payload (requested with `fields=all`) keyed
+  by symbol, without curation. The curated `quotes` object remains.
+
+### `data_state` semantics
+
+| Value | Meaning |
+|-------|---------|
+| `realtime` | live quote, market open for the symbol's session |
+| `delayed` | delayed/indicative feed, market open |
+| `closed` | last available quote, market closed for the symbol's session |
+
+Every quote carries `data_state` and `trade_time` (the exact staleness).
+The state is derived per invocation from one market-hours check plus the
+provider's live flags — **never guessed**: if freshness cannot be
+determined, the invocation fails with a structured error.
+
+### Error responses
+
+**No partial data** (FR-006): if any requested symbol cannot be quoted,
+the invocation returns a structured error and `quotes` is absent.
+Attribution is per symbol via `errors` keyed by symbol.
+
+| `outcome` | `detail` | Trigger | `retryable` |
+|-----------|----------|---------|-------------|
+| `validation_error` | `empty_symbol_list` | `symbols` empty or blank | `false` |
+| `validation_error` | `too_many_symbols` (carries `limit: 20`) | > 20 distinct symbols | `false` |
+| `validation_error` | `malformed_symbol` (`errors` names each) | a symbol matches no grammar | `false` |
+| `quote_unavailable` | `source_could_not_quote_all_symbols` | the source omits requested symbols (`errors[symbol] = "not_found"`) | `false` (re-request is valid) |
+| `provider_unreachable` | `provider_unreachable` | source unreachable, 5xx/408/429, malformed body, market-hours failure | `true` |
+| `reauth_needed` | `reauth_needed` | provider 401/403 | `false` (user action) |
+
+Validation failures happen **before any data is fetched** (FR-005).
+Expired or unquoted option contracts surface as `quote_unavailable` /
+`not_found` for that symbol — never a fabricated quote.
+
+### Budgets (Principle V)
+
+- **Tokens**: ≤ 250 per single curated quote; ≤ 2,500 for a 10-symbol
+  batch (≈ ≤ 5,000 worst case at the 20-symbol limit). Linear growth,
+  no hidden bulk.
+- **Latency**: ≤ 5 s p95 per invocation — one market-hours check plus
+  one quotes call (never per symbol).
+- Extended payloads are not budget-capped (raw channel, explicitly
+  requested); the curated portion remains within budget.
+
+### Audit events
+
+`quotes_query_start` (initiated) → on failure `quotes_query_failure`
+classified `validation` / `error` / `reauth` / `provider_unreachable`.
+No credentials, tokens, or account identifiers in events or outputs.
+
+### Guarantees
+
+- **Read-only**: market data only, no orders (FR-009).
+- **No secrets**, no account identifiers in the output (FR-010).
+- **No partial data** (FR-006) and no invented values (FR-012).
+- **Deterministic freshness**: `data_state` derived from the market
+  session and the provider's live flags — never guessed.
+
+### Reference
+
+- Full contract:
+  [`specs/010-real-time-quotes/contracts/mcp-tools.md`](../specs/010-real-time-quotes/contracts/mcp-tools.md)
+- Data model (field mapping, freshness ladder):
+  [`specs/010-real-time-quotes/data-model.md`](../specs/010-real-time-quotes/data-model.md)
+- Usage scenarios (S1–S5):
+  [`specs/010-real-time-quotes/quickstart.md`](../specs/010-real-time-quotes/quickstart.md)
 
 ---
 

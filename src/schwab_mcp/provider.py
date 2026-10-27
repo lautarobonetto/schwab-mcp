@@ -56,3 +56,25 @@ def response_json(response: Any) -> Any:
         raise ConnectivityError(
             detail="Provider returned a malformed JSON body"
         ) from exc
+
+
+def trade_time_value(raw: Any) -> Any:
+    """Normalise a provider trade timestamp to an ISO-8601 UTC string.
+
+    Shared by every market-data feature (Constitution II): epoch
+    milliseconds (the live ``tradeTime``/``tradeTimeInLong`` shape) are
+    converted; strings pass through; anything else keeps its value.  A
+    zero epoch means "never traded" and maps to ``None`` — values are
+    never invented (found live 2026-10-24).
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        if raw == 0:
+            return None
+        from datetime import datetime, timezone
+
+        return datetime.fromtimestamp(
+            raw / 1000, timezone.utc
+        ).isoformat(timespec="seconds")
+    return raw

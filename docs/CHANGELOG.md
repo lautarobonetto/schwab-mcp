@@ -10,6 +10,30 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Added
 
+- **`get_quotes` tool (feature 010)**: fourth MCP tool registered by
+  `schwab-mcp serve` — current quotes for 1..20 distinct symbols
+  (equity/ETF, index, and option-contract kinds) in one invocation:
+  last price, bid/ask, volume, net change (absolute and percent),
+  quote freshness, and last-trade time, keyed by symbol. Curated-first
+  (≤ 250 tokens per single quote, ≤ 2,500 for a 10-symbol batch, ≤ 5 s
+  p95 latency — budget tests enforce both) with an `extended=true`
+  passthrough of the complete raw provider payload. Freshness
+  (`data_state`: `realtime` / `delayed` / `closed`) is derived
+  deterministically from one market-hours check per invocation plus the
+  provider's live flags — never guessed. Fail-before-upcall validation
+  for the three symbol-kind grammars (20-distinct limit, de-duplication
+  of option-contract aliases), no partial data (`quote_unavailable`
+  with per-symbol `not_found` attribution), and the shared result
+  envelope / error taxonomy of the existing tools
+  (`validation_error`, `quote_unavailable`, `provider_unreachable`,
+  `reauth_needed`). Audit events `quotes_query_start` /
+  `quotes_query_failure`; no credentials or account identifiers in any
+  output (FR-010). New module `src/schwab_mcp/quotes.py`; the
+  epoch-milliseconds → ISO-8601-UTC trade-time normalization is now
+  shared (`schwab_mcp.provider.trade_time_value`, used by 008 too).
+  Docs: `docs/tools.md` gains the `get_quotes` section (document
+  version 0.7.0).
+
 - **Spec roadmap** (`.specify/memory/roadmap.md`, v1.0.0): new
   project-level governance artifact beside the constitution capturing
   project direction — vision and end states (autonomous trading-analysis

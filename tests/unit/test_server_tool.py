@@ -1254,3 +1254,89 @@ class TestMultiAccountPositions:
         assert spy[0].account_hash != aapl[0].account_hash, (
             "Positions from different accounts share the same account_hash"
         )
+
+# =============================================================================
+# get_quotes tool registration (feature 010, T011)
+# =============================================================================
+
+
+class TestQuotesToolRegistration:
+    """``get_quotes`` (fourth MCP tool) is importable, exposes ``symbols``
+    (string | list[string]) plus ``extended`` (bool), and registers via
+    ``MCPServer.add_tool`` following the 003/006/008 wrapper pattern."""
+
+    def test_function_is_importable(self) -> None:
+        from schwab_mcp.quotes import get_quotes
+
+        assert callable(get_quotes)
+
+    def test_signature_has_symbols_and_extended(self) -> None:
+        import inspect
+
+        from schwab_mcp.quotes import get_quotes
+
+        sig = inspect.signature(get_quotes)
+        params = {p.name: p for p in sig.parameters.values()}
+        assert "symbols" in params
+        extended = params["extended"]
+        assert extended.default is False
+        ann = extended.annotation
+        assert ann in (bool, "bool"), f"extended annotation must be bool, got {ann!r}"
+
+    def test_registers_via_mcp_add_tool(self) -> None:
+        """The client-bound wrapper registers and serves one invocation."""
+        import json
+
+        from mcp.server import MCPServer
+
+        from schwab_mcp.quotes import get_quotes_tool
+        from tests.unit.fixtures.quotes_payloads import EQUITY_QUOTE_ENTRY
+        from tests.unit.helpers import FakeQuotesClient
+
+        client = FakeQuotesClient(quotes_payload={"AAPL": EQUITY_QUOTE_ENTRY})
+        fn = lambda symbols, extended=False: get_quotes_tool(
+            client, symbols=symbols, extended=extended
+        )
+        fn.__name__ = "get_quotes"
+        fn.__qualname__ = "get_quotes"
+
+        mcp = MCPServer("test")
+        mcp.add_tool(fn, name="get_quotes", description="Fetch quotes.")
+
+        tools = asyncio.run(mcp.list_tools())
+        names = [t.name for t in tools]
+        assert "get_quotes" in names, f"get_quotes not in registered tools: {names}"
+
+        result = asyncio.run(mcp.call_tool("get_quotes", {"symbols": "AAPL"}))
+        assert not result.is_error, f"Tool call returned an error: {result.content}"
+        if result.structured_content is not None:
+            assert result.structured_content["outcome"] == "ok"
+        else:
+            parsed = json.loads(result.content[0].text)
+            assert parsed["outcome"] == "ok"
+
+    def test_input_schema_exposes_symbols_and_extended(self) -> None:
+        """The MCP input schema carries only the tool-facing parameters —
+        ``symbols`` (string | list) and ``extended`` (bool); the client is
+        bound by closure (pattern of 003/006/008)."""
+        from mcp.server import MCPServer
+
+        from schwab_mcp.quotes import get_quotes_tool
+        from tests.unit.helpers import FakeQuotesClient
+
+        client = FakeQuotesClient()
+        fn = lambda symbols, extended=False: get_quotes_tool(
+            client, symbols=symbols, extended=extended
+        )
+        fn.__name__ = "get_quotes"
+        fn.__qualname__ = "get_quotes"
+
+        mcp = MCPServer("test")
+        mcp.add_tool(fn, name="get_quotes", description="test")
+
+        tools = asyncio.run(mcp.list_tools())
+        schema = tools[0].input_schema or {}
+        props = schema.get("properties", {})
+        assert "symbols" in props, "input_schema missing 'symbols'"
+        assert "extended" in props, "input_schema missing 'extended'"
+        assert "client" not in props, "the client must be bound by closure"

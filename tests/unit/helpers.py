@@ -28,6 +28,129 @@ def build_response(payload, status: int = 200) -> requests.Response:
     return r
 
 
+class FakeQuotesClient:
+    """Provider double for ``get_quotes`` (feature 010) — no network.
+
+    Serves *quotes_payload* from ``quotes()`` and *market_hours_payload*
+    from ``market_hours()``, wrapped in real ``requests.Response`` objects
+    via :func:`build_response`, mirroring the ``schwabdev`` client
+    contract.  *quotes_error* / *market_hours_error* raise instead of
+    answering (network-failure simulations).  Every upcall is recorded so
+    tests can assert call counts and arguments (fail-before-upcall,
+    one-call-per-invocation, and the single market-hours check).
+    """
+
+    def __init__(
+        self,
+        quotes_payload: dict | None = None,
+        market_hours_payload: dict | None = None,
+        quotes_status: int = 200,
+        market_hours_status: int = 200,
+        quotes_error: BaseException | None = None,
+        market_hours_error: BaseException | None = None,
+        delay: float = 0.0,
+    ) -> None:
+        from tests.unit.fixtures.quotes_payloads import MARKET_HOURS_OPEN_PAYLOAD
+
+        self._quotes_payload = (
+            quotes_payload if quotes_payload is not None else {}
+        )
+        self._market_hours_payload = (
+            market_hours_payload
+            if market_hours_payload is not None
+            else MARKET_HOURS_OPEN_PAYLOAD
+        )
+        self._quotes_status = quotes_status
+        self._market_hours_status = market_hours_status
+        self._quotes_error = quotes_error
+        self._market_hours_error = market_hours_error
+        self._delay = delay
+        self.quotes_calls: list[dict] = []
+        self.market_hours_calls: list[dict] = []
+
+    @property
+    def call_count(self) -> int:
+        """Total provider upcalls recorded (quotes + market hours)."""
+        return len(self.quotes_calls) + len(self.market_hours_calls)
+
+    def quotes(self, symbols, fields: str | None = None, indicative: bool = False):
+        """Fake ``/marketdata/v1/quotes`` call — records and answers."""
+        self.quotes_calls.append(
+            {"symbols": symbols, "fields": fields, "indicative": indicative}
+        )
+        if self._delay:
+            import time
+
+            time.sleep(self._delay)
+        if self._quotes_error is not None:
+            raise self._quotes_error
+        return build_response(self._quotes_payload, status=self._quotes_status)
+
+    def market_hours(self, symbols, date=None):
+        """Fake ``/marketdata/v1/markets`` call — records and answers."""
+        self.market_hours_calls.append({"symbols": symbols, "date": date})
+        if self._delay:
+            import time
+
+            time.sleep(self._delay)
+        if self._market_hours_error is not None:
+            raise self._market_hours_error
+        return build_response(
+            self._market_hours_payload, status=self._market_hours_status
+        )
+
+
+def build_quote_entry(
+    symbol: str = "TEST",
+    *,
+    description: str | None = None,
+    last: float | None = 100.0,
+    bid: float | None = 99.9,
+    ask: float | None = 100.1,
+    volume: float | None = 12345,
+    net_change: float | None = 1.5,
+    close: float | None = 98.5,
+    trade_time: float | None = 1793117678969,
+    realtime: bool | None = True,
+    quote_type: str | None = "NBBO",
+    **extra_quote_fields,
+) -> dict:
+    """Build one provider quote entry (feature 010 live shape).
+
+    The live ``/marketdata/v1/quotes`` entry nests market fields under
+    ``quote{}`` and carries ``realtime``/``quoteType`` at the entry level
+    (see ``tests/unit/fixtures/quotes_payloads.py``).  A keyword passed as
+    ``None`` omits the field entirely (missing-field simulations, FR-012);
+    *description* lands in ``reference.description`` (the live location).
+    """
+    quote: dict = {}
+    for key, value in (
+        ("askPrice", ask),
+        ("bidPrice", bid),
+        ("closePrice", close),
+        ("lastPrice", last),
+        ("netChange", net_change),
+        ("totalVolume", volume),
+        ("tradeTime", trade_time),
+    ):
+        if value is not None:
+            quote[key] = value
+    quote.update(extra_quote_fields)
+    entry: dict = {"assetMainType": "EQUITY", "symbol": symbol, "quote": quote}
+    if realtime is not None:
+        entry["realtime"] = realtime
+    if quote_type is not None:
+        entry["quoteType"] = quote_type
+    if description is not None:
+        entry["reference"] = {"description": description}
+    return entry
+
+
+def build_quotes_payload(entries: list[dict]) -> dict:
+    """Key a list of quote entries by their ``symbol`` (provider shape)."""
+    return {entry["symbol"]: entry for entry in entries}
+
+
 # =============================================================================
 # Option chain fixtures (feature 008 — single source of contract field names)
 # =============================================================================

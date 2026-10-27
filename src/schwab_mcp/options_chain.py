@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
-from schwab_mcp.provider import response_json
+from schwab_mcp.provider import response_json, trade_time_value
 from schwab_mcp.tokens import retry_call
 
 
@@ -314,26 +314,6 @@ def fetch_option_chain(
 # =============================================================================
 
 
-def _trade_time_value(raw: Any) -> Any:
-    """Normalise the provider trade timestamp to an ISO-8601 UTC string.
-
-    Epoch milliseconds (the ``tradeTime``/``tradeTimeInLong`` live shape)
-    are converted; strings pass through; anything else keeps its value.
-    A zero epoch means "never traded" (the live provider sends
-    ``tradeTimeInLong=0`` for those contracts — found live 2026-10-24)
-    and maps to ``None`` (FR-007: never invent data).
-    """
-    if raw is None:
-        return None
-    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        if raw == 0:
-            return None
-        return datetime.fromtimestamp(
-            raw / 1000, timezone.utc
-        ).isoformat(timespec="seconds")
-    return raw
-
-
 def serialize_leg(contract: dict) -> list:
     """Serialize one provider contract as a positional ``CONTRACT_FIELDS`` array.
 
@@ -354,7 +334,7 @@ def serialize_leg(contract: dict) -> list:
         if raw is None:
             values.append(None)
         elif name == "trade_time":
-            values.append(_trade_time_value(raw))
+            values.append(trade_time_value(raw))
         elif name in _INTEGER_COLUMNS:
             values.append(
                 int(raw) if isinstance(raw, float) and raw.is_integer() else raw
