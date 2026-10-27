@@ -7,6 +7,7 @@ import json
 import shutil
 import uuid
 import zipfile
+from collections.abc import Mapping
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterator
@@ -214,7 +215,11 @@ def run_git(root: Path, *args: str) -> None:
     )
 
 
-def make_fake_wheel(out_dir: Path, version: str, extra_entries: tuple[str, ...] = ()) -> Path:
+def make_fake_wheel(
+    out_dir: Path,
+    version: str,
+    extra_entries: Mapping[str, bytes] | None = None,
+) -> Path:
     """Build a minimal, valid, dependency-free wheel for release tests.
 
     The wheel carries only the ``schwab_mcp`` runtime package plus its
@@ -240,9 +245,17 @@ def make_fake_wheel(out_dir: Path, version: str, extra_entries: tuple[str, ...] 
         f"{dist_info}/entry_points.txt": b"[console_scripts]\nschwab-mcp = schwab_mcp.cli:main\n",
         f"{dist_info}/RECORD": b"",
     }
-    for extra in extra_entries:
-        entries[extra] = b"# injected entry\n"
+    entries.update(extra_entries or {})
     with zipfile.ZipFile(wheel_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for entry, data in entries.items():
             zf.writestr(entry, data)
     return wheel_path
+
+
+def write_release_zip(out_zip: Path, version: str, members: Mapping[str, bytes]) -> Path:
+    """Write a raw release archive: *members* under the wrapping directory."""
+    wrap = f"schwab-mcp-{version}"
+    with zipfile.ZipFile(out_zip, "w") as zf:
+        for rel, data in members.items():
+            zf.writestr(f"{wrap}/{rel}", data)
+    return out_zip

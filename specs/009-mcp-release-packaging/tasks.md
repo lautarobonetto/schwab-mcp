@@ -98,14 +98,14 @@ description: "Task list for feature 009-mcp-release-packaging"
 
 ### Tests for User Story 2 (write FIRST, ensure they FAIL)
 
-- [ ] T022 [P] [US2] Write failing test `tests/unit/test_cli_version.py` (regression check first: document current `schwab-mcp --help` behavior): version string is visible in `schwab-mcp --help` output and equals `pyproject.toml` version (FR-005 recipient visibility)
-- [ ] T023 [P] [US2] Write failing test `tests/unit/test_install_script.py`: run `install.sh` in a sandbox under `tmp/` with an overridden `HOME` — missing-prerequisite path prints the actionable message matching `manuals/installation.md` wording; success path creates venv, installs wheel, `schwab-mcp --help` works; re-run (upgrade) replaces install and the overridden-`HOME` sandbox proves nothing was written under `~/.schwab-mcp/` (FR-015, FR-012)
+- [X] T022 [P] [US2] Write failing test `tests/unit/test_cli_version.py` (regression check first: document current `schwab-mcp --help` behavior): version string is visible in `schwab-mcp --help` output and equals `pyproject.toml` version (FR-005 recipient visibility)
+- [X] T023 [P] [US2] Write failing test `tests/unit/test_install_script.py`: run `install.sh` in a sandbox under `tmp/` with an overridden `HOME` — missing-prerequisite path prints the actionable message matching `manuals/installation.md` wording; success path creates venv, installs wheel, `schwab-mcp --help` works; re-run (upgrade) replaces install and the overridden-`HOME` sandbox proves nothing was written under `~/.schwab-mcp/` (FR-015, FR-012)
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement version visibility in `src/schwab_mcp/cli.py` to pass T022 (print version in help output; version sourced from package metadata — no new duplicate constant, DRY)
-- [ ] T025 [US2] Align `install.sh` failure messages with `docs/release/installation.md` sections to pass T023 (each error names the resolution section; FR-012)
-- [ ] T026 [P] [US2] Audit manual coverage against `contracts/manuals-set.md` acceptance mapping (FR-006…FR-015, SC-001, SC-005): fill any gaps found in `docs/release/README.md`, `docs/release/installation.md`, `docs/release/first-run-authentication.md`, `docs/release/usage.md`, `docs/release/troubleshooting.md` (e.g., integrity verification command, upgrade section, report-vs-never-share guidance)
+- [X] T024 [US2] Implement version visibility in `src/schwab_mcp/cli.py` to pass T022 (print version in help output; version sourced from package metadata — no new duplicate constant, DRY)
+- [X] T025 [US2] Align `install.sh` failure messages with `docs/release/installation.md` sections to pass T023 (each error names the resolution section; FR-012)
+- [X] T026 [P] [US2] Audit manual coverage against `contracts/manuals-set.md` acceptance mapping (FR-006…FR-015, SC-001, SC-005): fill any gaps found in `docs/release/README.md`, `docs/release/installation.md`, `docs/release/first-run-authentication.md`, `docs/release/usage.md`, `docs/release/troubleshooting.md` (e.g., integrity verification command, upgrade section, report-vs-never-share guidance)
 - [ ] T027 [US2] Execute recipient-journey validation per `specs/009-mcp-release-packaging/quickstart.md` Scenarios 1, 2, 6 (install from package only, guided time ≤ 15 min target SC-001) and record outcomes; fix any manual or script gap discovered, re-running the scenario after each fix
 
 **Checkpoint**: User Stories 1 AND 2 work independently: package builds AND a recipient can complete install → auth → serve → tool call using only the package contents.
@@ -120,14 +120,14 @@ description: "Task list for feature 009-mcp-release-packaging"
 
 ### Tests for User Story 3 (write FIRST, ensure they FAIL)
 
-- [ ] T028 [P] [US3] Write failing test `tests/unit/test_release_checks_dev_material.py`: scan over final archive members detects forbidden content (paths `tests/`, `specs/`, `plans/`, `__pycache__/`, `.git*`, `*.egg-info/`, editable source trees, dev config) and fails naming the offending member (FR-003, FR-009)
-- [ ] T029 [P] [US3] Write failing test `tests/unit/test_release_checks_secrets.py`: scan detects secret-bearing members (`.env`, `*.pem`, `*token*db*`, `*secret*`, `*credential*` names; credential-shaped content patterns in text members) and fails naming the member ONLY — asserts matched content never appears in the failure output (FR-004, credential safety)
+- [X] T028 [P] [US3] Write failing test `tests/unit/test_release_checks_dev_material.py`: scan over final archive members detects forbidden content (paths `tests/`, `specs/`, `plans/`, `__pycache__/`, `.git*`, `*.egg-info/`, editable source trees, dev config) and fails naming the offending member (FR-003, FR-009)
+- [X] T029 [P] [US3] Write failing test `tests/unit/test_release_checks_secrets.py`: scan detects secret-bearing members (`.env`, `*.pem`, `*token*db*`, `*secret*`, `*credential*` names; credential-shaped content patterns in text members) and fails naming the member ONLY — asserts matched content never appears in the failure output (FR-004, credential safety)
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] Implement dev-material exclusion scan in `src/schwab_mcp_release/checks.py` to pass T028 (rules from the allowlist module T008 — single source of truth for forbidden patterns)
-- [ ] T031 [US3] Implement secret scan in `src/schwab_mcp_release/checks.py` to pass T029 (stdlib-only pattern scan per research D6; report member name only)
-- [ ] T032 [US3] Wire both scans into the build flow in `src/schwab_mcp_release/cli.py` before success: stdout `CHECKS completeness=PASS exclusion=PASS secrets=PASS` line updated accordingly; any scan failure → exit 1, offending member named, no checksum file written (FR-009); extend `tests/unit/test_release_cli.py` with the failing-scan exit-code cases
+- [X] T030 [US3] Implement dev-material exclusion scan in `src/schwab_mcp_release/checks.py` to pass T028 (rules from the allowlist module T008 — single source of truth for forbidden patterns)
+- [X] T031 [US3] Implement secret scan in `src/schwab_mcp_release/checks.py` to pass T029 (stdlib-only pattern scan per research D6; report member name only)
+- [X] T032 [US3] Wire both scans into the build flow in `src/schwab_mcp_release/cli.py` before success: stdout `CHECKS completeness=PASS exclusion=PASS secrets=PASS` line updated accordingly; any scan failure → exit 1, offending member named, no checksum file written (FR-009); extend `tests/unit/test_release_cli.py` with the failing-scan exit-code cases
 
 **Checkpoint**: All three user stories independently functional: build is complete (US1), usable by a recipient (US2), and provably clean (US3). Validate via quickstart.md Scenario 3.
 

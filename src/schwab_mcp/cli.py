@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 import webbrowser
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 
 import schwabdev  # Module-level import so monkeypatch can patch schwabdev.Client
 
@@ -264,13 +266,29 @@ def _do_run_renew(config: object, store_path: str) -> None:
     sys.exit(exit_codes.get(outcome.outcome, 1))
 
 
+def package_version() -> str:
+    """Version of the installed package — single source: package metadata.
+
+    Visible in ``schwab-mcp --help`` so a recipient can report exactly
+    what they run (FR-005).  No duplicate version constant: the value is
+    stamped into the metadata at install time from ``pyproject.toml``.
+    """
+    try:
+        return distribution_version("schwab-mcp")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for the ``schwab-mcp`` console script."""
     # Install redaction filter on root and schwabdev loggers at startup.
     install_redaction_filter(__import__("logging").root)  # root logger
     install_redaction_filter(__import__("logging").getLogger("Schwabdev"))
 
-    parser = argparse.ArgumentParser(prog="schwab-mcp")
+    parser = argparse.ArgumentParser(
+        prog="schwab-mcp",
+        description=f"schwab-mcp {package_version()} — local stdio MCP server for Schwab account data",
+    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("auth", help="Authorize Schwab API access")
     subparsers.add_parser("renew", help="Renew the access credential (non-interactive)")

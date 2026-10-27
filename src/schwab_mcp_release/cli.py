@@ -6,9 +6,10 @@ messages go to stderr and name the offending/missing piece only — never
 file content (credential safety, FR-004).
 
 Flow (FR-001): version -> dirty-tree guard -> wheel -> archive ->
-manifest/checksums -> completeness check -> emit.  Staging happens under
-``tmp/release-staging/`` and is cleaned up on every outcome; on failure no
-archive is presented as valid and no checksum file is written (FR-008).
+manifest/checksums -> completeness/exclusion/secret checks -> emit.
+Staging happens under ``tmp/release-staging/`` and is cleaned up on every
+outcome; on failure no archive is presented as valid and no checksum file
+is written (FR-008/FR-009).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from pathlib import Path
 from schwab_mcp_release import ReleaseError
 from schwab_mcp_release.allowlist import source_map
 from schwab_mcp_release.archive import assemble_archive
-from schwab_mcp_release.checks import check_completeness
+from schwab_mcp_release.checks import check_completeness, check_dev_material, check_secrets
 from schwab_mcp_release.manifest import write_outer_checksum
 from schwab_mcp_release.version import VersionError, default_project_root, resolve_version
 from schwab_mcp_release.wheel import WheelBuildError, build_wheel
@@ -105,6 +106,8 @@ def cmd_build(output_dir: Path, allow_dirty: bool) -> int:
             return 3
 
         problems = check_completeness(result.archive_path, version)
+        problems += check_dev_material(result.archive_path, version)
+        problems += check_secrets(result.archive_path, version)
         if problems:
             for line in problems:
                 print(line, file=sys.stderr)
@@ -118,7 +121,7 @@ def cmd_build(output_dir: Path, allow_dirty: bool) -> int:
         print(f"BUILD schwab-mcp {version}")
         print(f"WHEEL  {wheel.name}")
         print(f"ARCHIVE members={result.member_count} bytes={result.archive_size}")
-        print("CHECKS completeness=PASS")
+        print("CHECKS completeness=PASS exclusion=PASS secrets=PASS")
         print(f"OUT    {archive_path}")
         print(f"OUT    {checksum_path}")
         print(f"OK     build complete in {time.monotonic() - started:.1f}s")

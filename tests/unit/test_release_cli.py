@@ -4,11 +4,8 @@ Task T015 (US1): the CLI stdout matches the stable contract lines and the
 exit codes are 0 (success — also with ``--allow-dirty``, recording
 ``build_dirty: true``), 1 (validation failure naming the missing piece),
 2 (dirty tree without override, fixed message), 3 (wheel-build
-prerequisite failure).
-
-Scope note (contracts/build-command.md): the ``CHECKS`` line carries the
-``completeness`` field from US1; the ``exclusion``/``secrets`` fields are
-appended by T032 in US3.
+prerequisite failure).  T032 (US3) completes the ``CHECKS`` line with the
+``exclusion``/``secrets`` fields and covers the failing-scan exit codes.
 """
 
 from __future__ import annotations
@@ -60,7 +57,7 @@ class TestBuildSuccess:
         assert out[0] == f"BUILD schwab-mcp {VERSION}"
         assert out[1] == f"WHEEL  {wheel_name(VERSION)}"
         assert re.fullmatch(r"ARCHIVE members=7 bytes=\d+", out[2]), out[2]
-        assert out[3] == "CHECKS completeness=PASS"
+        assert out[3] == "CHECKS completeness=PASS exclusion=PASS secrets=PASS"
         assert out[4] == f"OUT    dist/{ZIP_NAME}"
         assert out[5] == f"OUT    dist/{ZIP_NAME}.sha256"
         assert re.fullmatch(r"OK     build complete in \d+\.\d+s", out[6]), out[6]
@@ -174,3 +171,49 @@ class TestPrerequisiteFailure:
         monkeypatch.chdir(project)
         assert cli.main(["build"]) == 3
         assert "pyproject.toml" in capsys.readouterr().err
+
+
+class TestScanFailures:
+    """T032 (US3): failing exclusion/secret scans exit 1 naming the member."""
+
+    SECRET_LITERAL = "1234567890abcdef"
+
+    def test_exit_1_on_secret_bearing_source(
+        self, project, fake_wheel_builder, monkeypatch, capsys
+    ) -> None:
+        (project / "docs" / "release" / "usage.md").write_text(
+            f'api_key = "{self.SECRET_LITERAL}"\n'
+        )
+        monkeypatch.chdir(project)
+        assert cli.main(["build"]) == 1
+        err = capsys.readouterr().err
+        assert "SECRET: manuals/usage.md" in err
+        assert self.SECRET_LITERAL not in err
+        assert not (project / "dist" / ZIP_NAME).exists()
+        assert not (project / "dist" / f"{ZIP_NAME}.sha256").exists()
+
+    def test_exit_1_on_dev_material_inside_the_wheel(
+        self, project, monkeypatch, capsys
+    ) -> None:
+        def build(project_root, out_dir):
+            path = make_fake_wheel(out_dir, VERSION, extra_entries={"tests/probe.py": b"# probe\n"})
+            return WheelBuild(name=wheel_name(VERSION), path=path)
+
+        monkeypatch.setattr(cli, "build_wheel", build)
+        monkeypatch.chdir(project)
+        assert cli.main(["build"]) == 1
+        err = capsys.readouterr().err
+        assert "DEV-MATERIAL: " in err
+        assert "tests/probe.py" in err
+        assert not (project / "dist" / ZIP_NAME).exists()
+        assert not (project / "dist" / f"{ZIP_NAME}.sha256").exists()
+
+    def test_staging_is_cleaned_up_on_scan_failure(
+        self, project, fake_wheel_builder, monkeypatch
+    ) -> None:
+        (project / "docs" / "release" / "usage.md").write_text(
+            f'api_key = "{self.SECRET_LITERAL}"\n'
+        )
+        monkeypatch.chdir(project)
+        assert cli.main(["build"]) == 1
+        assert not (project / "tmp" / "release-staging").exists()
