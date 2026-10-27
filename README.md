@@ -26,6 +26,7 @@ marks belong to their respective owners.
 | Installation and setup | [docs/installation.md](docs/installation.md) |
 | Usage, authorization, and troubleshooting | [docs/usage.md](docs/usage.md) |
 | Tools reference for AI agents | [docs/tools.md](docs/tools.md) |
+| Development guide (setup and workflow) | [docs/development.md](docs/development.md) |
 | Change history | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
 
 ## Tools
@@ -124,6 +125,14 @@ Schwab credentials and tokens live only in
 `~/.schwab-mcp/tokens.db` (configurable), never in logs, outputs, or
 the repository. The project constitution governs all changes:
 [.specify/memory/constitution.md](.specify/memory/constitution.md).
+
+## Contributing
+
+Want to develop on this project? Read the
+[development guide](docs/development.md): what to install (uv, OpenCode,
+codebase-memory-mcp, Spec Kit), and the spec-driven, test-first
+workflow every change must follow. Suggestions for new tools are
+welcome — [open an issue](https://github.com/lautarobonetto/schwab-mcp/issues).
 
 ## License
 
