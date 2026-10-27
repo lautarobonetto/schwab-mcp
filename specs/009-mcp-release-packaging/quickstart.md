@@ -33,8 +33,8 @@ Expected:
 
 ## Scenario 3 — Built-in checks fail loudly (US1, FR-008, FR-009)
 
-- Temporarily remove a manual from `docs/release/` (e.g., `troubleshooting.md`) → build exits 1 printing `MISSING: manuals/troubleshooting.md`, no checksum file written. Restore the manual.
-- Add a file that trips the secret scan (e.g., a stray `.env` among archive inputs) → build exits 1 naming the member (name only, no content). Remove it.
+- Temporarily empty a manual from `docs/release/` (e.g., `troubleshooting.md`) → build exits 1 printing `MISSING: manuals/troubleshooting.md`, no checksum file written. Restore the manual. (A manual *deleted* from disk is a build prerequisite failure instead: exit 3 naming the missing source file, per the build-command contract.)
+- Add a file that trips the secret scan (e.g., a stray secret literal among archive inputs) → build exits 1 naming the member (name only, no content). Remove it.
 
 ## Scenario 4 — Dirty tree guard (FR-005, edge case, research D4)
 
