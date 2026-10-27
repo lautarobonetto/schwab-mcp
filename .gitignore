@@ -39,3 +39,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# codebase-memory-mcp artifacts (regenerable graph data, never committed)
+.codebase-memory/graph.db.zst
+.codebase-memory/artifact.json

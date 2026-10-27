@@ -558,9 +558,9 @@ def _map_expirations(
 ) -> list[dict]:
     """Build the curated ``expirations`` list from the provider payload.
 
-    Applies the DTE filter, per-type strike windows (or the delta window —
-    TODO(T016): delta selection lands with US2) and the strike-level leg
-    union.  Returns expirations sorted ascending by date, strikes ascending.
+    Applies the DTE filter, per-type strike windows (or the delta window)
+    and the strike-level leg union.  Returns expirations sorted ascending
+    by date, strikes ascending.
     """
     legs = _included_legs(query.option_type)
     leg_maps = {

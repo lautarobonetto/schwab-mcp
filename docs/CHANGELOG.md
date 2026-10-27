@@ -8,7 +8,20 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ## [Unreleased]
 
+### Added
+
+- **MIT LICENSE**: the repository is now licensed under the MIT license
+  (`LICENSE`, `license` and `license-files` metadata in `pyproject.toml`).
+- **CI workflow** (`.github/workflows/ci.yml`): on every push to `master`
+  and pull request, `uv sync && uv run pytest` runs the full suite.
+
 ### Changed
+
+- **Repository made public-ready**: removed the maintainer-only
+  "Package for recipients" section from `README.md`; stopped tracking the
+  regenerable `.codebase-memory/graph.db.zst` and `.codebase-memory/artifact.json`
+  artifacts (now ignored); removed a stale `TODO` from the
+  `_map_expirations` docstring in `src/schwab_mcp/options_chain.py`.
 
 - **English-only migration** (Constitution v1.5.0, Principle VII): all
   documentation, Spec Kit artifacts (`specs/`, `.specify/assessments/`,
