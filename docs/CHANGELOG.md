@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Changed
+
+- **Agent rules migrated from Claude Code to OpenCode**: moved
+  `.claude/rules/filter-before-fetch.md` to
+  `.opencode/rules/filter-before-fetch.md` (frontmatter removed —
+  OpenCode instructions are plain markdown) and removed the `.claude/`
+  directory. The new project `opencode.jsonc` declares
+  `instructions: [".opencode/rules/*.md"]` so OpenCode loads the rule
+  alongside `AGENTS.md`.
+
 ## [0.6.4] - 2026-10-27
 
 Public repository launch: license, CI, disclaimer, and documentation

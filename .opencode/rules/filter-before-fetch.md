@@ -1,9 +1,3 @@
----
-title: Filter Server-Side Before Fetching Full History
-impact: HIGH
-tags: [mcp, schwab, tool-usage, efficiency]
----
-
 # Filter Server-Side Before Fetching Full History
 
 When tracing a single instrument, position chain, or entity through transaction
