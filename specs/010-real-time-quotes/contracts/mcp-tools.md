@@ -19,7 +19,7 @@ list (the tool surface remains one tool for 1..N — FR-001).
 | Kind | Grammar | Examples |
 |---|---|---|
 | Index | `\$[A-Z0-9]{1,5}` | `$SPX`, `$VIX`, `$DJI` |
-| Option contract | `[A-Z0-9.]{1,6}([ _])?(YYMMDD)(C\|P)([0-9]+(\.[0-9]+)?)` | `AAPL 251127C200`, `AAPL_251127P200.5` |
+| Option contract | `[A-Z0-9.]{1,6}([ _])?(YYMMDD)(C\|P)([0-9]+(\.[0-9]+)?)` | `AAPL 261127C350`, `AAPL_261127P350.5` |
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 
 Validation errors (before any upcall, FR-005/FR-007/FR-013): empty symbol

@@ -100,7 +100,7 @@ change (C-04) recorded in tasks.
 | Kind | Shape (normalized uppercase) | Examples |
 |---|---|---|
 | Index | leading `$` + 1–5 alphanumerics | `$SPX`, `$VIX`, `$DJI` |
-| Option contract | OCC-style: root (letters, `.` allowed) + `YYMMDD` + `C`/`P` + strike (≥ 1 digit, optional decimals), separators (space/underscore) allowed between root and OCC tail | `AAPL 251127C200`, `AAPL_251127P200.5` |
+| Option contract | OCC-style: root (letters, `.` allowed) + `YYMMDD` + `C`/`P` + strike (≥ 1 digit, optional decimals), separators (space/underscore) allowed between root and OCC tail | `AAPL 261127C350`, `AAPL_261127P350.5` |
 | Equity/ETF | 1–6 alphanumerics with at most one embedded `.` (class shares) | `AAPL`, `NOK`, `BRK.B` |
 
 Normalization: strip whitespace, uppercase, de-duplicate after

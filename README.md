@@ -31,21 +31,22 @@ marks belong to their respective owners.
 
 ## Tools
 
-The MCP server (`schwab-mcp serve`) exposes **three read-only tools**:
+The MCP server (`schwab-mcp serve`) exposes **four read-only tools**:
 
 | Tool | What it does |
 |------|--------------|
 | `get_open_positions` | All effective holdings of every linked account in a single call. |
 | `get_transaction_history` | Movements of all linked accounts in a date range, with an optional instrument filter and pagination. |
 | `get_option_chain` | Full option chain of an underlying in one call, with strike, delta, and DTE filters, including the Greeks. |
+| `get_quotes` | Current quotes for 1..20 symbols (equities, ETFs, indexes, option contracts) in one call: last, bid/ask, volume, net change, freshness, last-trade time. |
 
 Every tool returns a structured JSON result with an explicit `outcome`
 (`ok`, `transient_failure`, `reauth_required`, …), so an agent can act
 without human intervention.
 
 The tool set is intentionally small and basic — but it is fast,
-token-efficient, and composable: from just positions, history, and
-option chains, an agent can run surprisingly sophisticated analyses
+token-efficient, and composable: from just positions, history, quotes,
+and option chains, an agent can run surprisingly sophisticated analyses
 (portfolio performance, trade-chain reconstruction, options-strategy
 sizing, dividend tracking, and more). We are open to suggestions for
 new tools — [open an issue](https://github.com/lautarobonetto/schwab-mcp/issues)
@@ -59,6 +60,10 @@ or reach out and tell us what you would like to see next.
   trades, transfers, dividends — filtered by symbol (equities, ETFs,
   option underlyings, or full OCC symbols), paginated at 50 movements
   per page. Maximum window per query: **1 year**.
+- **Quotes**: mark any position to market with one small call — current
+  price, bid/ask, volume, net change, and an explicit freshness state
+  (`realtime` / `delayed` / `closed`) so the agent knows how stale a
+  price is without a second call.
 - **Option chains**: browse strikes around the money or target a
   delta (e.g. `delta_target: 0.2` for short-strangle legs), bounded by
   DTE, with bid/ask, volume, open interest, IV, and the 5 Greeks.
@@ -68,10 +73,12 @@ or reach out and tell us what you would like to see next.
 ### What you cannot do
 
 - **No write operations**: no order placement, modification, or
-  cancellation — the tools only read positions, history, and chains.
-- **No market-data endpoints** beyond the option chain snapshot: no
-  streaming quotes, no price history charts, no fundamentals,
-  earnings calendars, or dividend dates. For those needs (earnings
+  cancellation — the tools only read positions, history, quotes, and
+  chains.
+- **No streaming or historical market data**: quotes are point-in-time
+  snapshots, not streaming feeds, and there is no price-history/chart
+  endpoint — no fundamentals, earnings calendars, or dividend dates
+  either. For those needs (earnings
   dates, ex-dividends, financial statements, ratios) we recommend
   complementing this MCP with the [FMP](https://site.financialmodelingprep.com/)
   MCP, which covers Schwab's gaps on that front.
@@ -106,6 +113,13 @@ Puts around a −0.20 delta (≤ 5 strikes per expiration, small payload):
 ```json
 {"name": "get_option_chain", "arguments": {
   "symbol": "SPY", "option_type": "puts", "delta_target": 0.2}}
+```
+
+Current quotes for a whole portfolio in one call:
+
+```json
+{"name": "get_quotes", "arguments": {
+  "symbols": ["AAPL", "NOK", "$SPX", "AAPL 261127C350"]}}
 ```
 
 ## Commands

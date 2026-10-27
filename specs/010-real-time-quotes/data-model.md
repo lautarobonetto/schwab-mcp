@@ -79,7 +79,7 @@ quoteType missing/other (e.g., "Indicated")    → "delayed"
               "net_change": 1.02, "net_change_pct": 0.41,
               "data_state": "realtime",
               "trade_time": "2026-10-27T15:04:05+00:00" },
-    "AAPL 251127C200": { "...": "quote with 4-decimal prices" }
+    "AAPL 261127C350": { "...": "quote with 4-decimal prices" }
   }
 }
 ```

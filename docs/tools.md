@@ -652,7 +652,7 @@ compact output by default, the complete raw provider payload on request.
 | Kind | Grammar | Examples |
 |------|---------|----------|
 | Index | `$` + `[A-Z0-9]{1,5}` | `$SPX`, `$VIX`, `$DJI` |
-| Option contract | root (≤ 6 chars, `.` allowed) + optional separator (` `/`_`) + `YYMMDD` + `C`/`P` + strike (literal, or 8-digit OCC-encoded) | `AAPL 251127C200`, `AAPL_251127P200.5`, `AAPL  261028C00345000` |
+| Option contract | root (≤ 6 chars, `.` allowed) + optional separator (` `/`_`) + `YYMMDD` + `C`/`P` + strike (literal, or 8-digit OCC-encoded) | `AAPL 261127C350`, `AAPL_261127P350.5`, `AAPL  261028C00345000` |
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 
 Option-contract symbols are quoted by their **canonical OCC form**
@@ -730,7 +730,11 @@ Attribution is per symbol via `errors` keyed by symbol.
 
 Validation failures happen **before any data is fetched** (FR-005).
 Expired or unquoted option contracts surface as `quote_unavailable` /
-`not_found` for that symbol — never a fabricated quote.
+`not_found` for that symbol — never a fabricated quote. **Tip:** if a
+contract unexpectedly returns `not_found`, check the `YYMMDD` date
+portion first — an expired symbol (e.g. a 2025 expiry like `251127`)
+is by far the most common cause; the same contract with the current
+year (`261127`) quotes normally.
 
 ### Budgets (Principle V)
 

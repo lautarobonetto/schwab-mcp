@@ -35,7 +35,7 @@ Expected:
 
 ```json
 {"name": "get_quotes",
- "arguments": {"symbols": ["AAPL", "NOK", "$SPX", "AAPL 251127C200"]}}
+ "arguments": {"symbols": ["AAPL", "NOK", "$SPX", "AAPL 261127C350"]}}
 ```
 
 Expected:

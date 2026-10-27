@@ -75,6 +75,20 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   directory. The new project `opencode.jsonc` declares
   `instructions: [".opencode/rules/*.md"]` so OpenCode loads the rule
   alongside `AGENTS.md`.
+- **Documentation refresh for the fourth tool and live-verified examples**:
+  `README.md` now lists all four read-only tools (`get_quotes` added to
+  the tools table, the "what you can do" list, a batch-quotes example,
+  and a corrected "no streaming or historical market data" statement —
+  `get_quotes` is a point-in-time snapshot, not a streaming feed);
+  expired option-contract example dates (`251127` — November 2025)
+  were replaced with live-verified November-2026 forms (`261127`) in
+  `README.md`, `docs/tools.md`,
+  `specs/010-real-time-quotes/{quickstart,data-model,contracts/mcp-tools,research}.md`;
+  and `docs/tools.md` gained a troubleshooting tip for the most common
+  `not_found` cause on option contracts (a stale `YYMMDD` year portion,
+  e.g. `251127` vs `261127`), pinned by the
+  `index-option-root-grammar` bug investigation
+  (`.specify/bugs/index-option-root-grammar/`).
 
 ## [0.6.4] - 2026-10-27
 
