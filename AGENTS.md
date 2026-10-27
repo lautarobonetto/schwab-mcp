@@ -85,6 +85,7 @@ pytest`) on every push to `main` and every pull request.
 | Topic | Where |
 |-------|-------|
 | Governance and gates | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) |
+| Project direction and planned specs (roadmap) | [`.specify/memory/roadmap.md`](.specify/memory/roadmap.md) |
 | Interface for AI agents consuming the MCP | [`docs/tools.md`](docs/tools.md) |
 | Usage and installation (humans) | [`docs/usage.md`](docs/usage.md) · [`docs/installation.md`](docs/installation.md) |
 | Change history | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) |

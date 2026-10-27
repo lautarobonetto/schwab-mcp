@@ -124,7 +124,10 @@ uv run schwab-mcp renew        # explicit renewal
 Schwab credentials and tokens live only in
 `~/.schwab-mcp/tokens.db` (configurable), never in logs, outputs, or
 the repository. The project constitution governs all changes:
-[.specify/memory/constitution.md](.specify/memory/constitution.md).
+[.specify/memory/constitution.md](.specify/memory/constitution.md);
+the project direction and planned future tools live in the spec
+roadmap: [.specify/memory/roadmap.md](.specify/memory/roadmap.md).
+The MCP is read-only by design: no spec places orders or moves money.
 
 ## Contributing
 

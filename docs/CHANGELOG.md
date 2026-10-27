@@ -8,6 +8,28 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ## [Unreleased]
 
+### Added
+
+- **Spec roadmap** (`.specify/memory/roadmap.md`, v1.0.0): new
+  project-level governance artifact beside the constitution capturing
+  project direction — vision and end states (autonomous trading-analysis
+  capability, full coverage of the read-only `schwabdev` surface,
+  derived-analysis tools, invariant agent contract), cross-cutting
+  constraints and decisions (C-01…C-09, including the read-only surface
+  decision C-06: `place_order`/`preview_order` are explicit scope-out,
+  and the source-of-truth split with the FMP MCP, C-08), and the
+  planned-specs ledger: 010 quotes, 011 price history, 012 option
+  expiration list, 013 market hours, 014 instrument search, 015
+  portfolio risk snapshot, 016 spread analysis (`planned`); 017 IV
+  context, 018 transaction-chain reconstruction, 019 event-proximity
+  join, 020 market movers, 021 order status (`undecided`).
+- **Spec Kit roadmap extension**: installed
+  `.specify/extensions/roadmap/` (config, templates, scripts) and the
+  four OpenCode commands `speckit.roadmap.write`, `speckit.roadmap.sync`,
+  `speckit.roadmap.brief`, and `speckit.roadmap.debrief`
+  (`.opencode/commands/`) for creating/amending the roadmap and syncing
+  it with spec lifecycles.
+
 ### Changed
 
 - **Agent rules migrated from Claude Code to OpenCode**: moved

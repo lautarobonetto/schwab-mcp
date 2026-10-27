@@ -7,6 +7,7 @@ the agent entry point:
 | Topic | Where |
 |-------|-------|
 | Project constitution (**read first**) | [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) |
+| Roadmap: project direction and planned specs | [`.specify/memory/roadmap.md`](../.specify/memory/roadmap.md) |
 | Entry point for AI agents working on the code | [`AGENTS.md`](../AGENTS.md) |
 | Interface for AI agents consuming the MCP | [`docs/tools.md`](./tools.md) |
 
@@ -75,6 +76,13 @@ constitution. The workflow:
 
    Discovery (`/speckit.assess.*`) and bug-flow (`/speckit.bug.*`)
    commands are also available for idea assessment and defect fixing.
+   Before speccing a new feature, check the **roadmap**
+   (`.specify/memory/roadmap.md`) — the planned-specs ledger records
+   intended features, their scope notes, and cross-cutting decisions so
+   they are not lost. Ratify new direction decisions and planned specs
+   there with the `/speckit.roadmap.*` commands (`write`, `sync`,
+   `brief`, `debrief`), and move a ledger entry to `specced` when its
+   Spec Kit pipeline starts.
 3. **Use the knowledge graph**: with codebase-memory-mcp, prefer
    `search_graph` / `trace_path` / `get_code_snippet` / `query_graph`
    over grep for structural code discovery; fall back to grep for
@@ -94,6 +102,7 @@ src/                  package code (CLI + MCP server + Schwab client)
 tests/                unit / integration / performance suites
 docs/                 human documentation (usage, installation, tools)
 specs/<NNN-feature>/  Spec Kit artifacts per feature (spec, plan, tasks, contracts)
+.specify/             project governance: constitution and roadmap in memory/, extensions, templates
 .opencode/            agent rules and speckit commands
 tmp/                  scratch space (git-ignored — nothing permanent here)
 ```
