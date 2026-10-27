@@ -32,6 +32,18 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **Spec Kit updated to 1.2.3** (CLI via `uv tool upgrade specify-cli`,
+  project templates via `specify init --here --force`): prerequisite
+  and plan-setup scripts now fail with a clear error when
+  `plan.md` or the plan template would be empty instead of creating an
+  empty file (`check-prerequisites.sh`, `setup-plan.sh`); the
+  `/speckit.taskstoissues` OpenCode command is marked deprecated in
+  favor of the bundled `github` extension
+  (`/speckit.github.taskstoissues`); local integration packages and
+  the consent registry (`integrations/packages/`, `packages.json`) are
+  git-ignored via `.specify/.gitignore`; `.specify/init-options.json`
+  records `speckit_version: 1.2.3`. Constitution and spec/plan/tasks
+  templates preserved unchanged.
 - **Agent rules migrated from Claude Code to OpenCode**: moved
   `.claude/rules/filter-before-fetch.md` to
   `.opencode/rules/filter-before-fetch.md` (frontmatter removed —
