@@ -193,6 +193,27 @@ def make_release_project(root: Path, version: str = "9.9.9") -> Path:
     return root
 
 
+def run_git(root: Path, *args: str) -> None:
+    """Run a git command inside *root* (test repos use fixed identity)."""
+    import subprocess
+
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=release-tests",
+            "-c",
+            "user.email=release-tests@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def make_fake_wheel(out_dir: Path, version: str, extra_entries: tuple[str, ...] = ()) -> Path:
     """Build a minimal, valid, dependency-free wheel for release tests.
 

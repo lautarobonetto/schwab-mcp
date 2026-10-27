@@ -9,12 +9,33 @@ Failures are reported by member name only — never by content (FR-004).
 
 from __future__ import annotations
 
+import zipfile
 from pathlib import Path
+
+from schwab_mcp_release.allowlist import member_specs, wrap_dir
 
 
 def check_completeness(zip_path: Path, version: str) -> list[str]:
-    """Return ``MISSING: <path>``/``UNEXPECTED: <path>`` lines (empty = pass)."""
-    raise NotImplementedError("completeness check lands with T020 (US1)")
+    """Return ``MISSING: <path>``/``UNEXPECTED: <path>`` lines (empty = pass).
+
+    Every required allowlist member must exist and be non-empty (a
+    zero-byte required member counts as missing); no other entry may
+    exist under the wrapping directory (FR-008).
+    """
+    wrap = wrap_dir(version)
+    expected = {f"{wrap}/{spec.path}": spec for spec in member_specs(version)}
+    problems: list[str] = []
+    with zipfile.ZipFile(zip_path) as zf:
+        infos = {info.filename: info for info in zf.infolist()}
+    for full_path, spec in expected.items():
+        info = infos.get(full_path)
+        if info is None or info.file_size == 0:
+            problems.append(f"MISSING: {spec.path}")
+    for name in infos:
+        if name not in expected:
+            relative = name[len(wrap) + 1 :] if name.startswith(f"{wrap}/") else name
+            problems.append(f"UNEXPECTED: {relative}")
+    return problems
 
 
 def check_dev_material(zip_path: Path, version: str) -> list[str]:
