@@ -78,7 +78,7 @@ uv run schwab-mcp --help       # CLI: auth, serve, renew, auth-status
 ```
 
 CI (`.github/workflows/ci.yml`) enforces the same gate (`uv sync && uv run
-pytest`) on every push to `master` and every pull request.
+pytest`) on every push to `main` and every pull request.
 
 ## Sources of truth (don't duplicate here)
 

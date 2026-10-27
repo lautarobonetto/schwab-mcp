@@ -12,7 +12,7 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 - **MIT LICENSE**: the repository is now licensed under the MIT license
   (`LICENSE`, `license` and `license-files` metadata in `pyproject.toml`).
-- **CI workflow** (`.github/workflows/ci.yml`): on every push to `master`
+- **CI workflow** (`.github/workflows/ci.yml`): on every push to `main`
   and pull request, `uv sync && uv run pytest` runs the full suite with
   Python 3.11 pinned (matches the local development venv; the
   `filterwarnings = ["error"]` gate makes untested Python versions risky).
