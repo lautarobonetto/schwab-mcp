@@ -195,7 +195,7 @@ class TestDeltaWindow:
 
     def test_fewer_than_five_strikes_returns_all_available(self) -> None:
         """A 3-strike ladder yields all 3 rows around the anchor (data-model
-        §3: 'hasta 5 (o los disponibles alrededor)').  ``max_strikes=1`` makes
+        §3: 'up to 5 (or the available ones around)').  ``max_strikes=1`` makes
         the ATM fallback keep only 2 strikes — the delta window keeps all 3."""
         strikes = [100.0, 110.0, 120.0]
         call_deltas = [0.35, 0.20, 0.05]

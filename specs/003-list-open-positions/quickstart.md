@@ -2,44 +2,44 @@
 
 **Feature**: `003-list-open-positions`
 
-Guía de validación end-to-end. Los detalles de esquema viven en
-[contracts/mcp-tools.md](contracts/mcp-tools.md) y
-[data-model.md](data-model.md) — no se duplican acá.
+End-to-end validation guide. Schema details live in
+[contracts/mcp-tools.md](contracts/mcp-tools.md) and
+[data-model.md](data-model.md) — not duplicated here.
 
-## Prerrequisitos
+## Prerequisites
 
-1. Entorno instalado: `uv sync`
-2. Credenciales en el entorno: `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET`
-3. Autorización vigente (feature 001): `uv run schwab-mcp auth-status`
-   → `{"state": "valid", ...}`. Si no, correr `schwab-mcp auth` (solo humano).
+1. Environment installed: `uv sync`
+2. Credentials in the environment: `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET`
+3. Authorization in force (feature 001): `uv run schwab-mcp auth-status`
+   → `{"state": "valid", ...}`. If not, run `schwab-mcp auth` (human only).
 
-## Validación por tests (gate principal)
+## Test-based validation (main gate)
 
 ```sh
-uv run pytest tests/unit/test_positions.py -v        # mapeo/consolidación/signo/omisión
-uv run pytest tests/unit/test_server_tool.py -v      # registro + outcomes clasificados
+uv run pytest tests/unit/test_positions.py -v        # mapping/consolidation/sign/omission
+uv run pytest tests/unit/test_server_tool.py -v      # registration + classified outcomes
 uv run pytest tests/unit/test_no_secrets_in_output.py -v  # FR-008
 uv run pytest -m performance tests/performance/test_positions_budgets.py -v  # 5 s + 8 KB
-uv run pytest                                        # suite completa: gate de commit (0 skipped)
+uv run pytest                                        # full suite: commit gate (0 skipped)
 ```
 
-Esperado: todo verde. Los tests unitarios usan fakes del client (sin red).
+Expected: all green. Unit tests use client fakes (no network).
 
-## Validación manual end-to-end (con red real)
+## Manual end-to-end validation (with real network)
 
-1. Levantar el servidor:
+1. Start the server:
 
    ```sh
    uv run schwab-mcp serve
    ```
 
-2. Desde un cliente MCP conectado por stdio (opencode u otro), invocar:
+2. From an MCP client connected over stdio (opencode or another), invoke:
 
    ```json
    {"name": "get_open_positions", "arguments": {}}
    ```
 
-3. Resultado esperado con tenencias (ejemplo de forma):
+3. Expected result with holdings (example shape):
 
    ```json
    {
@@ -49,7 +49,7 @@ Esperado: todo verde. Los tests unitarios usan fakes del client (sin red).
      "retrieved_at": "2026-10-20T14:03:11+00:00",
      "positions": [
        {
-         "account_hash": "…hash opaco…",
+         "account_hash": "…opaque hash…",
          "symbol": "SPY",
          "instrument_type": "EQUITY",
          "description": "SPDR S&P 500 ETF Trust",
@@ -63,36 +63,36 @@ Esperado: todo verde. Los tests unitarios usan fakes del client (sin red).
    }
    ```
 
-   Verificaciones:
-   - Una entrada por (cuenta, contract); patas de un strangle/condor separadas, cantidad con signo (cortas negativas).
-   - `price_timestamp` presente en cada entrada (FR-012).
-   - Ningún número de cuenta crudo, token o secreto en el resultado ni en stderr.
+   Checks:
+   - One entry per (account, contract); legs of a strangle/condor separate, signed quantity (shorts negative).
+   - `price_timestamp` present in every entry (FR-012).
+   - No raw account number, token, or secret in the result or on stderr.
 
-4. Sin posiciones → `outcome: "ok"`, `detail: "no_positions"`, `positions: []` (no es error).
+4. No positions → `outcome: "ok"`, `detail: "no_positions"`, `positions: []` (not an error).
 
-5. Modo extendido:
+5. Extended mode:
 
    ```json
    {"name": "get_open_positions", "arguments": {"extended": true}}
    ```
 
-   Cada entrada agrega `"extended": {...}` con el passthrough del proveedor.
+   Each entry adds `"extended": {...}` with the provider passthrough.
 
-6. Auditoría en stderr de `serve`: por invocación, exactamente un
-   `positions_query_start` y un terminal (`positions_query_success` o
-   `positions_query_failure`) — vocabulario en [contracts/events.md](contracts/events.md).
+6. Audit on `serve`'s stderr: per invocation, exactly one
+   `positions_query_start` and one terminal (`positions_query_success` or
+   `positions_query_failure`) — vocabulary in [contracts/events.md](contracts/events.md).
 
-## Escenarios de fallo (verificación del playbook)
+## Failure scenarios (playbook verification)
 
-| Cómo provocarlo | Resultado esperado |
-|-----------------|--------------------|
-| Sin conectividad (desconectar red) | `outcome: "transient_failure"`, `retryable: true`, `detail: "provider_unreachable"`, inmediato (sin reintentos internos) |
-| Refresh token rechazado (expirado/revocado) | `outcome: "reauth_required"` → agente notifica al dueño (`schwab-mcp auth`); NO reintentar |
-| Una cuenta falla y otras no | `outcome: "partial_failure"`, `accounts_failed` con hash + detalle, `positions` con lo que sí respondió |
+| How to trigger it | Expected result |
+|-------------------|-----------------|
+| No connectivity (disconnect network) | `outcome: "transient_failure"`, `retryable: true`, `detail: "provider_unreachable"`, immediate (no internal retries) |
+| Refresh token rejected (expired/revoked) | `outcome: "reauth_required"` → agent notifies the owner (`schwab-mcp auth`); DO NOT retry |
+| One account fails and others don't | `outcome: "partial_failure"`, `accounts_failed` with hash + detail, `positions` with whatever did respond |
 
-## Flujo del agente ante fallos
+## Agent flow on failure
 
-Idéntico al playbook de [docs/tools.md](../../../docs/tools.md):
-`transient_failure` → reintentar luego; `reauth_required` → notificar al
-dueño y monitorear con `auth-status`; `partial_failure` → decidir si el
-subconjunto alcanza o reintentar.
+Identical to the [docs/tools.md](../../../docs/tools.md) playbook:
+`transient_failure` → retry later; `reauth_required` → notify the
+owner and monitor with `auth-status`; `partial_failure` → decide whether the
+subset suffices or retry.

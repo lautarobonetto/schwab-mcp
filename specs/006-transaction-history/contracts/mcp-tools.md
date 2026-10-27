@@ -1,10 +1,10 @@
-# Contrato MCP Tool: `get_transaction_history` (006)
+# MCP Tool Contract: `get_transaction_history` (006)
 
-Referencia normativa de la cuarta tool MCP del servidor. Complementa
-`docs/tools.md` (que la documentará para el agente). Modelo de datos:
-[data-model.md](../data-model.md). Eventos: [events.md](events.md).
+Normative reference of the server's fourth MCP tool. Complements
+`docs/tools.md` (which documents it for the agent). Data model:
+[data-model.md](../data-model.md). Events: [events.md](events.md).
 
-## Invocación
+## Invocation
 
 ```json
 {
@@ -16,7 +16,7 @@ Referencia normativa de la cuarta tool MCP del servidor. Complementa
 }
 ```
 
-Con filtro por instrumento y paginación:
+With instrument filter and pagination:
 
 ```json
 {
@@ -30,24 +30,24 @@ Con filtro por instrumento y paginación:
 }
 ```
 
-## Argumentos (input schema)
+## Arguments (input schema)
 
-| Campo | Tipo | Default | Semántica |
+| Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| `start_date` | string | obligatorio | Fecha inicio del rango, `YYYY-MM-DD`. Borde **inclusivo**, interpretado en America/New_York. |
-| `end_date` | string | obligatorio | Fecha fin del rango, `YYYY-MM-DD`. Borde **inclusivo**; no puede ser futura. |
-| `symbol` | string \| ausente | sin filtro | Si está presente: solo movimientos de ese instrumento. Se valida contra el proveedor antes de consultar el historial. |
-| `extended` | bool | `false` | `false` (default): set curado compacto. `true`: cada movimiento agrega `extended` con el passthrough del proveedor (type original, descripción completa, fees, netAmount, transferItems…). |
-| `offset` | int | `0` | Continuación de paginación: repetir la misma consulta con el `next_offset` recibido. |
+| `start_date` | string | mandatory | Range start date, `YYYY-MM-DD`. **Inclusive** boundary, interpreted in America/New_York. |
+| `end_date` | string | mandatory | Range end date, `YYYY-MM-DD`. **Inclusive** boundary; cannot be in the future. |
+| `symbol` | string \| absent | no filter | If present: only movements of that instrument. Validated against the provider before querying the history. |
+| `extended` | bool | `false` | `false` (default): compact curated set. `true`: each movement adds `extended` with the provider passthrough (original type, full description, fees, netAmount, transferItems…). |
+| `offset` | int | `0` | Pagination continuation: repeat the same query with the received `next_offset`. |
 
-Ventana máxima: **1 año** (366 días calendario) entre `start_date` y
-`end_date` (clarify Q1). Rangos mayores → error de validación que indica
-el máximo y sugiere dividir la consulta.
+Maximum window: **1 year** (366 calendar days) between `start_date` and
+`end_date` (clarify Q1). Larger ranges → validation error stating the
+maximum and suggesting splitting the query.
 
 ## Output schema
 
-Exactamente un objeto `TransactionsResult` por invocación (ver
-[data-model.md](../data-model.md) para el esquema completo de
+Exactly one `TransactionsResult` object per invocation (see
+[data-model.md](../data-model.md) for the full schema of
 `MovementEntry`):
 
 ```json
@@ -76,69 +76,69 @@ Exactamente un objeto `TransactionsResult` por invocación (ver
 }
 ```
 
-## Semántica de outcomes y `detail`
+## Outcome and `detail` semantics
 
-| Outcome | `detail` | Significado para el agente |
+| Outcome | `detail` | Meaning for the agent |
 |---------|----------|---------------------------|
-| `ok` | `history_retrieved` | Historial recuperado; paginar con `next_offset` si `has_more`. |
-| `ok` | `no_movements` | Rango válido, sin movimientos en ninguna cuenta. |
-| `ok` | `no_movements_for_instrument` | Símbolo válido, sin movimientos de ese instrumento en el rango. |
-| `partial_failure` | `account_failed` | Algunas cuentas fallaron (ver `accounts_failed`); los datos del resto son válidos. Evaluar reintento de la consulta completa. |
-| `transient_failure` | `provider_unreachable` | Fallo transitorio en el primer intento; sin reintentos internos. Reintentar después es seguro. |
-| `reauth_required` | `reauth_needed` | Mismo playbook de las demás tools: no reintentar; notificar al dueño (`schwab-mcp auth`). |
+| `ok` | `history_retrieved` | History retrieved; paginate with `next_offset` if `has_more`. |
+| `ok` | `no_movements` | Valid range, no movements in any account. |
+| `ok` | `no_movements_for_instrument` | Valid symbol, no movements of that instrument in the range. |
+| `partial_failure` | `account_failed` | Some accounts failed (see `accounts_failed`); the data from the rest is valid. Consider retrying the full query. |
+| `transient_failure` | `provider_unreachable` | Transient failure on the first attempt; no internal retries. Retrying later is safe. |
+| `reauth_required` | `reauth_needed` | Same playbook as the other tools: do not retry; notify the owner (`schwab-mcp auth`). |
 
-## Errores de validación (error estándar de tool MCP, sin upcalls)
+## Validation errors (standard MCP tool error, no upcalls)
 
-| Condición | Mensaje esperado |
+| Condition | Expected message |
 |-----------|------------------|
-| `start_date`/`end_date` ausente o mal formada | Indica el formato esperado `YYYY-MM-DD` |
-| `end_date < start_date` | Nombra ambas fechas |
-| Rango > 366 días | Indica el máximo de 1 año y sugiere dividir en consultas consecutivas |
-| `end_date` futura | Indica que la fecha fin no puede ser futura |
-| `symbol` presente pero inexistente/typo | `instrument_not_found`, nombra el símbolo |
-| `offset < 0` | Indica el valor mínimo |
+| `start_date`/`end_date` missing or malformed | States the expected `YYYY-MM-DD` format |
+| `end_date < start_date` | Names both dates |
+| Range > 366 days | States the 1-year maximum and suggests splitting into consecutive queries |
+| Future `end_date` | States that the end date cannot be in the future |
+| `symbol` present but non-existent/typo | `instrument_not_found`, names the symbol |
+| `offset < 0` | States the minimum value |
 
-Errores por cuenta (`accounts_failed[].detail`): `provider_error` ·
-`transient` (mismo vocabulario de `get_open_positions`).
+Per-account errors (`accounts_failed[].detail`): `provider_error` ·
+`transient` (same vocabulary as `get_open_positions`).
 
-## Paginación
+## Pagination
 
-- Orden determinista: `occurred_at` ascendente; desempate por
-  `account_hash` y `activityId`.
-- Página: máx **50** movimientos (clarify Q4). `has_more=true` siempre
-  acompaña `next_offset`; la última página no trae `next_offset`.
-- Recorrido completo (SC-006): cero duplicados, cero omisiones sobre el
-  snapshot de la consulta.
-- Caveat: la tool es stateless; si llegan movimientos nuevos entre
-  página y página, el offset puede desplazarse. Paginar pronto.
+- Deterministic order: `occurred_at` ascending; tie-break by
+  `account_hash` and `activityId`.
+- Page: at most **50** movements (clarify Q4). `has_more=true` always
+  accompanies `next_offset`; the last page carries no `next_offset`.
+- Complete walk (SC-006): zero duplicates, zero omissions over the
+  query snapshot.
+- Caveat: the tool is stateless; if new movements arrive between
+  pages, the offset may shift. Paginate soon.
 
 ## Upcalls
 
-| Paso | Llamada | Cuándo |
+| Step | Call | When |
 |------|---------|--------|
-| 1 | `linked_accounts()` | Siempre (1 call) |
-| 2 | `instruments(..., symbol-search)` | Solo si `symbol` presente (1 call) |
-| 3 | `transactions(accountHash, startDate, endDate, types=<todos>, symbol?)` | 1 por cuenta; +bisección solo si una respuesta llega con el tope de 3000 (research D3) |
+| 1 | `linked_accounts()` | Always (1 call) |
+| 2 | `instruments(..., symbol-search)` | Only if `symbol` present (1 call) |
+| 3 | `transactions(accountHash, startDate, endDate, types=<all>, symbol?)` | 1 per account; +bisection only if a response arrives at the 3000 cap (research D3) |
 
-## Garantías
+## Guarantees
 
-- **Read-only**: no coloca órdenes ni mueve dinero.
-- **Sin secretos**: ningún token/credencial en la salida ni eventos;
-  `account_hash` opaco, nunca número de cuenta.
-- **Presupuesto**: ≤ 5 s p95 de latencia (SC-001); ≤ 16 KB página
-  default (50 movimientos, SC-003); ≤ 64 KB extended (declarado).
-- **Sin truncado silencioso**: tope upstream de 3000 manejado con split
-  por bisección y deduplicación por `(account_hash, activityId)`.
-- **Sin reintentos internos** ante fallo transitorio: el agente decide
+- **Read-only**: places no orders and moves no money.
+- **No secrets**: no token/credential in outputs or events;
+  opaque `account_hash`, never the account number.
+- **Budget**: ≤ 5 s p95 latency (SC-001); ≤ 16 KB default page
+  (50 movements, SC-003); ≤ 64 KB extended (declared).
+- **No silent truncation**: upstream cap of 3000 handled with split
+  by bisection and deduplication by `(account_hash, activityId)`.
+- **No internal retries** on transient failure: the agent decides
   (FR-010).
 
-## Caveat operacional (documentado, no es error de la tool)
+## Operational caveat (documented, not a tool error)
 
-El proveedor puede devolver `200 OK + []` para `/transactions` cuando la
-app registrada o la cuenta carecen de permiso de lectura de
-transacciones (p. ej. cuenta sin thinkorswim habilitado; evidencia
-regress#125). Desde la respuesta es indistinguible de un vacío genuino:
-la tool reporta `ok / no_movements`. Diagnóstico sugerido para el
-agente: si la cuenta muestra actividad en schwab.com y varios rangos
-amplios devuelven `no_movements` persistentemente, la causa probable es
-el permiso de la app/cuenta — no datos.
+The provider may return `200 OK + []` for `/transactions` when the
+registered app or the account lacks transaction read permission
+(e.g. account without thinkorswim enabled; evidence regress#125). From
+the response it is indistinguishable from a genuine empty: the tool
+reports `ok / no_movements`. Suggested diagnosis for the agent: if the
+account shows activity on schwab.com and several wide ranges
+persistently return `no_movements`, the likely cause is the app/account
+permission — not data.

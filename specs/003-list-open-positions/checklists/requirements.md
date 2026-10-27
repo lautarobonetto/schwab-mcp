@@ -34,8 +34,8 @@
 - Validation iteration 1: all items pass except 2 clarification
   markers; no other failures found.
 - Clarifications resolved by the user on 2026-10-20:
-  - Q1 → Tool MCP real (FR-001 actualizado).
-  - Q2 → Conjunto curado completo + campos extendidos bajo demanda
-    (FR-003 / FR-003a, SC-001 ajustado, edge case agregado).
+  - Q1 → Real MCP tool (FR-001 updated).
+  - Q2 → Complete curated set + extended fields on demand
+    (FR-003 / FR-003a, SC-001 adjusted, edge case added).
 - Validation iteration 2 (post-clarification): all items pass. Spec is
   ready for `/speckit.clarify` or `/speckit.plan`.

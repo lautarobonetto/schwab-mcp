@@ -16,20 +16,20 @@ Covers (from tasks.md T002)
 Design constraints (data-model.md §1, verbatim)
 -----------------------------------------------
 ``symbol``:
-    "no vacío, sin espacios internos; se pasa tal cual al proveedor
-    (el matching/normalización es del proveedor)"
+    "non-empty, no internal spaces; passed as-is to the provider
+    (matching/normalization is the provider's job)"
 ``max_strikes``:
     "≥ 1"
 ``option_type``:
-    "valor del enum" (enum ``both`` | ``calls`` | ``puts``)
+    "enum value" (enum ``both`` | ``calls`` | ``puts``)
 ``delta_target``:
-    "si presente: 0 < |delta_target| < 1"
+    "if present: 0 < |delta_target| < 1"
 ``dte_max``:
-    "si presente: ≥ 1; si ausente, tope vigente = 60"
+    "if present: ≥ 1; if absent, current cap = 60"
 
-Semántica de defaults (data-model.md §1): ``dte_max=null`` NO significa
-"sin tope" — significa "no elijo DTE" y aplica el tope por defecto de
-60 días (FR-005).
+Default semantics (data-model.md §1): ``dte_max=null`` does NOT mean
+"no cap" — it means "I'm not choosing a DTE" and applies the default cap
+of 60 days (FR-005).
 
 References
 ----------
@@ -51,13 +51,13 @@ import pytest
 
 class TestDefaults:
     """Defaults per data-model.md §1: ``max_strikes`` = 50, ``option_type`` =
-    ``both``, ``delta_target`` = null, ``dte_max`` = null (tope vigente = 60).
+    ``both``, ``delta_target`` = null, ``dte_max`` = null (current cap = 60).
 
     Verbatim constraints:
     - ``max_strikes``: "≥ 1" (default ``50``)
-    - ``option_type``: "valor del enum" (default ``both``)
-    - ``delta_target``: "si presente: 0 < |delta_target| < 1" (default ``null``)
-    - ``dte_max``: "si presente: ≥ 1; si ausente, tope vigente = 60"
+    - ``option_type``: "enum value" (default ``both``)
+    - ``delta_target``: "if present: 0 < |delta_target| < 1" (default ``null``)
+    - ``dte_max``: "if present: ≥ 1; if absent, current cap = 60"
     """
 
     def test_defaults(self) -> None:
@@ -65,7 +65,7 @@ class TestDefaults:
 
         Constraint (data-model.md §1): ``max_strikes`` default ``50``;
         ``option_type`` default ``both``; ``delta_target`` default ``null``;
-        ``dte_max`` default ``null`` — "si ausente, tope vigente = 60".
+        ``dte_max`` default ``null`` — "if absent, current cap = 60".
         """
         from schwab_mcp.options_chain import OptionChainQuery
 
@@ -80,10 +80,11 @@ class TestDefaults:
         """``validate()`` returns ``None`` for a default query with a valid
         symbol.
 
-        Constraint (data-model.md §1): ``symbol`` "no vacío, sin espacios
-        internos"; all other fields at their defaults satisfy their
-        constraints ("≥ 1", "valor del enum", "si presente: 0 <
-        |delta_target| < 1", "si presente: ≥ 1; si ausente, tope vigente = 60").
+        Constraint (data-model.md §1): ``symbol`` "non-empty, no internal
+        spaces; passed as-is to the provider (matching/normalization is the
+        provider's job)"; all other fields at their defaults satisfy their
+        constraints ("≥ 1", "enum value", "if present: 0 <
+        |delta_target| < 1", "if present: ≥ 1; if absent, current cap = 60").
         """
         from schwab_mcp.options_chain import OptionChainQuery
 
@@ -93,8 +94,8 @@ class TestDefaults:
     def test_dte_max_effective_uses_requested_value(self) -> None:
         """``dte_max=120`` -> ``dte_max_effective == 120``.
 
-        Constraint (data-model.md §1): ``dte_max`` "si presente: ≥ 1; si
-        ausente, tope vigente = 60" — when present, the requested value is
+        Constraint (data-model.md §1): ``dte_max`` "if present: ≥ 1; if
+        absent, current cap = 60" — when present, the requested value is
         the effective cap.
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -111,16 +112,16 @@ class TestDefaults:
 class TestSymbolValidation:
     """``symbol`` validation per data-model.md §1, verbatim:
 
-    "no vacío, sin espacios internos; se pasa tal cual al proveedor (el
-    matching/normalización es del proveedor)"
+    "non-empty, no internal spaces; passed as-is to the provider
+    (matching/normalization is the provider's job)"
     """
 
     def test_symbol_empty_string(self) -> None:
         """Empty ``symbol`` is rejected.
 
-        Constraint (data-model.md §1): ``symbol`` "no vacío, sin espacios
-        internos; se pasa tal cual al proveedor (el matching/normalización es
-        del proveedor)". Error must be a ``ValueError`` mentioning ``symbol``
+        Constraint (data-model.md §1): ``symbol`` "non-empty, no internal
+        spaces; passed as-is to the provider (matching/normalization is the
+        provider's job)". Error must be a ``ValueError`` mentioning ``symbol``
         and "must not be empty".
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -135,9 +136,9 @@ class TestSymbolValidation:
     def test_symbol_whitespace_only(self) -> None:
         """Whitespace-only ``symbol`` is rejected as empty.
 
-        Constraint (data-model.md §1): ``symbol`` "no vacío, sin espacios
-        internos; se pasa tal cual al proveedor (el matching/normalización es
-        del proveedor)". Error must be a ``ValueError`` mentioning ``symbol``
+        Constraint (data-model.md §1): ``symbol`` "non-empty, no internal
+        spaces; passed as-is to the provider (matching/normalization is the
+        provider's job)". Error must be a ``ValueError`` mentioning ``symbol``
         and "must not be empty".
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -152,9 +153,9 @@ class TestSymbolValidation:
     def test_symbol_internal_whitespace(self) -> None:
         """``symbol`` with internal whitespace (e.g. ``"AA PL"``) is rejected.
 
-        Constraint (data-model.md §1): ``symbol`` "no vacío, sin espacios
-        internos; se pasa tal cual al proveedor (el matching/normalización es
-        del proveedor)". Error must be a ``ValueError`` mentioning ``symbol``
+        Constraint (data-model.md §1): ``symbol`` "non-empty, no internal
+        spaces; passed as-is to the provider (matching/normalization is the
+        provider's job)". Error must be a ``ValueError`` mentioning ``symbol``
         and "internal whitespace".
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -169,9 +170,9 @@ class TestSymbolValidation:
     def test_symbol_not_a_string(self) -> None:
         """Non-str ``symbol`` is rejected with ``TypeError``.
 
-        Constraint (data-model.md §1): ``symbol`` is a "string" — "no vacío,
-        sin espacios internos; se pasa tal cual al proveedor (el
-        matching/normalización es del proveedor)". Error must be a
+        Constraint (data-model.md §1): ``symbol`` is a "string" — "non-empty,
+        no internal spaces; passed as-is to the provider
+        (matching/normalization is the provider's job)". Error must be a
         ``TypeError`` mentioning ``symbol``.
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -240,14 +241,14 @@ class TestMaxStrikesValidation:
 
 
 class TestOptionTypeValidation:
-    """``option_type`` validation per data-model.md §1, verbatim: "valor del
-    enum" (enum ``both`` | ``calls`` | ``puts``).
+    """``option_type`` validation per data-model.md §1, verbatim: "enum
+    value" (enum ``both`` | ``calls`` | ``puts``).
     """
 
     def test_option_type_strangles(self) -> None:
         """``option_type="strangles"`` is outside the enum and is rejected.
 
-        Constraint (data-model.md §1): ``option_type`` "valor del enum" (enum
+        Constraint (data-model.md §1): ``option_type`` "enum value" (enum
         ``both`` | ``calls`` | ``puts``). Error must be a ``ValueError``
         mentioning ``option_type`` and "both, calls, puts".
         """
@@ -264,7 +265,7 @@ class TestOptionTypeValidation:
         """``option_type="ALL"`` is outside the enum (case-sensitive) and is
         rejected.
 
-        Constraint (data-model.md §1): ``option_type`` "valor del enum" (enum
+        Constraint (data-model.md §1): ``option_type`` "enum value" (enum
         ``both`` | ``calls`` | ``puts``). Error must be a ``ValueError``
         mentioning ``option_type`` and "both, calls, puts".
         """
@@ -280,7 +281,7 @@ class TestOptionTypeValidation:
     def test_option_type_empty_string(self) -> None:
         """``option_type=""`` is outside the enum and is rejected.
 
-        Constraint (data-model.md §1): ``option_type`` "valor del enum" (enum
+        Constraint (data-model.md §1): ``option_type`` "enum value" (enum
         ``both`` | ``calls`` | ``puts``). Error must be a ``ValueError``
         mentioning ``option_type`` and "both, calls, puts".
         """
@@ -300,14 +301,14 @@ class TestOptionTypeValidation:
 
 
 class TestDeltaTargetValidation:
-    """``delta_target`` validation per data-model.md §1, verbatim: "si
-    presente: 0 < |delta_target| < 1".
+    """``delta_target`` validation per data-model.md §1, verbatim: "if
+    present: 0 < |delta_target| < 1".
     """
 
     def test_delta_target_zero(self) -> None:
         """``delta_target=0`` is rejected (strict inequality).
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1". Error must be a ``ValueError`` mentioning
         ``delta_target`` and "0 < |delta_target| < 1".
         """
@@ -323,7 +324,7 @@ class TestDeltaTargetValidation:
     def test_delta_target_negative_zero(self) -> None:
         """``delta_target=-0.0`` is rejected (``abs(-0.0) == 0.0``, not > 0).
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1". Error must be a ``ValueError`` mentioning
         ``delta_target`` and "0 < |delta_target| < 1".
         """
@@ -339,7 +340,7 @@ class TestDeltaTargetValidation:
     def test_delta_target_above_one(self) -> None:
         """``delta_target=1.5`` is rejected (``abs() >= 1``).
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1". Error must be a ``ValueError`` mentioning
         ``delta_target`` and "0 < |delta_target| < 1".
         """
@@ -355,7 +356,7 @@ class TestDeltaTargetValidation:
     def test_delta_target_equal_to_one(self) -> None:
         """``delta_target=1.0`` is rejected (strict inequality, ``< 1``).
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1". Error must be a ``ValueError`` mentioning
         ``delta_target`` and "0 < |delta_target| < 1".
         """
@@ -371,7 +372,7 @@ class TestDeltaTargetValidation:
     def test_delta_target_equal_to_negative_one(self) -> None:
         """``delta_target=-1.0`` is rejected (``abs(-1.0) == 1.0``, not < 1).
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1". Error must be a ``ValueError`` mentioning
         ``delta_target`` and "0 < |delta_target| < 1".
         """
@@ -388,7 +389,7 @@ class TestDeltaTargetValidation:
     def test_delta_target_valid_values(self, delta_target: float) -> None:
         """Valid ``delta_target`` values pass validation.
 
-        Constraint (data-model.md §1): ``delta_target`` "si presente:
+        Constraint (data-model.md §1): ``delta_target`` "if present:
         0 < |delta_target| < 1" — both signs are allowed, the bound is on the
         absolute value.
         """
@@ -404,15 +405,15 @@ class TestDeltaTargetValidation:
 
 
 class TestDteMaxValidation:
-    """``dte_max`` validation per data-model.md §1, verbatim: "si presente:
-    ≥ 1; si ausente, tope vigente = 60".
+    """``dte_max`` validation per data-model.md §1, verbatim: "if present:
+    ≥ 1; if absent, current cap = 60".
     """
 
     def test_dte_max_zero(self) -> None:
         """``dte_max=0`` is rejected.
 
-        Constraint (data-model.md §1): ``dte_max`` "si presente: ≥ 1; si
-        ausente, tope vigente = 60". Error must be a ``ValueError`` mentioning
+        Constraint (data-model.md §1): ``dte_max`` "if present: ≥ 1; if
+        absent, current cap = 60". Error must be a ``ValueError`` mentioning
         ``dte_max`` and ">= 1".
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -427,8 +428,8 @@ class TestDteMaxValidation:
     def test_dte_max_negative(self) -> None:
         """``dte_max=-3`` is rejected.
 
-        Constraint (data-model.md §1): ``dte_max`` "si presente: ≥ 1; si
-        ausente, tope vigente = 60". Error must be a ``ValueError`` mentioning
+        Constraint (data-model.md §1): ``dte_max`` "if present: ≥ 1; if
+        absent, current cap = 60". Error must be a ``ValueError`` mentioning
         ``dte_max`` and ">= 1".
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -443,8 +444,8 @@ class TestDteMaxValidation:
     def test_dte_max_not_an_int(self) -> None:
         """Non-int ``dte_max`` is rejected with ``TypeError``.
 
-        Constraint (data-model.md §1): ``dte_max`` is an "int | null" — "si
-        presente: ≥ 1; si ausente, tope vigente = 60". Error must be a
+        Constraint (data-model.md §1): ``dte_max`` is an "int | null" — "if
+        present: ≥ 1; if absent, current cap = 60". Error must be a
         ``TypeError`` mentioning ``dte_max``.
         """
         from schwab_mcp.options_chain import OptionChainQuery
@@ -457,8 +458,8 @@ class TestDteMaxValidation:
     def test_dte_max_valid_value(self) -> None:
         """``dte_max=7`` passes validation and is the effective cap.
 
-        Constraint (data-model.md §1): ``dte_max`` "si presente: ≥ 1; si
-        ausente, tope vigente = 60" — when present, the requested value is
+        Constraint (data-model.md §1): ``dte_max`` "if present: ≥ 1; if
+        absent, current cap = 60" — when present, the requested value is
         the effective cap (``dte_max_effective == 7``).
         """
         from schwab_mcp.options_chain import OptionChainQuery

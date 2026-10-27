@@ -115,7 +115,7 @@ Single project (per plan.md): `src/schwab_mcp/`, `tests/{unit,integration,perfor
 - [X] T018 [P] Add performance tests asserting the SC-002 renewal budget in tests/performance/test_renewal_budget.py: worst case (3 attempts × 3 s timeout + 2 × 0.5 s waits) completes ≤ 10 s; use the `performance` marker per pyproject.toml
 - [X] T019 [P] Add token-usage tests asserting compact outputs in tests/performance/test_output_budget.py: `renew` and `auth-status` stdout is a single line ≤ 300 bytes with only the contracted 3–4 fields (Principle V; growth beyond budget requires recorded justification)
 - [X] T020 [P] Extend no-secrets coverage in tests/unit/test_no_secrets_in_output.py: renewal JSON results, auth-status results, and `renew_*` event lines contain zero token/secret/authorization-URL material (FR-004, SC-005)
-- [X] T021 [P] Update docs/uso.md (and docs/instalacion.md if affected) documenting `schwab-mcp renew` and `schwab-mcp auth-status` for agent usage, linking specs/002-automated-token-renewal/contracts/cli.md
+- [X] T021 [P] Update docs/usage.md (and docs/installation.md if affected) documenting `schwab-mcp renew` and `schwab-mcp auth-status` for agent usage, linking specs/002-automated-token-renewal/contracts/cli.md
 - [X] T022 Run the quickstart.md validation scenarios end-to-end (Scenarios 1–5) and record results; verify full suite green with no skipped tests (commit gate)
 
 ---

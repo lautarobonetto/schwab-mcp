@@ -6,27 +6,27 @@
 
 ## Summary
 
-Extender la tool MCP **`get_transaction_history`** (feature 006) para que
-el filtro `symbol` sea **consciente del subyacente**: `symbol="NOK"`
-devuelve los movimientos registrados bajo `NOK` **y** los movimientos de
-opciones cuyo root del símbolo OCC es `NOK`, y — cuando el filtro es un
-símbolo de opción completo registrado — los movimientos de esa opción
-puntual. Además, cada movimiento de opción expone el **subyacente** como
-campo de primera clase (`underlying_symbol`) en el output curado, derivado
-del símbolo registrado (la fuente no lo expone por separado).
+Extend the MCP tool **`get_transaction_history`** (feature 006) so the
+`symbol` filter is **underlying-aware**: `symbol="NOK"` returns the
+movements registered under `NOK` **and** the movements of options whose
+OCC symbol root is `NOK`, and — when the filter is a registered complete
+option symbol — the movements of that specific option. In addition, every
+option movement exposes the **underlying** as a first-class field
+(`underlying_symbol`) in the curated output, derived from the registered
+symbol (the source does not expose it separately).
 
-Technical approach (de research): con el filtro presente, la tool consulta
-el rango **sin filtro upstream** (mismas upcalls que la consulta sin
-filtro: 1 `linked_accounts` + 1 `transactions` por cuenta, con bisección
-ante el tope de 3000) y aplica el matching de tres formas localmente —
-el endpoint del proveedor no puede filtrar opciones por subyacente
-(verificado en vivo: `symbol=NOK` → 0 resultados; símbolo OCC → HTTP 400).
-Validación dual del filtro (clarificación C): lookup en el directorio de
-instrumentos primero; si no resuelve, se consulta igual y
-`instrument_not_found` solo si nada matchea. `underlying_symbol` se deriva
-del root del OCC (porción previa a los últimos 15 caracteres fecha/C-P/
-strike — mismo anclaje derecho verificado en vivo para posiciones).
-Comparación insensible a mayúsculas. **Sin dependencias nuevas.**
+Technical approach (from research): with the filter present, the tool
+queries the range **unfiltered upstream** (same upcalls as the unfiltered
+query: 1 `linked_accounts` + 1 `transactions` per account, with bisection
+against the 3000 cap) and applies the three-form matching locally — the
+provider endpoint cannot filter options by underlying (verified live:
+`symbol=NOK` → 0 results; OCC symbol → HTTP 400). Dual filter validation
+(clarification C): instrument directory lookup first; if it does not
+resolve, the query proceeds anyway and `instrument_not_found` is reported
+only if nothing matches. `underlying_symbol` is derived from the OCC root
+(portion before the last 15 date/C-P/strike characters — same
+right-anchoring verified live for positions). Case-insensitive
+comparison. **No new dependencies.**
 
 ## Technical Context
 
@@ -34,51 +34,51 @@ Comparación insensible a mayúsculas. **Sin dependencias nuevas.**
 
 **Primary Dependencies**: `schwabdev==4.0.0` (`Client.linked_accounts`,
 `Client.transactions`, `Client.instruments`), `mcp>=1.0.0`
-(`mcp.add_tool`), Pydantic (vía dependencia del SDK MCP). `zoneinfo`
-(stdlib). **Sin dependencias nuevas.**
+(`mcp.add_tool`), Pydantic (via the MCP SDK dependency). `zoneinfo`
+(stdlib). **No new dependencies.**
 
-**Storage**: N/A — resultado efímero; sin caché entre requests (criterio
-de 003/006).
+**Storage**: N/A — ephemeral result; no caching between requests (003/006
+criterion).
 
-**Testing**: pytest 9.x + pytest-asyncio (unit); marcador `performance`
-para presupuestos.
+**Testing**: pytest 9.x + pytest-asyncio (unit); `performance` marker for
+budgets.
 
-**Target Platform**: proceso local `schwab-mcp serve`, transporte stdio
-exclusivo (constitution: no sockets entrantes, no HTTP).
+**Target Platform**: local `schwab-mcp serve` process, stdio transport
+exclusively (constitution: no incoming sockets, no HTTP).
 
-**Project Type**: local MCP server (stdio) — extensión de la segunda tool
-registrada; no se registran tools nuevas.
+**Project Type**: local MCP server (stdio) — extension of the second
+registered tool; no new tools are registered.
 
-**Performance Goals**: mismos presupuestos que 006 (≤ 5 s p95, SC-001 de
-006): las upcalls no cambian (el filtro ya no viaja upstream, pero las
-upcalls por cuenta son las mismas 1 + N); 1 `instruments` adicional solo
-cuando hay filtro (como hoy).
+**Performance Goals**: same budgets as 006 (≤ 5 s p95, 006's SC-001):
+the upcalls do not change (the filter no longer travels upstream, but the
+per-account upcalls are the same 1 + N); 1 additional `instruments` call
+only when there is a filter (as today).
 
-**Constraints**: payload default acotado (≤ 16 KB por página de 50 —
-debe mantenerse **incluyendo** el campo nuevo, FR-007); sin reintentos
-internos; auditoría por invocación; read-only estricto; sin secretos.
+**Constraints**: bounded default payload (≤ 16 KB per 50-movement page —
+must hold **including** the new field, FR-007); no internal retries;
+per-invocation audit; strict read-only; no secrets.
 
-**Scale/Scope**: todas las cuentas vinculadas; tope upstream de 3000 por
-(cuenta, llamada) manejado con la bisección existente; páginas de 50.
+**Scale/Scope**: all linked accounts; upstream cap of 3000 per (account,
+call) handled with the existing bisection; pages of 50.
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-| Gate | Estado | Evidencia |
-|------|--------|-----------|
-| I. Test-First | PASS | tasks.md (Phase 2) ordenará tests primero: matching de las 3 formas, case-insensitivity, subset-consistency, validación dual, `underlying_symbol` por forma de payload, presupuestos |
-| II. DRY | PASS | Reusa `response_json` (provider.py), la orquestación/bisección/paginación de `transactions.py`, el anclaje derecho de símbolos OCC ya verificado en `positions.py`; el matcher de filter es una única función pura con una sola definición |
-| III. Reuse Before Creation | PASS | Sin libs nuevas; upcalls existentes del SDK; el parser OCC se apoya en el conocimiento ya codificado y probado en vivo |
-| IV. KISS | PASS | Un solo barrido + filtro local (frente a doble consulta híbrida, descartada en research R1); sin estado de servidor; sin caché |
-| V. Efficiency & Cost | PASS | Presupuestos declarados sin cambios (≤ 5 s p95, ≤ 16 KB página default) — el campo nuevo entra dentro del presupuesto actual (research R5 lo mide); tests de performance + token-usage existentes se extienden |
-| Layout fijo | PASS | Código → `src/schwab_mcp/`; tests → `tests/`; docs afectadas (`docs/tools.md`, CHANGELOG) en el mismo commit |
-| Credential safety | PASS | `underlying_symbol` es un identificador de instrumento público, no de cuenta; `account_hash` opaco se mantiene; sin tokens/secretos |
-| Read/write discipline | PASS | Solo lectura; sin órdenes ni movimientos de dinero |
+| Gate | Status | Evidence |
+|------|--------|----------|
+| I. Test-First | PASS | tasks.md (Phase 2) will order tests first: matching of the 3 forms, case-insensitivity, subset-consistency, dual validation, `underlying_symbol` per payload form, budgets |
+| II. DRY | PASS | Reuses `response_json` (provider.py), the orchestration/bisection/pagination of `transactions.py`, and the right-anchoring of OCC symbols already verified in `positions.py`; the filter matcher is a single pure function with a single definition |
+| III. Reuse Before Creation | PASS | No new libraries; existing SDK upcalls; the OCC parser builds on knowledge already coded and verified live |
+| IV. KISS | PASS | A single sweep + local filter (versus the hybrid double query, discarded in research R1); no server state; no cache |
+| V. Efficiency & Cost | PASS | Declared budgets unchanged (≤ 5 s p95, ≤ 16 KB default page) — the new field fits within the current budget (research R5 measures it); existing performance + token-usage tests are extended |
+| Fixed layout | PASS | Code → `src/schwab_mcp/`; tests → `tests/`; affected docs (`docs/tools.md`, CHANGELOG) in the same commit |
+| Credential safety | PASS | `underlying_symbol` is a public instrument identifier, not an account one; opaque `account_hash` is kept; no tokens/secrets |
+| Read/write discipline | PASS | Read-only; no orders or money movements |
 
-**Re-check post-Phase 1**: PASS — contratos y data model reusan el
-vocabulario de outcomes de 006 y el canal de eventos sin cambios; ninguna
-entrada en Complexity Tracking.
+**Re-check post-Phase 1**: PASS — contracts and data model reuse 006's
+outcome vocabulary and the event channel unchanged; no entries in
+Complexity Tracking.
 
 ## Project Structure
 
@@ -91,7 +91,7 @@ specs/007-underlying-symbol-filter/
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
 ├── quickstart.md        # Phase 1 output (/speckit.plan command)
 ├── contracts/           # Phase 1 output (/speckit.plan command)
-│   └── mcp-tools.md     # Cambios de contrato de get_transaction_history
+│   └── mcp-tools.md     # Contract changes for get_transaction_history
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
@@ -99,28 +99,28 @@ specs/007-underlying-symbol-filter/
 
 ```text
 src/schwab_mcp/
-├── transactions.py      # MODIFICADO: matcher de filter (3 formas, case-
-│                        # insensitive), derivación de root/underlying,
-│                        # validación dual, field en MovementEntry; ya NO
-│                        # envía symbol upstream
-├── provider.py          # REUSADO sin cambios (response_json)
-├── positions.py         # REUSADO sin cambios (referencia de patrón OCC)
-├── log.py               # REUSADO sin cambios (events de 006)
-└── server.py            # REUSADO sin cambios (la tool ya registrada)
+├── transactions.py      # MODIFIED: filter matcher (3 forms, case-
+│                        # insensitive), root/underlying derivation,
+│                        # dual validation, field in MovementEntry; no
+│                        # longer sends symbol upstream
+├── provider.py          # REUSED unchanged (response_json)
+├── positions.py         # REUSED unchanged (OCC pattern reference)
+├── log.py               # REUSED unchanged (006 events)
+└── server.py            # REUSED unchanged (already-registered tool)
 
 tests/
-├── unit/                # tests TDD: matching, subset-consistency, validación
-│                        # dual, underlying_symbol, case-insensitivity
-└── performance/         # presupuestos extendidos (16 KB con campo nuevo)
+├── unit/                # TDD tests: matching, subset-consistency, dual
+│                        # validation, underlying_symbol, case-insensitivity
+└── performance/         # extended budgets (16 KB with the new field)
 ```
 
-**Structure Decision**: sin módulos nuevos; la extensión vive en
-`transactions.py` (matcher puro + derivación de root + wiring en la
-orquestación existente). `server.py` no cambia (mismos parámetros de
-input).
+**Structure Decision**: no new modules; the extension lives in
+`transactions.py` (pure matcher + root derivation + wiring in the
+existing orchestration). `server.py` does not change (same input
+parameters).
 
 ## Complexity Tracking
 
 > **Fill ONLY if Constitution Check has violations that must be justified**
 
-Sin entradas: no hay violaciones de constitución que justificar.
+No entries: no constitution violations to justify.

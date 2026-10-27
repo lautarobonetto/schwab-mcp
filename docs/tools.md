@@ -1,121 +1,121 @@
-# Interfaz para agentes de AI
+# Interface for AI agents
 
-Referencia completa de la superficie consumible por un agente de AI
-(por ejemplo, OpenClaw). Documenta **cada comando y cada campo** de la
-salida, con semántica exacta para que el agente pueda decidir sin
-intervención humana.
+Complete reference of the surface consumable by an AI agent
+(for example, OpenClaw). It documents **every command and every field** of
+the output, with exact semantics so the agent can decide without
+human intervention.
 
-**Versión del documento**: 0.6.2 (ver [CHANGELOG](./CHANGELOG.md)).
+**Document version**: 0.6.2 (see [CHANGELOG](./CHANGELOG.md)).
 
-## Cómo se consume este MCP
+## How this MCP is consumed
 
-El proyecto expone **dos superficies**, con roles distintos:
+The project exposes **two surfaces**, with different roles:
 
-| Superficie | Cómo se invoca | Estado en esta versión |
+| Surface | How it is invoked | State in this version |
 |------------|----------------|------------------------|
-| Servidor MCP `serve` | Cliente MCP conecta por **stdio** | Transporte activo; **3 tools registradas** (`get_open_positions`, `get_transaction_history` y `get_option_chain`) |
-| CLI one-shot | El agente corre `schwab-mcp <comando>` por shell | **Superficie principal del agente** hoy |
+| MCP server `serve` | MCP client connects over **stdio** | Active transport; **3 tools registered** (`get_open_positions`, `get_transaction_history` and `get_option_chain`) |
+| One-shot CLI | The agent runs `schwab-mcp <command>` through the shell | **The agent's main surface** today |
 
-Las herramientas ``get_open_positions``, ``get_transaction_history`` y
-``get_option_chain`` (primera, segunda y tercera tool MCP registradas)
-están disponibles a través del servidor ``serve``, complementando los
-comandos one-shot descritos abajo.
+The tools ``get_open_positions``, ``get_transaction_history`` and
+``get_option_chain`` (first, second and third MCP tools registered)
+are available through the ``serve`` server, complementing the
+one-shot commands described below.
 
-Garantías transversales de **todos** los comandos agent-facing:
+Cross-cutting guarantees of **all** agent-facing commands:
 
-- **No interactivos**: nunca abren browser, nunca leen stdin, nunca
-  escuchan en sockets. Seguros para ejecución desatendida.
-- **Salida parseable**: exactamente **una línea JSON** en stdout;
-  nada más en stdout. Mensajes auxiliares y eventos van a stderr.
-- **Sin secretos**: ningún campo contiene tokens, app keys/secretos ni
-  URLs de autorización. Hay un filtro de redacción activo como defensa
-  adicional (stderr incluido).
-- **Tiempo acotado**: ningún comando se cuelga; presupuestos por comando.
-- **Seguros ante concurrencia**: coordinación por lock; corrompen nada.
+- **Non-interactive**: never open a browser, never read stdin, never
+  listen on sockets. Safe for unattended execution.
+- **Parseable output**: exactly **one JSON line** on stdout;
+  nothing else on stdout. Auxiliary messages and events go to stderr.
+- **No secrets**: no field contains tokens, app keys/secrets or
+  authorization URLs. A redaction filter is active as an additional
+  defense (stderr included).
+- **Bounded time**: no command hangs; budgets per command.
+- **Concurrency-safe**: lock-based coordination; they corrupt nothing.
 
 ---
 
-## `get_open_positions` (primera tool MCP)
+## `get_open_positions` (first MCP tool)
 
-Primera herramienta MCP registrada por el servidor ``serve`` (feature
-``003-list-open-positions``). Recupera todas las tenencias efectivas de
-todas las cuentas vinculadas en una sola llamada upstream, con resultados
-estructurados auto-clasificantes.
+First MCP tool registered by the ``serve`` server (feature
+``003-list-open-positions``). Retrieves all effective holdings of
+all linked accounts in a single upstream call, with self-classifying
+structured results.
 
-### Invocación
+### Invocation
 
 ```json
 {"name": "get_open_positions", "arguments": {}}
 ```
 
-### Argumentos (input schema)
+### Arguments (input schema)
 
-| Campo | Tipo | Default | Semántica |
+| Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| ``extended`` | bool | ``false`` | ``false`` (default): solo el set curado (compacto). ``true``: cada posición agrega el objeto ``extended`` con el passthrough completo del proveedor. |
+| ``extended`` | bool | ``false`` | ``false`` (default): curated set only (compact). ``true``: each position adds the ``extended`` object with the full provider passthrough. |
 
-Sin otros parámetros en v1: la consulta cubre siempre **todas** las
-cuentas vinculadas.
+No other parameters in v1: the query always covers **all** the
+linked accounts.
 
 ### Output schema
 
-Exactamente un objeto ``PositionsResult`` por invocación. Campos:
+Exactly one ``PositionsResult`` object per invocation. Fields:
 
-| Campo | Tipo | Valores |
+| Field | Type | Values |
 |-------|------|---------|
-| ``outcome`` | enum cerrado | ``ok`` · ``partial_failure`` · ``transient_failure`` · ``reauth_required`` |
-| ``positions`` | array | Entradas ``PositionEntry``; ``[]`` válido solo con ``outcome: "ok"`` |
-| ``accounts_failed`` | array \| ausente | Solo ``partial_failure``: ``[{account_hash, detail}]``, ``detail ∈ {provider_error, transient}`` |
-| ``retryable`` | bool | ``true`` solo cuando ``outcome == "transient_failure"`` |
-| ``detail`` | enum cerrado | ``data_received`` · ``no_positions`` · ``account_failed`` · ``provider_unreachable`` · ``reauth_needed`` · ``store_absent`` · ``store_corrupted`` |
-| ``retrieved_at`` | string ISO-8601 UTC | Momento de recuperación del payload del proveedor |
+| ``outcome`` | closed enum | ``ok`` · ``partial_failure`` · ``transient_failure`` · ``reauth_required`` |
+| ``positions`` | array | ``PositionEntry`` entries; ``[]`` valid only with ``outcome: "ok"`` |
+| ``accounts_failed`` | array \| absent | Only ``partial_failure``: ``[{account_hash, detail}]``, ``detail ∈ {provider_error, transient}`` |
+| ``retryable`` | bool | ``true`` only when ``outcome == "transient_failure"`` |
+| ``detail`` | closed enum | ``data_received`` · ``no_positions`` · ``account_failed`` · ``provider_unreachable`` · ``reauth_needed`` · ``store_absent`` · ``store_corrupted`` |
+| ``retrieved_at`` | string ISO-8601 UTC | Time the provider payload was retrieved |
 
-El ``account_hash`` es el ``hashValue`` opaco del proveedor (de
-``linked_accounts()``, cruzado por ``accountNumber``) — el mismo
-identificador que expone ``get_transaction_history``, consistente en toda
-la superficie MCP.
+The ``account_hash`` is the provider's opaque ``hashValue`` (from
+``linked_accounts()``, cross-referenced by ``accountNumber``) — the same
+identifier exposed by ``get_transaction_history``, consistent across
+the whole MCP surface.
 
-El esquema completo de ``PositionEntry`` y las reglas de validación
-cruzada están en el
+The full ``PositionEntry`` schema and the cross-validation
+rules are in the
 [data model](../specs/003-list-open-positions/data-model.md).
 
 ### Error mapping
 
-| Condición | ``outcome`` | ``retryable`` | Acción del agente |
+| Condition | ``outcome`` | ``retryable`` | Agent action |
 |-----------|-------------|---------------|-------------------|
-| Red/proveedor no disponible | ``transient_failure`` | ``true`` | Reintentar con backoff |
-| Refresh rechazado / store corrupto | ``reauth_required`` | ``false`` | Notificar al dueño (``schwab-mcp auth``), monitorear con ``auth-status`` |
-| Algunas cuentas fallaron, otras no | ``partial_failure`` | ``false`` | Evaluar si reintentar; datos parciales en ``positions`` |
-| Todas las cuentas respondieron | ``ok`` | ``false`` | Continuar normalmente |
+| Network/provider unavailable | ``transient_failure`` | ``true`` | Retry with backoff |
+| Refresh rejected / corrupted store | ``reauth_required`` | ``false`` | Notify the owner (``schwab-mcp auth``), monitor with ``auth-status`` |
+| Some accounts failed, others did not | ``partial_failure`` | ``false`` | Assess whether to retry; partial data in ``positions`` |
+| All accounts responded | ``ok`` | ``false`` | Continue normally |
 
-### Garantías
+### Guarantees
 
-- **Read-only**: no coloca órdenes ni mueve dinero.
-- **Sin secretos**: ningún token/credencial en la salida.
-- **Presupuesto**: ≤ 5 s de latencia; ≤ 8 KB default (≈ 2 000 tokens),
+- **Read-only**: places no orders and moves no money.
+- **No secrets**: no token/credential in the output.
+- **Budget**: ≤ 5 s latency; ≤ 8 KB default (≈ 2,000 tokens),
   ≤ 16 KB extended.
-- **Sin reintentos internos** ante fallo transitorio (FR-007): el agente
-  decide.
+- **No internal retries** on transient failure (FR-007): the agent
+  decides.
 
-### Referencia
+### Reference
 
-- Contrato completo:
+- Full contract:
   [`specs/003-list-open-positions/contracts/mcp-tools.md`](../specs/003-list-open-positions/contracts/mcp-tools.md)
 - Data model:
   [`specs/003-list-open-positions/data-model.md`](../specs/003-list-open-positions/data-model.md)
-- Eventos de auditoría:
+- Audit events:
   [`specs/003-list-open-positions/contracts/events.md`](../specs/003-list-open-positions/contracts/events.md)
 
 ---
 
-## `get_transaction_history` (segunda tool MCP)
+## `get_transaction_history` (second MCP tool)
 
-Segunda herramienta MCP registrada por el servidor ``serve`` (feature
-``006-transaction-history``). Recupera el historial de transacciones de
-todas las cuentas vinculadas en un rango de fechas, con resultados
-estructurados y paginación determinista.
+Second MCP tool registered by the ``serve`` server (feature
+``006-transaction-history``). Retrieves the transaction history of
+all linked accounts in a date range, with structured results and
+deterministic pagination.
 
-### Invocación
+### Invocation
 
 ```json
 {
@@ -127,7 +127,7 @@ estructurados y paginación determinista.
 }
 ```
 
-Con filtro por instrumento y paginación:
+With instrument filter and pagination:
 
 ```json
 {
@@ -141,39 +141,39 @@ Con filtro por instrumento y paginación:
 }
 ```
 
-### Argumentos (input schema)
+### Arguments (input schema)
 
-| Campo | Tipo | Default | Semántica |
+| Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| `start_date` | string | obligatorio | Fecha inicio del rango, `YYYY-MM-DD`. Borde **inclusivo**, interpretado en America/New_York. |
-| `end_date` | string | obligatorio | Fecha fin del rango, `YYYY-MM-DD`. Borde **inclusivo**; no puede ser futura. |
-| `symbol` | string \| ausente | sin filtro | Si está presente: solo movimientos que **involucran** a ese instrumento (data-model §2): el símbolo registrado coincide exactamente (M1), o es una opción cuyo subyacente (root OCC) coincide (M2), o es un símbolo OCC completo (M3). Comparación **insensible a mayúsculas**. Validación dual: si el directorio no resuelve el filtro, se consulta igual y solo se reporta `instrument_not_found` si ningún movimiento matchea (FR-003). **Ya no se envía upstream** (research R1) — el filtro se aplica localmente. |
-| `extended` | bool | `false` | `false` (default): set curado compacto. `true`: cada movimiento agrega `extended` con el passthrough del proveedor (type original, descripción completa, fees, netAmount, transferItems…). |
-| `offset` | int | `0` | Continuación de paginación: repetir la misma consulta con el `next_offset` recibido. |
+| `start_date` | string | required | Range start date, `YYYY-MM-DD`. **Inclusive** bound, interpreted in America/New_York. |
+| `end_date` | string | required | Range end date, `YYYY-MM-DD`. **Inclusive** bound; cannot be in the future. |
+| `symbol` | string \| absent | no filter | If present: only movements that **involve** that instrument (data-model §2): the registered symbol matches exactly (M1), or it is an option whose underlying (OCC root) matches (M2), or it is a full OCC symbol (M3). **Case-insensitive** comparison. Dual validation: if the directory does not resolve the filter, the query proceeds anyway and `instrument_not_found` is reported only if no movement matches (FR-003). **No longer sent upstream** (research R1) — the filter is applied locally. |
+| `extended` | bool | `false` | `false` (default): compact curated set. `true`: each movement adds `extended` with the provider passthrough (original type, full description, fees, netAmount, transferItems…). |
+| `offset` | int | `0` | Pagination continuation: repeat the same query with the received `next_offset`. |
 
-Ventana máxima: **1 año** (366 días calendario) entre `start_date` y
-`end_date`. Rangos mayores → error de validación que indica el máximo
-y sugiere dividir la consulta.
+Maximum window: **1 year** (366 calendar days) between `start_date` and
+`end_date`. Larger ranges → validation error stating the maximum
+and suggesting splitting the query.
 
 ### Output schema
 
-Exactamente un objeto `TransactionsResult` por invocación:
+Exactly one `TransactionsResult` object per invocation:
 
-| Campo | Tipo | Presencia | Semántica |
+| Field | Type | Presence | Semantics |
 |-------|------|-----------|-----------|
-| `outcome` | enum cerrado | siempre | `ok` · `partial_failure` · `transient_failure` · `reauth_required` |
-| `detail` | enum cerrado | siempre | `history_retrieved` · `no_movements` · `no_movements_for_instrument` · `account_failed` · `provider_unreachable` · `reauth_needed` |
-| `retryable` | bool | siempre | `true` solo cuando `outcome == "transient_failure"` |
-| `retrieved_at` | string ISO-8601 UTC | siempre | Momento de recuperación del payload del proveedor |
-| `total_count` | int | `outcome=ok` | Total de movimientos del rango completo (todas las páginas) |
-| `movements` | array | `outcome=ok` | Lista de entradas `MovementEntry` (ver data-model); `[]` válido solo con `no_movements`/`no_movements_for_instrument` |
-| `returned` | int | `outcome=ok` | Cantidad de movimientos en esta página (≤ 50) |
-| `has_more` | bool | `outcome=ok` | `true` si quedan movimientos por entregar |
-| `next_offset` | int \| ausente | solo `has_more=true` | Offset para la solicitar la siguiente página |
-| `accounts_failed` | array \| ausente | solo `partial_failure` | `[{"account_hash": str, "detail": "provider_error"|"transient"}]` |
-| `offset_echo` | int | `outcome=ok` | Offset efectivo aplicado a esta página |
+| `outcome` | closed enum | always | `ok` · `partial_failure` · `transient_failure` · `reauth_required` |
+| `detail` | closed enum | always | `history_retrieved` · `no_movements` · `no_movements_for_instrument` · `account_failed` · `provider_unreachable` · `reauth_needed` |
+| `retryable` | bool | always | `true` only when `outcome == "transient_failure"` |
+| `retrieved_at` | string ISO-8601 UTC | always | Time the provider payload was retrieved |
+| `total_count` | int | `outcome=ok` | Total movements in the full range (all pages) |
+| `movements` | array | `outcome=ok` | List of `MovementEntry` entries (see data-model); `[]` valid only with `no_movements`/`no_movements_for_instrument` |
+| `returned` | int | `outcome=ok` | Number of movements on this page (≤ 50) |
+| `has_more` | bool | `outcome=ok` | `true` if more movements remain to be delivered |
+| `next_offset` | int \| absent | only `has_more=true` | Offset to request the next page |
+| `accounts_failed` | array \| absent | only `partial_failure` | `[{"account_hash": str, "detail": "provider_error"|"transient"}]` |
+| `offset_echo` | int | `outcome=ok` | Effective offset applied to this page |
 
-Ejemplo de respuesta (`ok`, primera página):
+Example response (`ok`, first page):
 
 ```json
 {
@@ -212,153 +212,153 @@ Ejemplo de respuesta (`ok`, primera página):
 }
 ```
 
-Cada `MovementEntry` contiene:
+Each `MovementEntry` contains:
 
-| Campo | Tipo | Presencia | Semántica |
+| Field | Type | Presence | Semantics |
 |-------|------|-----------|-----------|
-| `account_hash` | string | siempre | Identificador opaco de la cuenta (nunca número de cuenta) |
-| `occurred_at` | string ISO-8601 | siempre | Fecha/hora del movimiento (timezone del proveedor) |
-| `category` | enum cerrado | siempre | Categoría normalizada: `trade` · `transfer` · `dividend_or_interest` · `adjustment` · `other` |
-| `description` | string | siempre | Descripción legible, **truncada a 80 caracteres** en default (texto completo en `extended`) |
-| `amount` | float | siempre | Efecto monetario principal (signo del proveedor, no reinterpretado) |
-| `currency` | string | siempre | Moneda del movimiento (default `"USD"`) |
-| `symbol` | string \| ausente | solo si hay instrumento | Símbolo del instrumento referenciado. En trades con patas de efectivo/comisiones (`transferItems`), se cura el **primer instrumento no-divisa** (las patas `CURRENCY_USD` van primero en el payload real); `CURRENCY_USD` solo si el movimiento es genuinamente de efectivo |
-| `instrument_type` | string \| ausente | solo si hay instrumento | Tipo de activo (`EQUITY`, `ETF`, `OPTION`, …) |
-| `underlying_symbol` | string \| ausente | solo movimientos de opción con OCC identificable | Subyacente de la opción: root del símbolo OCC sin padding (p. ej. `"NOK"` desde `"NOK   261218P00011000"`). Ausente para no-opciones. |
-| `extended` | object \| ausente | solo `extended=true` | Passthrough del proveedor: type original, descripción completa, fees, netAmount, transferItems… |
+| `account_hash` | string | always | Opaque account identifier (never an account number) |
+| `occurred_at` | string ISO-8601 | always | Movement date/time (provider timezone) |
+| `category` | closed enum | always | Normalized category: `trade` · `transfer` · `dividend_or_interest` · `adjustment` · `other` |
+| `description` | string | always | Readable description, **truncated to 80 characters** in default mode (full text in `extended`) |
+| `amount` | float | always | Main monetary effect (provider sign, not reinterpreted) |
+| `currency` | string | always | Movement currency (default `"USD"`) |
+| `symbol` | string \| absent | only if there is an instrument | Symbol of the referenced instrument. In trades with cash/commission legs (`transferItems`), the **first non-currency instrument** is curated (`CURRENCY_USD` legs come first in the real payload); `CURRENCY_USD` only if the movement is genuinely cash |
+| `instrument_type` | string \| absent | only if there is an instrument | Asset type (`EQUITY`, `ETF`, `OPTION`, …) |
+| `underlying_symbol` | string \| absent | only option movements with an identifiable OCC | Underlying of the option: unpadded OCC symbol root (e.g. `"NOK"` from `"NOK   261218P00011000"`). Absent for non-options. |
+| `extended` | object \| absent | only `extended=true` | Provider passthrough: original type, full description, fees, netAmount, transferItems… |
 
-### Semántica de outcomes y `detail`
+### Outcome and `detail` semantics
 
-| Outcome | `detail` | Significado para el agente |
+| Outcome | `detail` | Meaning for the agent |
 |---------|----------|---------------------------|
-| `ok` | `history_retrieved` | Historial recuperado; paginar con `next_offset` si `has_more` |
-| `ok` | `no_movements` | Rango válido, sin movimientos en ninguna cuenta |
-| `ok` | `no_movements_for_instrument` | Símbolo válido, sin movimientos de ese instrumento en el rango |
-| `partial_failure` | `account_failed` | Algunas cuentas fallaron (ver `accounts_failed`); datos parciales en `movements` |
-| `transient_failure` | `provider_unreachable` | Fallo transitorio en el primer intento; reintentar con backoff |
-| `reauth_required` | `reauth_needed` | Mismo playbook: no reintentar, notificar al dueño |
+| `ok` | `history_retrieved` | History retrieved; paginate with `next_offset` if `has_more` |
+| `ok` | `no_movements` | Valid range, no movements in any account |
+| `ok` | `no_movements_for_instrument` | Valid symbol, no movements of that instrument in the range |
+| `partial_failure` | `account_failed` | Some accounts failed (see `accounts_failed`); partial data in `movements` |
+| `transient_failure` | `provider_unreachable` | Transient failure on the first attempt; retry with backoff |
+| `reauth_required` | `reauth_needed` | Same playbook: do not retry, notify the owner |
 
-### Errores de validación (error estándar de tool MCP, sin upcalls)
+### Validation errors (standard MCP tool error, no upcalls)
 
-| Condición | Mensaje esperado |
+| Condition | Expected message |
 |-----------|------------------|
-| `start_date`/`end_date` ausente o mal formada | Indica el formato esperado `YYYY-MM-DD` |
-| `end_date < start_date` | Nombra ambas fechas |
-| Rango > 366 días | Indica el máximo de 1 año y sugiere dividir en consultas consecutivas |
-| `end_date` futura | Indica que la fecha fin no puede ser futura |
-| `symbol` presente, directorio no resuelve + 0 movimientos matchean | `instrument_not_found`, nombra el símbolo (validación dual) |
-| `symbol` presente, directorio no resuelve + ≥1 movimiento matchea | `ok` con los movimientos que matchean (CURRENCY_USD, OCC no registrado) |
-| `offset < 0` | Indica el valor mínimo |
+| `start_date`/`end_date` absent or malformed | States the expected `YYYY-MM-DD` format |
+| `end_date < start_date` | Names both dates |
+| Range > 366 days | States the 1-year maximum and suggests splitting into consecutive queries |
+| Future `end_date` | States that the end date cannot be in the future |
+| `symbol` present, directory does not resolve + 0 movements match | `instrument_not_found`, names the symbol (dual validation) |
+| `symbol` present, directory does not resolve + ≥1 movement matches | `ok` with the matching movements (CURRENCY_USD, unregistered OCC) |
+| `offset < 0` | States the minimum value |
 
-Errores por cuenta (`accounts_failed[].detail`): `provider_error` ·
-`transient` (mismo vocabulario de `get_open_positions`).
+Per-account errors (`accounts_failed[].detail`): `provider_error` ·
+`transient` (same vocabulary as `get_open_positions`).
 
-### Paginación
+### Pagination
 
-- **Límite**: máximo **50** movimientos por página.
-- **Orden**: `occurred_at` ascendente; desempate por `account_hash` y `activityId`.
-- **Continuación**: cuando `has_more=true`, repetir la misma consulta con `offset=<next_offset>`.
-- **Invariante**: recorrer con `next_offset` entrega la unión completa sin duplicados ni omisiones, sobre el snapshot del historial al momento de la consulta.
-- **Caveat de stateless**: la tool es stateless; si llegan movimientos nuevos entre páginas, el offset puede desplazarse. Paginar pronto.
+- **Limit**: at most **50** movements per page.
+- **Order**: `occurred_at` ascending; tie-break by `account_hash` and `activityId`.
+- **Continuation**: when `has_more=true`, repeat the same query with `offset=<next_offset>`.
+- **Invariant**: walking with `next_offset` delivers the complete union without duplicates or omissions, over the snapshot of the history at query time.
+- **Stateless caveat**: the tool is stateless; if new movements arrive between pages, the offset may shift. Paginate promptly.
 
-### Garantías
+### Guarantees
 
-- **Read-only**: no coloca órdenes ni mueve dinero.
-- **Sin secretos**: ningún token/credencial en la salida; `account_hash` opaco.
-- **Presupuesto**: ≤ 5 s p95 de latencia; ≤ 16 KB página default (50 movimientos, **incluyendo** `underlying_symbol` — caso peor verificado: 50 opciones); ≤ 64 KB extended.
-- **Sin truncado silencioso**: tope upstream de 3000 manejado con bisección y deduplicación.
-- **Sin reintentos internos** ante fallo transitorio (FR-010): el agente decide.
-- **Determinista**: salida reproducible para la misma consulta sin cambios subyacentes.
+- **Read-only**: places no orders and moves no money.
+- **No secrets**: no token/credential in the output; opaque `account_hash`.
+- **Budget**: ≤ 5 s p95 latency; ≤ 16 KB default page (50 movements, **including** `underlying_symbol` — verified worst case: 50 options); ≤ 64 KB extended.
+- **No silent truncation**: the upstream cap of 3000 is handled with bisection and deduplication.
+- **No internal retries** on transient failure (FR-010): the agent decides.
+- **Deterministic**: reproducible output for the same query with no underlying changes.
 
-### Caveat operacional
+### Operational caveat
 
-El proveedor puede devolver `200 OK + []` para `/transactions` cuando
-la app registrada o la cuenta carecen de permiso de lectura de
-transacciones (p. ej. cuenta sin thinkorswim habilitado). Desde la
-respuesta es indistinguible de un vacío genuino: la tool reporta
-`ok / no_movements`. Diagnóstico sugerido: si la cuenta muestra
-actividad en schwab.com y varios rangos amplios devuelven
-`no_movements` persistentemente, la causa probable es el permiso de
-la app/cuenta — no datos.
+The provider may return `200 OK + []` for `/transactions` when
+the registered app or the account lacks transaction read permission
+(e.g. an account without thinkorswim enabled). From the
+response it is indistinguishable from a genuine empty: the tool reports
+`ok / no_movements`. Suggested diagnosis: if the account shows
+activity on schwab.com and several wide ranges return
+`no_movements` persistently, the likely cause is app/account
+permission — not data.
 
-A partir de la versión 0.5.0, la validación del filtro es **dual**
-(FR-003): si el directorio de instrumentos no reconoce el símbolo
-(p. ej. `CURRENCY_USD`, un símbolo OCC completo, un subyacente sin
-entrada en el índice), la tool procede con el barrido igual y solo
-reporta `instrument_not_found` si ningún movimiento matchea el filtro
-en ninguna de las tres formas (M1 símbolo registrado, M2 root de opción,
-M3 OCC completo). Esto reemplaza el comportamiento anterior donde
-identificadores internos como `CURRENCY_USD` producían
-`instrument_not_found` a pesar de tener movimientos.
+As of version 0.5.0, filter validation is **dual**
+(FR-003): if the instrument directory does not recognize the symbol
+(e.g. `CURRENCY_USD`, a full OCC symbol, an underlying without
+an entry in the index), the tool proceeds with the sweep anyway and only
+reports `instrument_not_found` if no movement matches the filter
+in any of the three forms (M1 registered symbol, M2 option root,
+M3 full OCC). This replaces the previous behavior where
+internal identifiers like `CURRENCY_USD` produced
+`instrument_not_found` despite having movements.
 
-### Referencia
+### Reference
 
-- Contrato completo (base 006):
+- Full contract (base 006):
   [`specs/006-transaction-history/contracts/mcp-tools.md`](../specs/006-transaction-history/contracts/mcp-tools.md)
-- Extensiones filtro/underlying_symbol (007):
+- Filter/underlying_symbol extensions (007):
   [`specs/007-underlying-symbol-filter/contracts/mcp-tools.md`](../specs/007-underlying-symbol-filter/contracts/mcp-tools.md)
 - Data model:
   [`specs/006-transaction-history/data-model.md`](../specs/006-transaction-history/data-model.md) ·
   [`specs/007-underlying-symbol-filter/data-model.md`](../specs/007-underlying-symbol-filter/data-model.md)
-- Eventos de auditoría:
+- Audit events:
   [`specs/006-transaction-history/contracts/events.md`](../specs/006-transaction-history/contracts/events.md)
 
 ---
 
-## `get_option_chain` (tercera tool MCP)
+## `get_option_chain` (third MCP tool)
 
-Tercera herramienta MCP registrada por el servidor ``serve`` (feature
-``008-extract-option-chain``). Recupera la cadena de opciones de un
-subyacente en **una sola invocación**, con selección determinista de
-strikes (ventana simétrica al dinero o ventana por delta) y filtro por
-DTE. Solo lectura: no coloca órdenes ni mueve dinero.
+Third MCP tool registered by the ``serve`` server (feature
+``008-extract-option-chain``). Retrieves the option chain of an
+underlying in **a single invocation**, with deterministic
+strike selection (symmetric around-the-money window or delta window)
+and a DTE filter. Read-only: places no orders and moves no money.
 
-### Invocación
+### Invocation
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AAPL"}}
 ```
 
-### Argumentos (input schema)
+### Arguments (input schema)
 
-| Campo | Tipo | Default | Semántica |
+| Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| `symbol` | string | — (obligatorio) | Instrumento subyacente. No vacío, sin espacios internos; se pasa tal cual al proveedor. |
-| `max_strikes` | int | `50` | ≥ 1. Strikes por lado del dinero (ATM incluido) por vencimiento: hasta `2 × max_strikes` filas. Con `delta_target` no reduce esa ventana. |
-| `option_type` | enum `both` \| `calls` \| `puts` | `both` | Qué piernas incluye la respuesta. |
-| `delta_target` | number \| null | `null` | Si presente: `0 < \|delta_target\| < 1`. Selecciona, por vencimiento y por tipo incluido, hasta 5 strikes alrededor del contrato con \|delta\| más cercana al objetivo. |
-| `dte_max` | int \| null | `null` | Si presente: ≥ 1 (días de calendario). **`null` no significa "sin tope"**: aplica el tope vigente de 60 días (FR-005). |
-| `extended` | bool | `false` | `false` (default): set curado compacto. `true`: agrega `provider` con el payload crudo del proveedor (patrón 003/006). |
+| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces; passed as-is to the provider. |
+| `max_strikes` | int | `50` | ≥ 1. Strikes per side of the money (ATM included) per expiration: up to `2 × max_strikes` rows. With `delta_target` it does not reduce that window. |
+| `option_type` | enum `both` \| `calls` \| `puts` | `both` | Which legs the response includes. |
+| `delta_target` | number \| null | `null` | If present: `0 < \|delta_target\| < 1`. Selects, per expiration and per included type, up to 5 strikes around the contract with \|delta\| closest to the target. |
+| `dte_max` | int \| null | `null` | If present: ≥ 1 (calendar days). **`null` does not mean "no ceiling"**: it applies the current 60-day ceiling (FR-005). |
+| `extended` | bool | `false` | `false` (default): compact curated set. `true`: adds `provider` with the raw provider payload (003/006 pattern). |
 
 ### Output schema
 
-Exactamente un objeto resultado por invocación. Estados de resultado
-(`outcome` es el marcador explícito):
+Exactly one result object per invocation. Result states
+(`outcome` is the explicit marker):
 
-| `outcome` | `detail` | Significado para el agente |
+| `outcome` | `detail` | Meaning for the agent |
 |-----------|----------|---------------------------|
-| `ok` | `chain_retrieved` | Cadena completa en `expirations` |
-| `no_options_listed` | `no_options_listed` | El instrumento no tiene opciones listadas (resultado estructurado, **no** error) |
-| `no_expirations_in_range` | `no_expirations_in_range: dte_max_effective=N excludes all expirations` | Hay vencimientos, pero el tope de DTE los excluye a todos; `expirations: []` |
+| `ok` | `chain_retrieved` | Full chain in `expirations` |
+| `no_options_listed` | `no_options_listed` | The instrument has no listed options (structured result, **not** an error) |
+| `no_expirations_in_range` | `no_expirations_in_range: dte_max_effective=N excludes all expirations` | There are expirations, but the DTE ceiling excludes them all; `expirations: []` |
 
-Metadatos (`ok`):
+Metadata (`ok`):
 
-| Campo | Tipo | Semántica |
+| Field | Type | Semantics |
 |-------|------|-----------|
-| `symbol` | string | Eco del instrumento consultado |
-| `generated_at` | string ISO-8601 UTC | Momento de la consulta |
-| `data_state` | enum cerrado | `realtime` · `delayed` (frescura reportada por la fuente) |
-| `underlying_price` | float \| null | Precio vigente del subyacente |
-| `filters` | objeto | Eco de la consulta efectiva: `{max_strikes, option_type, delta_target, dte_max_requested, dte_max_effective}`. `dte_max_effective` es 60 o el valor pedido — el agente siempre puede verificar el tope aplicado. |
-| `contract_fields` | array de strings | Orden de columnas de cada array de pierna (23 columnas, ver abajo) |
-| `expirations` | array | Vencimientos ordenados por `expiration_date` ascendente |
+| `symbol` | string | Echo of the queried instrument |
+| `generated_at` | string ISO-8601 UTC | Time of the query |
+| `data_state` | closed enum | `realtime` · `delayed` (freshness reported by the source) |
+| `underlying_price` | float \| null | Current price of the underlying |
+| `filters` | object | Echo of the effective query: `{max_strikes, option_type, delta_target, dte_max_requested, dte_max_effective}`. `dte_max_effective` is 60 or the requested value — the agent can always verify the applied ceiling. |
+| `contract_fields` | array of strings | Column order of each leg array (23 columns, see below) |
+| `expirations` | array | Expirations ordered by ascending `expiration_date` |
 
-Cada vencimiento: `{expiration_date: "YYYY-MM-DD", dte: int,
-atm_strike: float, strikes: [...]}` — `dte` en días de calendario;
-`atm_strike` es el strike más cercano a `underlying_price` (empates: el
-menor); `strikes` ordenados por strike ascendente.
+Each expiration: `{expiration_date: "YYYY-MM-DD", dte: int,
+atm_strike: float, strikes: [...]}` — `dte` in calendar days;
+`atm_strike` is the strike closest to `underlying_price` (ties: the
+lowest); `strikes` ordered by ascending strike.
 
-#### Columnas de cada pierna (`contract_fields`, orden fijo)
+#### Columns of each leg (`contract_fields`, fixed order)
 
 ```json
 ["bid", "ask", "last", "mark", "mark_change", "mark_pct_change",
@@ -368,176 +368,178 @@ menor); `strikes` ordenados por strike ascendente.
  "deliverable_note"]
 ```
 
-Forma **columnar** de cada fila de strike
+**Columnar** shape of each strike row
 (`{strike: float, call: [...], put: [...]}`):
 
-- Cada pierna es un **array posicional** en el orden de `contract_fields`
-  (declarado en la propia respuesta). El array puede traer menos
-  elementos cuando los campos finales no están informados.
-- Campo ausente en la fuente → `null` explícito en su columna
-  (FR-007); nunca se inventan valores.
-- `call`/`put` **ausente** (no `null`) cuando el tipo está excluido por
-  `option_type` o el strike quedó fuera de la ventana de delta de ese
-  tipo. La fila existe si al menos una pierna incluida la seleccionó.
-- Las 5 griegas (`delta`, `gamma`, `theta`, `vega`, `rho`) están
-  presentes por contrato o con `null` explícito (FR-006/FR-007).
-- Redondeo determinista: precios/valores 2 decimales; griegas e IV 4
-  decimales; `volume`/`open_interest`/`multiplier` sin redondeo
-  (enteros: los floats integrales de la fuente se normalizan a `int`);
-  `trade_time` en ISO-8601 UTC — `null` cuando el contrato nunca operó
-  (la fuente manda epoch `0`; FR-007: no inventar datos).
+- Each leg is a **positional array** in the order of `contract_fields`
+  (declared in the response itself). The array may carry fewer
+  elements when the trailing fields are not reported.
+- Field missing at the source → explicit `null` in its column
+  (FR-007); values are never invented.
+- `call`/`put` **absent** (not `null`) when the type is excluded by
+  `option_type` or the strike fell outside that type's delta window.
+  The row exists if at least one included type selected it.
+- The 5 Greeks (`delta`, `gamma`, `theta`, `vega`, `rho`) are
+  present by contract or with explicit `null` (FR-006/FR-007).
+- Deterministic rounding: prices/values to 2 decimals; Greeks and IV
+  to 4 decimals; `volume`/`open_interest`/`multiplier` unrounded
+  (integers: integral floats from the source are normalized to `int`);
+  `trade_time` in ISO-8601 UTC — `null` when the contract never
+  traded (the source sends epoch `0`; FR-007: never invent data).
 
-#### Selección de strikes (resumen normativo)
+#### Strike selection (normative summary)
 
-- **Sin `delta_target`**: por vencimiento, hasta `max_strikes` strikes
-  más cercanos por debajo y por encima de `atm_strike` (ATM incluido si
-  existe) → ≤ `2 × max_strikes` filas por vencimiento.
-- **Con `delta_target`**: por vencimiento y **por tipo incluido**,
-  contrato con \|delta\| más cercana al objetivo + 2 contiguos por lado
-  → hasta 5 strikes por tipo. `max_strikes` no interviene.
-- **DTE**: solo vencimientos con `dte ≤ dte_max_effective`.
+- **Without `delta_target`**: per expiration, up to `max_strikes`
+  closest strikes below and above `atm_strike` (ATM included if
+  present) → ≤ `2 × max_strikes` rows per expiration.
+- **With `delta_target`**: per expiration and **per included type**,
+  the contract with \|delta\| closest to the target + 2 contiguous per
+  side → up to 5 strikes per type. `max_strikes` does not intervene.
+- **DTE**: only expirations with `dte ≤ dte_max_effective`.
 
 #### `extended=true`
 
-Agrega `provider` con el payload crudo de la fuente (sin curado). Los
-campos estructurales excluidos del formato curado (`skipBars`,
-`isPitRanged`, `executable`, `settlementType`, `deliverables`) son
-accesibles por esta vía.
+Adds `provider` with the raw source payload (uncurated). Structural
+fields excluded from the curated format (`skipBars`,
+`isPitRanged`, `executable`, `settlementType`, `deliverables`) are
+accessible through this path.
 
-### Tamaño esperado del payload (Presupuesto, Principio V)
+### Expected payload size (Budget, Principle V)
 
-**Esta tool es la de mayor payload de la superficie MCP** — presupuestala
-antes de invocarla:
+**This tool has the largest payload on the MCP surface** — budget it
+before invoking:
 
-| Filtros | Tamaño esperado | Presupuesto normativo |
+| Filters | Expected size | Normative budget |
 |---------|-----------------|-----------------------|
-| Por defecto (cadena ancha: ~12 vencimientos × ≤ 100 filas de strike) | ~95–106k tokens | **≤ 110.000 tokens** |
-| Con `delta_target` (subyacente típico: 10–12 vencimientos) | ~4,5–5k tokens | **≤ 8.000 tokens** |
-| Con `delta_target` (cadena ancha live: 16 vencimientos, SPY/QQQ) | ~7,2–7,3k tokens | **≤ 8.000 tokens** |
+| Default (wide chain: ~12 expirations × ≤ 100 strike rows) | ~95–106k tokens | **≤ 110,000 tokens** |
+| With `delta_target` (typical underlying: 10–12 expirations) | ~4.5–5k tokens | **≤ 8,000 tokens** |
+| With `delta_target` (live wide chain: 16 expirations, SPY/QQQ) | ~7.2–7.3k tokens | **≤ 8,000 tokens** |
 
-> **Justificación registrada del crecimiento** (Principio V): los
-> presupuestos se ajustaron el 2026-10-24 por decisión del usuario
-> porque la medición honesta de las filas de ambas piernas con las 23
-> columnas exigidas da ~80–88 tokens por fila, y el contenido de la
-> respuesta está fijado por FR-002/FR-006 (no admite recorte sin violar
-> la spec). **Re-baseline posterior (misma fecha, convergencia T023)**:
-> el presupuesto de `delta_target` pasó de <6.000 a ≤8.000 porque la
-> ventana de 5 strikes por tipo aplica **por vencimiento** (FR-004) y el
-> volumen escala con los vencimientos que el tope de DTE deja pasar —
-> cadenas live de 16 vencimientos (SPY/QQQ) miden ~7,2–7,3k tokens.
-> La justificación completa del crecimiento está registrada en
+> **Recorded growth justification** (Principle V): the
+> budgets were adjusted on 2026-10-24 by user decision
+> because an honest measurement of both-legs rows with the required 23
+> columns yields ~80–88 tokens per row, and the content of the
+> response is fixed by FR-002/FR-006 (it does not admit trimming
+> without violating the spec). **Later re-baseline (same date,
+> convergence T023)**: the `delta_target` budget moved from <6,000 to
+> ≤8,000 because the 5-strike window per type applies **per
+> expiration** (FR-004) and volume scales with the expirations the
+> DTE ceiling lets through — live chains of 16 expirations
+> (SPY/QQQ) measure ~7.2–7.3k tokens.
+> The full growth justification is recorded in
 > [`specs/008-extract-option-chain/plan.md`](../specs/008-extract-option-chain/plan.md)
 > (Complexity Tracking).
 
-**Consejo para el agente**: si solo necesitás un slice de la cadena,
-preferí `delta_target`, `max_strikes` chico o `dte_max` bajo — reducen el
-payload sin paginar (la tool no pagina). El límite FR-012 garantiza que
-la respuesta nunca excede `expirations × types × strikes`.
+**Tip for the agent**: if you only need a slice of the chain,
+prefer `delta_target`, a small `max_strikes` or a low `dte_max` — they reduce the
+payload without paginating (the tool does not paginate). The FR-012
+limit guarantees the response never exceeds `expirations × types × strikes`.
 
-### Errores de validación (error estándar de tool MCP, sin upcalls)
+### Validation errors (standard MCP tool error, no upcalls)
 
-Todos ocurren **antes de cualquier upcall** (FR-008) con mensaje
-accionable que nombra el parámetro y la restricción:
+All occur **before any upcall** (FR-008) with an actionable
+message naming the parameter and the constraint:
 
-| Condición | Mensaje esperado |
+| Condition | Expected message |
 |-----------|------------------|
-| `symbol` vacío o solo espacios | Nombra `symbol` y la restricción de no vacío |
-| `symbol` con espacios internos | Nombra `symbol` y la restricción |
-| `max_strikes ≤ 0` | Nombra `max_strikes` y `>= 1` |
-| `option_type` fuera del enum | Nombra `option_type` y los valores `both, calls, puts` |
-| `\|delta_target\| ∉ (0,1)` | Nombra `delta_target` y `0 < \|delta_target\| < 1` |
-| `dte_max ≤ 0` | Nombra `dte_max` y `>= 1` |
+| `symbol` empty or whitespace only | Names `symbol` and the non-empty constraint |
+| `symbol` with internal spaces | Names `symbol` and the constraint |
+| `max_strikes ≤ 0` | Names `max_strikes` and `>= 1` |
+| `option_type` outside the enum | Names `option_type` and the values `both, calls, puts` |
+| `\|delta_target\| ∉ (0,1)` | Names `delta_target` and `0 < \|delta_target\| < 1` |
+| `dte_max ≤ 0` | Names `dte_max` and `>= 1` |
 
-### Errores comunes de invocación (trampas reales — leer antes de llamar)
+### Common invocation errors (real pitfalls — read before calling)
 
-Fallos observados en la práctica con agentes; cada uno produce un error
-de validación evitable:
+Failures observed in practice with agents; each produces an avoidable
+validation error:
 
-1. **`option_type` es un enum en PLURAL**: los únicos valores válidos son
-   `both`, `calls`, `puts`. `option_type: "put"` (singular) se rechaza
-   con `option_type must be one of: both, calls, puts`. No traduzcas
-   "quiero los puts" a `"put"` — el enum ya está definido.
-2. **`dte_max` es un tope, NO un mínimo.** No existe `dte_min`. Para
-   buscar vencimientos con **DTE ≥ N**: invocá con `dte_max` máximo
-   permitido y filtrá en el cliente usando `expirations[].dte`. Además,
-   como el tope duro es 60 días, la tool **nunca** puede devolver
-   vencimientos con `dte > 60` — si tu análisis requiere más lejanía,
-   la tool no alcanza y hay que decirlo explícitamente.
-3. **`dte_max: null` no significa "sin tope"**: aplica el tope vigente
-   de 60 días (verificable en `filters.dte_max_effective`).
-4. **Con `delta_target` la ventana es angosta**: hasta **5 strikes por
-   tipo y por vencimiento** alrededor del anchor de delta; `max_strikes`
-   no interviene. Un barrido de toda la cadena (ej. para armar spreads
-   buscando pares de strikes) **no se logra con un solo llamado**: hay
-   que hacer varios con `delta_target` distinto (ej. 0.2, 0.35, 0.5) y
-   mergear por strike, o llamar sin `delta_target` con `max_strikes`
-   grande y aceptar el payload enorme.
-5. **`delta_target` es sobre \|delta\| absoluta**: para puts la delta es
-   negativa, pero `delta_target: 0.2` selecciona el put con
-   |delta| ≈ 0.2 (delta ≈ −0.2). No pasar `delta_target: -0.2`
-   esperando otro resultado — es equivalente.
-6. **`extended: true` multiplica el payload**: incluye el passthrough
-   crudo completo del proveedor. Solo usarlo si realmente se necesita
-   un campo que no está en el formato curado.
+1. **`option_type` is a PLURAL enum**: the only valid values are
+   `both`, `calls`, `puts`. `option_type: "put"` (singular) is rejected
+   with `option_type must be one of: both, calls, puts`. Do not translate
+   "I want the puts" into `"put"` — the enum is already defined.
+2. **`dte_max` is a ceiling, NOT a minimum.** There is no `dte_min`. To
+   look for expirations with **DTE ≥ N**: invoke with the maximum
+   allowed `dte_max` and filter client-side using `expirations[].dte`. Also,
+   since the hard ceiling is 60 days, the tool can **never** return
+   expirations with `dte > 60` — if your analysis requires further out,
+   the tool falls short and that must be stated explicitly.
+3. **`dte_max: null` does not mean "no ceiling"**: it applies the current
+   60-day ceiling (verifiable in `filters.dte_max_effective`).
+4. **With `delta_target` the window is narrow**: up to **5 strikes per
+   type and per expiration** around the delta anchor; `max_strikes`
+   does not intervene. Sweeping the whole chain (e.g. to build spreads
+   by looking for strike pairs) **cannot be done in a single call**:
+   make several calls with different `delta_target` values (e.g. 0.2,
+   0.35, 0.5) and merge by strike, or call without `delta_target` with
+   a large `max_strikes` and accept the huge payload.
+5. **`delta_target` is about absolute \|delta\|**: for puts the delta is
+   negative, but `delta_target: 0.2` selects the put with
+   |delta| ≈ 0.2 (delta ≈ −0.2). Do not pass `delta_target: -0.2`
+   expecting a different result — it is equivalent.
+6. **`extended: true` multiplies the payload**: it includes the full raw
+   provider passthrough. Use it only if you really need
+   a field that is not in the curated format.
 
-### Recetas para estrategias comunes
+### Recipes for common strategies
 
-**Piernas de un short strangle (put y call OTM a |delta| ~0.2), DTE ≥ 45:**
+**Legs of a short strangle (OTM put and call at |delta| ~0.2), DTE ≥ 45:**
 
 ```json
 {"name": "get_option_chain", "arguments": {
   "symbol": "SPY", "option_type": "both", "delta_target": 0.2, "max_strikes": 3, "extended": true}}
 ```
 
-Post-proceso en el cliente: descartar vencimientos con `dte < 45`; el
-put con delta ≈ −0.2 es la pierna corta baja, el call con delta ≈ +0.2
-la corta alta.
+Client-side post-processing: discard expirations with `dte < 45`; the
+put with delta ≈ −0.2 is the lower short leg, the call with delta ≈ +0.2
+the upper short leg.
 
-**Barrido de puts para armar credit spreads de ancho fijo** (ej. $10):
+**Put sweep to build fixed-width credit spreads** (e.g. $10):
 
-El ancho se arma con pares de strikes; la ventana de `delta_target` es
-demasiado angosta para cubrir la zona entre el short y el long. Hacer
-**múltiples llamadas con `delta_target` escalonado** (0.2, 0.35, 0.5)
-con `option_type: "puts"` y mergear los strikes dedup by strike; luego
-calcular el crédito de cada par `(S, S − ancho)` en el cliente.
+The width is built with strike pairs; the `delta_target` window is
+too narrow to cover the zone between the short and the long. Make
+**multiple calls with staggered `delta_target`** (0.2, 0.35, 0.5)
+with `option_type: "puts"` and merge the strikes, deduplicating by
+strike; then compute the credit of each pair `(S, S − width)`
+client-side.
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AMD", "option_type": "puts", "delta_target": 0.35}}
 ```
 
-**Slice corto acotado por precio y tiempo:**
+**Short slice bounded by price and time:**
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AAPL", "max_strikes": 10, "dte_max": 7}}
 ```
 
-### Errores de fuente (mapeo estándar compartido)
+### Source errors (shared standard mapping)
 
-| Condición | Comportamiento | Acción del agente |
+| Condition | Behavior | Agent action |
 |-----------|----------------|-------------------|
-| Vencimiento entero sin datos (FR-013, `ChainDataError`) | **Error** estructurado que nombra la fecha y el tipo; **nunca** cadena parcial | Reintentar más tarde o reducir el alcance; no confiar en datos parciales |
-| 401/403 | Re-autenticación requerida | Playbook de `renew` (`reauth_required`) |
-| 5xx/408/429 | Fallo transitorio | Reintentar con backoff |
-| Otro 4xx | El proveedor revisó y rechazó el pedido | Corregir parámetros; no reintentar idéntico |
+| Entire expiration without data (FR-013, `ChainDataError`) | Structured **error** naming the date and the type; **never** a partial chain | Retry later or reduce the scope; do not trust partial data |
+| 401/403 | Reauthorization required | `renew` playbook (`reauth_required`) |
+| 5xx/408/429 | Transient failure | Retry with backoff |
+| Other 4xx | The provider reviewed and rejected the request | Fix the parameters; do not retry identically |
 
-La taxonomía de errores de proveedor es la **compartida** con
-`get_open_positions` y `get_transaction_history`
-(`provider.response_json`): ver sus secciones de error para el detalle
-del manejo de `reauth_required` y fallos transitorios. FR-013: una
-asimetría a nivel de **fecha** entre los mapas incluidos (un vencimiento
-con datos en un tipo y sin datos en el otro) es cadena parcial → error;
-la asimetría a nivel de **strike** es normal: ese strike conserva solo
-la pierna existente y la fila omite la otra clave.
+The provider error taxonomy is **shared** with
+`get_open_positions` and `get_transaction_history`
+(`provider.response_json`): see their error sections for details
+on handling `reauth_required` and transient failures. FR-013: an
+asymmetry at the **date** level between the included maps (an
+expiration with data in one type and no data in the other) is a partial
+chain → error; asymmetry at the **strike** level is normal: that
+strike keeps only the existing leg and the row omits the other key.
 
-### Ejemplos
+### Examples
 
-**Cadena por defecto** (todos los vencimientos ≤ 60 DTE, ambos tipos):
+**Default chain** (all expirations ≤ 60 DTE, both types):
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AAPL"}}
 ```
 
-Respuesta (truncada; el payload real es enorme):
+Response (truncated; the real payload is huge):
 
 ```json
 {
@@ -556,34 +558,34 @@ Respuesta (truncada; el payload real es enorme):
        {"strike": 250.0,
         "call": [25.10, 25.30, "...", 100, "2026-10-24T15:00:00+00:00", null],
         "put":  [6.05, 6.15, "...", 100, "2026-10-24T15:00:00+00:00", null]},
-       "... (hasta 100 filas de strike, ordenadas por strike)"
+       "... (up to 100 strike rows, ordered by strike)"
      ]},
-    "... (hasta ~12 vencimientos, ordenados por fecha)"
+    "... (up to ~12 expirations, ordered by date)"
   ]
 }
 ```
 
-**Puts con delta objetivo** (ventana por tipo, ≤ 5 strikes/vencimiento):
+**Puts with a delta target** (per-type window, ≤ 5 strikes/expiration):
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AAPL", "option_type": "puts", "delta_target": 0.20}}
 ```
 
-Solo claves `put` por fila (sin `call`); por vencimiento, ≤ 5 strikes
-alrededor del contrato con \|delta\| ≈ 0.20. Payload típico ~5k tokens.
+Only `put` keys per row (no `call`); per expiration, ≤ 5 strikes
+around the contract with \|delta\| ≈ 0.20. Typical payload ~5k tokens.
 
-**Límites explícitos** (slice corto):
+**Explicit limits** (short slice):
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "AAPL", "max_strikes": 10, "dte_max": 7}}
 ```
 
-≤ 20 filas de strike por vencimiento (2 × 10, centradas en `atm_strike`),
-solo vencimientos con `dte ≤ 7` (`filters.dte_max_effective == 7`). Si el
-vencimiento más próximo vence más lejos → `no_expirations_in_range`
-estructurado, no error genérico.
+≤ 20 strike rows per expiration (2 × 10, centered on `atm_strike`),
+only expirations with `dte ≤ 7` (`filters.dte_max_effective == 7`). If the
+nearest expiration expires further out → structured
+`no_expirations_in_range`, not a generic error.
 
-**Edge: instrumento sin opciones**:
+**Edge: instrument without options**:
 
 ```json
 {"name": "get_option_chain", "arguments": {"symbol": "ZZZZZZ"}}
@@ -594,245 +596,247 @@ estructurado, no error genérico.
  "symbol": "ZZZZZZ", "generated_at": "2026-10-24T15:04:05+00:00"}
 ```
 
-### Garantías
+### Guarantees
 
-- **Una sola invocación devuelve la cadena completa** dentro de los
-  límites pedidos (FR-011): sin paginación, sin `cursor`/`offset`/
-  `has_more` en la respuesta.
-- **Límites respetados al 100%** (`max_strikes`, `option_type`, DTE)
-  (FR-012, SC-006); la respuesta nunca excede
+- **A single invocation returns the full chain** within the
+  requested limits (FR-011): no pagination, no `cursor`/`offset`/
+  `has_more` in the response.
+- **Limits respected 100%** (`max_strikes`, `option_type`, DTE)
+  (FR-012, SC-006); the response never exceeds
   `expirations × types × strikes`.
-- **Griegas completas**: las 5 griegas y el resto de `contract_fields`
-  presentes por contrato o con `null` explícito (FR-006/FR-007).
-- **Determinista**: selección de strikes reproducible para los mismos
-  datos de entrada.
-- **Read-only**, **sin estado entre invocaciones** y **sin credenciales**
-  en la salida (credential safety de la constitución).
-- **Presupuesto**: ≤ 5 s p95 de latencia por invocación.
+- **Complete Greeks**: the 5 Greeks and the rest of `contract_fields`
+  present by contract or with explicit `null` (FR-006/FR-007).
+- **Deterministic**: strike selection reproducible for the same
+  input data.
+- **Read-only**, **no state between invocations** and **no credentials**
+  in the output (constitution's credential safety).
+- **Budget**: ≤ 5 s p95 latency per invocation.
 
-### Referencia
+### Reference
 
-- Contrato completo:
+- Full contract:
   [`specs/008-extract-option-chain/contracts/mcp-tools.md`](../specs/008-extract-option-chain/contracts/mcp-tools.md)
-- Data model (orden de `contract_fields`, algoritmos de selección):
+- Data model (`contract_fields` order, selection algorithms):
   [`specs/008-extract-option-chain/data-model.md`](../specs/008-extract-option-chain/data-model.md)
-- Escenarios de uso (S1–S4):
+- Usage scenarios (S1–S4):
   [`specs/008-extract-option-chain/quickstart.md`](../specs/008-extract-option-chain/quickstart.md)
 
 ---
 
 ## `schwab-mcp renew`
 
-Renovación explícita del access credential usando el refresh credential
-almacenado. Es la palanca de recuperación del agente cuando detecta
-problemas de autenticación, independiente del camino automático.
+Explicit renewal of the access credential using the stored refresh
+credential. It is the agent's recovery lever when it detects
+authentication problems, independent of the automatic path.
 
 ```sh
 uv run schwab-mcp renew
 ```
 
-- **Argumentos**: ninguno. **stdin**: nunca se lee.
-- **Requiere**: `SCHWAB_APP_KEY` y `SCHWAB_APP_SECRET` en el entorno.
-- **Puede llamar a la API de Schwab** (solo si el token está dentro del
-  margen preventivo de 61 s de expirar).
-- **Presupuesto**: ≤ 10 s en el peor caso (3 intentos × 3 s de timeout
-  HTTP + 2 esperas de 0.5 s entre reintentos).
+- **Arguments**: none. **stdin**: never read.
+- **Requires**: `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` in the environment.
+- **May call the Schwab API** (only if the token is within the
+  preventive 61 s margin of expiring).
+- **Budget**: ≤ 10 s worst case (3 attempts × 3 s HTTP
+  timeout + 2 waits of 0.5 s between retries).
 
-### Comportamiento interno (en orden)
+### Internal behavior (in order)
 
-1. Carga y valida la configuración — falla **antes** de cualquier red.
-2. Inspecciona el token store: ausente o corrupto → resultado
-   `reauth_required` sin intentar renovar.
-3. Lee la validez restante del store; si está por encima del margen →
-   `not_needed` **sin llamar a la API** y sin invalidar nada.
-4. Adquiere el lock de autorización (no bloqueante): ocupado → exit 6.
-5. Ejecuta el refresh vía schwabdev con hasta **2 reintentos** ante
-   fallos transitorios (red/proveedor). Los tokens válidos existentes
-   **jamás se descartan** por un fallo transitorio.
-6. Clasifica el resultado y emite **una línea JSON** en stdout.
-7. Emite eventos de auditoría en stderr (`renew_start` → terminal).
+1. Loads and validates the configuration — fails **before** any network.
+2. Inspects the token store: absent or corrupted →
+   `reauth_required` result without attempting renewal.
+3. Reads the remaining validity from the store; if it is above the
+   margin → `not_needed` **without calling the API** and without
+   invalidating anything.
+4. Acquires the authorization lock (non-blocking): busy → exit 6.
+5. Performs the refresh via schwabdev with up to **2 retries** on
+   transient failures (network/provider). Existing valid tokens are
+   **never discarded** due to a transient failure.
+6. Classifies the result and emits **one JSON line** on stdout.
+7. Emits audit events on stderr (`renew_start` → terminal).
 
-### Salida (stdout, una línea JSON, ≤ 300 bytes)
+### Output (stdout, one JSON line, ≤ 300 bytes)
 
 ```json
 {"outcome": "renewed", "expires_in_seconds": 1800, "retryable": false, "detail": "access_renewed"}
 ```
 
-| Campo | Tipo | Valores |
+| Field | Type | Values |
 |-------|------|---------|
-| `outcome` | enum cerrado | `renewed` · `not_needed` · `transient_failure` · `reauth_required` |
-| `expires_in_seconds` | int ≥ 0 o `null` | Nueva vida útil del access token; `null` salvo en `renewed` |
-| `retryable` | bool | `true` **solo** cuando `outcome == "transient_failure"` |
-| `detail` | enum cerrado | `access_renewed` · `still_valid` · `provider_unreachable` · `refresh_rejected` · `reauth_needed` · `store_absent` · `store_corrupted` |
+| `outcome` | closed enum | `renewed` · `not_needed` · `transient_failure` · `reauth_required` |
+| `expires_in_seconds` | int ≥ 0 or `null` | New lifetime of the access token; `null` except in `renewed` |
+| `retryable` | bool | `true` **only** when `outcome == "transient_failure"` |
+| `detail` | closed enum | `access_renewed` · `still_valid` · `provider_unreachable` · `refresh_rejected` · `reauth_needed` · `store_absent` · `store_corrupted` |
 
-### Códigos de salida
+### Exit codes
 
-| Código | `outcome` | Significado para el agente |
+| Code | `outcome` | Meaning for the agent |
 |--------|-----------|---------------------------|
-| 0 | `renewed` o `not_needed` | Éxito: el token está renovado o seguía vigente |
-| 2 | — | Configuración faltante o mal formada (acción del dueño) |
-| 3 | `reauth_required` | Refresh credential rechazado o store ausente/corrupto: **re-autorización humana requerida** |
-| 6 | — | Otra renovación o autorización ya está en curso |
-| 7 | `transient_failure` | Fallo transitorio de red/proveedor: reintentar más tarde es seguro |
+| 0 | `renewed` or `not_needed` | Success: the token was renewed or was still valid |
+| 2 | — | Missing or malformed configuration (owner action) |
+| 3 | `reauth_required` | Refresh credential rejected or store absent/corrupted: **human reauthorization required** |
+| 6 | — | Another renewal or authorization is already in progress |
+| 7 | `transient_failure` | Transient network/provider failure: retrying later is safe |
 
-### Semántica de cada resultado
+### Semantics of each result
 
-- **`renewed`** (`detail: access_renewed`): el access token se renovó;
-  `expires_in_seconds` trae la nueva vida útil (~1800 s). Si el
-  proveedor rotó el refresh token, ya fue persistido en el store.
-- **`not_needed`** (`detail: still_valid`): el token sigue vigente por
-  encima del margen; **no hubo llamada de red** y no se invalidó nada.
-  Tratar como éxito, no como error.
+- **`renewed`** (`detail: access_renewed`): the access token was
+  renewed; `expires_in_seconds` carries the new lifetime (~1800 s). If
+  the provider rotated the refresh token, it has already been persisted
+  to the store.
+- **`not_needed`** (`detail: still_valid`): the token is still valid
+  above the margin; **no network call was made** and nothing was
+  invalidated. Treat as success, not as an error.
 - **`transient_failure`** (`detail: provider_unreachable`, `retryable:
-  true`): red o proveedor no disponibles tras agotar los 2 reintentos.
-  Los tokens vigentes siguen intactos. Reintentar más tarde.
+  true`): network or provider unavailable after exhausting the 2
+  retries. Valid tokens remain intact. Retry later.
 - **`reauth_required`** (`detail: refresh_rejected` / `reauth_needed` /
-  `store_absent` / `store_corrupted`): la renovación automática es
-  **imposible**. El agente NO debe seguir reintentando: debe notificar
-  al dueño para que corra `schwab-mcp auth` (único paso que requiere
-  humano, por constraint del proveedor). El estado persiste hasta la
-  re-autorización.
+  `store_absent` / `store_corrupted`): automatic renewal is
+  **impossible**. The agent must NOT keep retrying: it must notify
+  the owner to run `schwab-mcp auth` (the only step that requires a
+  human, by provider constraint). The state persists until
+  reauthorization.
 
-### Eventos en stderr (auditoría)
+### Events on stderr (audit)
 
 ```text
 2026-10-19T14:00:00Z+00:00 auth_event=renew_start outcome=initiated detail=explicit_command
 2026-10-19T14:00:02Z+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
 ```
 
-Cada intento emite exactamente un `renew_start` seguido de exactamente
-un evento terminal (`renewal_success` | `renewal_failure`). Nunca
-contienen secretos.
+Each attempt emits exactly one `renew_start` followed by exactly
+one terminal event (`renewal_success` | `renewal_failure`). They never
+contain secrets.
 
 ---
 
 ## `schwab-mcp auth-status`
 
-Consulta de salud de autenticación en **una sola request**: estado,
-vida útil del access token y del refresh token, y si hace falta
-re-autorización. **Lectura estrictamente local**: no llama a la API,
-nunca dispara una renovación.
+Authentication health check in **a single request**: state,
+lifetime of the access token and the refresh token, and whether
+reauthorization is needed. **Strictly local read**: it does not call
+the API, never triggers a renewal.
 
 ```sh
 uv run schwab-mcp auth-status
 ```
 
-- **Argumentos**: ninguno. **stdin**: nunca se lee.
-- **Presupuesto**: ≤ 2 s (lectura local de SQLite).
+- **Arguments**: none. **stdin**: never read.
+- **Budget**: ≤ 2 s (local SQLite read).
 
-### Salida (stdout, una línea JSON)
+### Output (stdout, one JSON line)
 
 ```json
 {"state": "valid", "access_expires_in_seconds": 1520, "refresh_expires_in_seconds": 412000}
 ```
 
-| Campo | Tipo | Valores |
+| Field | Type | Values |
 |-------|------|---------|
-| `state` | enum cerrado | `valid` · `reauth_required` |
-| `access_expires_in_seconds` | int ≥ 0 o `null` | Segundos restantes del access token; `null` si desconocido |
-| `refresh_expires_in_seconds` | int ≥ 0 o `null` | Segundos restantes del refresh token (~7 días de vida); `null` si desconocido |
+| `state` | closed enum | `valid` · `reauth_required` |
+| `access_expires_in_seconds` | int ≥ 0 or `null` | Seconds remaining on the access token; `null` if unknown |
+| `refresh_expires_in_seconds` | int ≥ 0 or `null` | Seconds remaining on the refresh token (~7 days of life); `null` if unknown |
 
-### Códigos de salida
+### Exit codes
 
-| Código | `state` | Significado |
+| Code | `state` | Meaning |
 |--------|---------|-------------|
-| 0 | `valid` | Credenciales utilizables; los campos indican cuánto resta (aunque sea poco) |
-| 2 | — | Configuración faltante o mal formada |
-| 3 | `reauth_required` | Store ausente o corrupto → re-autorización humana requerida |
+| 0 | `valid` | Credentials usable; the fields indicate how much remains (even if little) |
+| 2 | — | Missing or malformed configuration |
+| 3 | `reauth_required` | Store absent or corrupted → human reauthorization required |
 
-> Nota: el rechazo del refresh token por el proveedor (`refresh_rejected`)
-> **no es detectable localmente** — se manifiesta al usar `renew` o el
-> servidor. Si `auth-status` dice `valid` pero una operación falla con
-> `reauth_required`, creéle a la operación.
+> Note: refresh token rejection by the provider (`refresh_rejected`)
+> **is not detectable locally** — it manifests when using `renew` or the
+> server. If `auth-status` says `valid` but an operation fails with
+> `reauth_required`, believe the operation.
 
-### Uso recomendado
+### Recommended use
 
-Es la verificación **barata y previa**: consultala antes de operaciones
-largas, después de una pausa larga del agente, o ante el primer síntoma
-de fallo de autenticación. No consume cuota del proveedor.
+It is the **cheap, upfront** check: consult it before long
+operations, after a long pause of the agent, or at the first symptom
+of authentication failure. It does not consume provider quota.
 
 ---
 
-## `schwab-mcp serve` (servidor MCP)
+## `schwab-mcp serve` (MCP server)
 
-Servidor MCP de tipo **stdio**, headless. Registra 3 tools
-(``get_open_positions``, ``get_transaction_history`` y
-``get_option_chain``) y es el proceso
-que un cliente MCP (opencode, Claude Desktop, etc.) lanza y con el que
-habla por stdio.
+A **stdio**, headless MCP server. Registers 3 tools
+(``get_open_positions``, ``get_transaction_history`` and
+``get_option_chain``) and is the process
+an MCP client (opencode, Claude Desktop, etc.) launches and talks to
+over stdio.
 
-Al arrancar:
+At startup:
 
-1. Valida la configuración (fail fast).
-2. Verifica el token store: ausente/corrupto → sale con código
-   específico **antes** del handshake MCP.
-3. Renueva el access token si está vencido o dentro del margen
-   (eventos `renew_start` → `renewal_success`/`renewal_failure` en
+1. Validates the configuration (fail fast).
+2. Checks the token store: absent/corrupted → exits with a
+   specific code **before** the MCP handshake.
+3. Renews the access token if it is expired or within the margin
+   (`renew_start` → `renewal_success`/`renewal_failure` events on
    stderr, trigger `margin_trigger`).
-4. Valida el acceso real con `linked_accounts()` (< 5 s).
-5. Conecta el transporte stdio y queda a la espera del cliente.
+4. Validates real access with `linked_accounts()` (< 5 s).
+5. Connects the stdio transport and waits for the client.
 
-Si el refresh credential está rechazado, `serve` **no arranca**: sale
-con mensaje claro pidiendo `schwab-mcp auth`. En ese estado, la
-recuperación del agente es: notificar al dueño, y monitorear con
-`auth-status` hasta que el estado vuelva a `valid` — a partir de ahí
-todo funciona sin más acciones del agente.
+If the refresh credential is rejected, `serve` **does not start**: it
+exits with a clear message asking for `schwab-mcp auth`. In that
+state, the agent's recovery is: notify the owner, and monitor with
+`auth-status` until the state returns to `valid` — from then on
+everything works without further agent action.
 
-En operación, la renovación automática es **transparente**: las
-operaciones del agente no cambian de forma ni requieren pasos extra.
-
----
-
-## `schwab-mcp auth` — solo para humanos
-
-Flujo interactivo de autorización (browser + paste de URL). **Un agente
-no debe intentar ejecutarlo**: requiere login humano en Schwab por
-constraint del proveedor. Cuando un comando devuelve
-`reauth_required`, la acción correcta del agente es notificar al dueño.
+In operation, automatic renewal is **transparent**: the
+agent's operations do not change shape and require no extra steps.
 
 ---
 
-## Playbook de decisión para el agente
+## `schwab-mcp auth` — humans only
+
+Interactive authorization flow (browser + URL paste). **An agent
+must not try to run it**: it requires a human login at Schwab by
+provider constraint. When a command returns
+`reauth_required`, the agent's correct action is to notify the owner.
+
+---
+
+## Decision playbook for the agent
 
 ```text
-Ante un fallo de autenticación en una operación:
-1. uv run schwab-mcp auth-status        # diagnóstico barato, local
-2. uv run schwab-mcp renew              # palanca de recuperación
+On an authentication failure in an operation:
+1. uv run schwab-mcp auth-status        # cheap, local diagnosis
+2. uv run schwab-mcp renew              # recovery lever
 
-Interpretación:
-- exit 0 + renewed/not_needed  → continuar normalmente
-- exit 7 + transient_failure   → reintentar luego (backoff); nada se perdió
-- exit 6 (lock busy)           → esperar y reintentar
-- exit 3 + reauth_required     → DETENER reintentos; notificar al dueño:
-                                 "corré schwab-mcp auth"; monitorear con
-                                 auth-status hasta state=valid
-- exit 2 (configuración)       → acción del dueño (env del proceso)
+Interpretation:
+- exit 0 + renewed/not_needed  → continue normally
+- exit 7 + transient_failure   → retry later (backoff); nothing was lost
+- exit 6 (lock busy)           → wait and retry
+- exit 3 + reauth_required     → STOP retrying; notify the owner:
+                                 "run schwab-mcp auth"; monitor with
+                                 auth-status until state=valid
+- exit 2 (configuration)       → owner action (process env)
 ```
 
-## Referencias normativas
+## Normative references
 
-- Contrato de la tool MCP ``get_open_positions``:
+- MCP tool contract for ``get_open_positions``:
   [specs/003-list-open-positions/contracts/mcp-tools.md](../specs/003-list-open-positions/contracts/mcp-tools.md)
-- Data model de posiciones:
+- Positions data model:
   [specs/003-list-open-positions/data-model.md](../specs/003-list-open-positions/data-model.md)
-- Eventos de auditoría de posiciones:
+- Positions audit events:
   [specs/003-list-open-positions/contracts/events.md](../specs/003-list-open-positions/contracts/events.md)
-- Contrato CLI completo:
+- Full CLI contract:
   [specs/002-automated-token-renewal/contracts/cli.md](../specs/002-automated-token-renewal/contracts/cli.md)
-- Contrato de eventos de renovación:
+- Renewal events contract:
   [specs/002-automated-token-renewal/contracts/events.md](../specs/002-automated-token-renewal/contracts/events.md)
-- Modelo de datos (enums cerrados):
+- Data model (closed enums):
   [specs/002-automated-token-renewal/data-model.md](../specs/002-automated-token-renewal/data-model.md)
-- Contrato de la tool MCP ``get_transaction_history``:
+- MCP tool contract for ``get_transaction_history``:
   [specs/006-transaction-history/contracts/mcp-tools.md](../specs/006-transaction-history/contracts/mcp-tools.md)
-- Data model de transacciones:
+- Transactions data model:
   [specs/006-transaction-history/data-model.md](../specs/006-transaction-history/data-model.md)
-- Eventos de auditoría de transacciones:
+- Transactions audit events:
   [specs/006-transaction-history/contracts/events.md](../specs/006-transaction-history/contracts/events.md)
-- Contrato de la tool MCP ``get_option_chain``:
+- MCP tool contract for ``get_option_chain``:
   [specs/008-extract-option-chain/contracts/mcp-tools.md](../specs/008-extract-option-chain/contracts/mcp-tools.md)
-- Data model de la cadena de opciones:
+- Option chain data model:
   [specs/008-extract-option-chain/data-model.md](../specs/008-extract-option-chain/data-model.md)
-- Guía de validación de la cadena de opciones:
+- Option chain validation guide:
   [specs/008-extract-option-chain/quickstart.md](../specs/008-extract-option-chain/quickstart.md)
-- [Guía de uso](./uso.md) · [Guía de instalación](./instalacion.md)
+- [Usage guide](./usage.md) · [Installation guide](./installation.md)

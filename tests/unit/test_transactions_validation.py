@@ -197,7 +197,7 @@ class TestRangeExceedsOneYear:
         with pytest.raises((ValueError, TypeError)) as exc:
             validate_history_query(start_date="2026-01-01", end_date="2027-01-02")
         msg = str(exc.value)
-        assert "366" in msg or "1 year" in msg.lower() or "año" in msg.lower(), (
+        assert "366" in msg or "1 year" in msg.lower(), (
             f"Error must mention the max window (366 days / 1 year), got: {msg}"
         )
         assert "split" in msg.lower() or "divide" in msg.lower(), (

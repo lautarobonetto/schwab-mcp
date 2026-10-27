@@ -6,15 +6,15 @@
 
 **Status**: Draft
 
-**Input**: User description: "Quiero que el refresco del token, cuando este espira, sea lo mas simple de realizar que se pueda. Contemplando que este MCP va a ser usado por un agente de AI de forma automatica y no va a existir un humano que pueda pegar la URL de un lado a otro. Debe de poder ser ejecutado lo mas automaticamente posible por un agente de AI. El agente de AI que lo va a usar es OpenClaw."
+**Input**: User description: "I want token renewal, when it expires, to be as simple to perform as possible. Bearing in mind that this MCP will be used by an AI agent automatically and there will be no human available to paste the URL from one place to the other. It must be executable as automatically as possible by an AI agent. The AI agent that will use it is OpenClaw."
 
 ## Clarifications
 
 ### Session 2026-10-19
 
-- Q: ¿Cuándo debe dispararse la renovación automática del access credential: solo cuando ya expiró, o también de forma preventiva antes de expirar? → A: Preventivo con margen: al ejecutar cualquier operación, si el tiempo restante de validez está por debajo de un margen de seguridad, se renueva antes de proceder.
-- Q: ¿Cuántos segundos como máximo puede agregar la renovación automática al tiempo normal de una operación del agente? → A: 10 segundos.
-- Q: ¿Cuántos reintentos como máximo debe hacer el sistema ante fallos transitorios del proveedor durante una renovación? → A: 2 reintentos con espera breve entre intentos y luego se reporta el fallo transitorio.
+- Q: When should automatic renewal of the access credential fire: only once it has already expired, or also preventively before it expires? → A: Preventive with a margin: when executing any operation, if the remaining validity is below a safety margin, renewal happens before proceeding.
+- Q: How many seconds at most can automatic renewal add to the normal execution time of an agent operation? → A: 10 seconds.
+- Q: How many retries at most should the system make against transient provider failures during a renewal? → A: 2 retries with a short wait between attempts, and then the transient failure is reported.
 
 ## User Scenarios & Testing *(mandatory)*
 

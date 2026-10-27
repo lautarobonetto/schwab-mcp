@@ -1,22 +1,22 @@
-# Contrato de tool MCP: `get_option_chain` (008)
+# MCP Tool Contract: `get_option_chain` (008)
 
 Feature: 008-extract-option-chain | Date: 2026-10-23
-Tool de solo lectura. No mueve dinero ni coloca órdenes. Transporte: stdio
-exclusivo vía `schwab-mcp serve`.
+Read-only tool. Does not move money or place orders. Transport: stdio
+exclusively via `schwab-mcp serve`.
 
 ## 1. Input schema
 
-| Parámetro | Tipo | Default | Restricciones |
+| Parameter | Type | Default | Constraints |
 |---|---|---|---|
-| `symbol` | string | — (obligatorio) | no vacío |
-| `max_strikes` | int | `50` | ≥ 1; aplica por vencimiento, simétrico alrededor del strike al dinero |
-| `option_type` | `"both"` \| `"calls"` \| `"puts"` | `"both"` | valor del enum |
-| `delta_target` | number \| null | `null` | si presente: `0 < |delta| < 1` |
-| `dte_max` | int \| null | `null` | si presente: ≥ 1; si `null`, tope vigente = 60 días |
+| `symbol` | string | — (mandatory) | non-empty |
+| `max_strikes` | int | `50` | ≥ 1; applies per expiration, symmetric around the at-the-money strike |
+| `option_type` | `"both"` \| `"calls"` \| `"puts"` | `"both"` | enum value |
+| `delta_target` | number \| null | `null` | if present: `0 < |delta| < 1` |
+| `dte_max` | int \| null | `null` | if present: ≥ 1; if `null`, current cap = 60 days |
 
-Errores de validación (antes de cualquier upcall, FR-008): `symbol` vacío,
-`max_strikes ≤ 0`, `option_type` fuera del enum, `|delta_target| ∉ (0,1)`,
-`dte_max ≤ 0`.
+Validation errors (before any upcall, FR-008): empty `symbol`,
+`max_strikes ≤ 0`, `option_type` outside the enum,
+`|delta_target| ∉ (0,1)`, `dte_max ≤ 0`.
 
 ## 2. Output schema (`ok`)
 
@@ -61,67 +61,66 @@ Errores de validación (antes de cualquier upcall, FR-008): `symbol` vacío,
 }
 ```
 
-Convenciones:
+Conventions:
 
-- Cada pierna es un **array posicional** cuyo orden es
-  `contract_fields` (declarado en la propia respuesta); `null` = no
-  informado por la fuente (FR-007). El array puede traer menos elementos
-  que `contract_fields` cuando los campos finales no están informados.
-- `call`/`put` ausentes: el tipo está excluido por `option_type`.
-- Redondeo: precios 2 decimales; griegas e IV 4 decimales.
-- `dte_max_effective`: 60 (default) o el valor pedido — el agente siempre
-  puede verificar el tope aplicado.
-- `extended=true` (parámetro adicional de la tool): agrega `provider`
-  con el payload crudo de la fuente (patrón 003/006), sin curado. Los
-  campos estructurales excluidos del formato curado (`skipBars`,
-  `isPitRanged`, `executable`, `settlementType`, `deliverables`) son
-  accesibles por esta vía.
+- Each leg is a **positional array** whose order is `contract_fields`
+  (declared in the response itself); `null` = not reported by the source
+  (FR-007). The array may carry fewer elements than `contract_fields`
+  when the trailing fields are not reported.
+- `call`/`put` absent: the type is excluded by `option_type`.
+- Rounding: prices 2 decimals; Greeks and IV 4 decimals.
+- `dte_max_effective`: 60 (default) or the requested value — the agent
+  can always verify the applied cap.
+- `extended=true` (additional tool parameter): adds `provider` with the
+  raw payload of the source (pattern of 003/006), without curation. The
+  structural fields excluded from the curated format (`skipBars`,
+  `isPitRanged`, `executable`, `settlementType`, `deliverables`) are
+  accessible through this channel.
 
-## 3. Selección de strikes (resumen normativo)
+## 3. Strike selection (normative summary)
 
-- Sin `delta_target`: por vencimiento, hasta `max_strikes` strikes por
-  lado del dinero (ATM incluido si existe).
-- Con `delta_target`: por vencimiento y **por tipo incluido**, hasta 5
-  strikes alrededor del contrato con delta más cercana al objetivo (valor
-  absoluto); `max_strikes` no reduce esta ventana.
-- DTE: solo vencimientos con `dte ≤ dte_max_effective`; DTE en días de
-  calendario.
+- Without `delta_target`: per expiration, up to `max_strikes` strikes per
+  side of the money (ATM included if it exists).
+- With `delta_target`: per expiration and **per included type**, up to 5
+  strikes around the contract with the delta closest to the target
+  (absolute value); `max_strikes` does not reduce this window.
+- DTE: only expirations with `dte ≤ dte_max_effective`; DTE in calendar
+  days.
 
-## 4. Resultados sin datos y errores
+## 4. No-data results and errors
 
-| Caso | Respuesta |
+| Case | Response |
 |---|---|
-| Instrumento sin opciones listadas | resultado estructurado `no_options_listed` con `detail` (no error de transporte) |
-| Tope de DTE excluye todos los vencimientos | resultado estructurado `no_expirations_in_range` con `detail` y tope vigente |
-| Filtros inválidos | error de validación accionable antes de upcall |
-| Fallo de fuente / vencimiento entero sin datos | error estructurado; **nunca** cadena parcial (FR-013) |
-| 401/403, 5xx/408/429, 4xx | mapeo estándar de `provider.response_json` (taxonomía compartida con 003/006) |
+| Instrument without listed options | structured `no_options_listed` result with `detail` (not a transport error) |
+| DTE cap excludes all expirations | structured `no_expirations_in_range` result with `detail` and the current cap |
+| Invalid filters | actionable validation error before upcall |
+| Source failure / entire expiration without data | structured error; **never** a partial chain (FR-013) |
+| 401/403, 5xx/408/429, 4xx | standard mapping of `provider.response_json` (taxonomy shared with 003/006) |
 
-## 5. Garantías
+## 5. Guarantees
 
-- Una sola invocación devuelve la cadena completa dentro de los límites
-  pedidos; sin paginación (FR-011).
-- Los límites (`max_strikes`, `option_type`, DTE) se respetan al 100%
+- A single invocation returns the complete chain within the requested
+  limits; no pagination (FR-011).
+- The limits (`max_strikes`, `option_type`, DTE) are respected 100%
   (FR-012, SC-006).
-- Todas las griegas y valores técnicos de la lista `contract_fields`
-  están presentes por contrato o con `null` explícito (FR-006/FR-007).
-- Sin estado entre invocaciones; sin credenciales en outputs (credential
-  safety de la constitución).
+- All the Greeks and technical values of the `contract_fields` list are
+  present per contract or carry explicit `null` (FR-006/FR-007).
+- No state between invocations; no credentials in outputs (credential
+  safety of the constitution).
 
-## 6. Presupuestos
+## 6. Budgets
 
-- Latencia: ≤ 5 s p95 por invocación (alineado 006 y SC-001).
-- Tokens (filtros por defecto): ≤ 75.000 para un subyacente típico
-  (decisión de la clarificación 2026-10-24; justificación del crecimiento
-  registrada en plan.md, Principio V); el esquema columnar compacta el
-  formato. `docs/tools.md` refleja el tamaño esperado.
-- Con `delta_target`: típicamente < 3k tokens.
+- Latency: ≤ 5 s p95 per invocation (aligned with 006 and SC-001).
+- Tokens (default filters): ≤ 75,000 for a typical underlying (decision
+  of the 2026-10-24 clarification; growth justification recorded in
+  plan.md, Principle V); the columnar schema compacts the format.
+  `docs/tools.md` reflects the expected size.
+- With `delta_target`: typically < 3k tokens.
 - Test: `tests/performance/test_options_chain_budgets.py`.
 
-## 7. Auditoría
+## 7. Auditing
 
-- La tool no emite eventos de autenticación nuevos (no toca el ciclo de
-  tokens); reutiliza el guard de serve existente.
-- Los errores de validación y los resultados sin datos se reportan en el
-  detalle estructurado de la respuesta, no en logs con contenido de
-  mercado.
+- The tool emits no new authentication events (it does not touch the
+  token cycle); it reuses the existing serve guard.
+- Validation errors and no-data results are reported in the structured
+  detail of the response, not in logs with market content.

@@ -745,7 +745,7 @@ class TestMetaData:
 class TestIntegralNormalization:
     """``serialize_leg`` normalizes integral floats to ``int`` in the three
     integer columns declared by data-model §1 — ``volume``, ``open_interest``
-    and ``multiplier`` ("sin redondeo ... (enteros)").
+    and ``multiplier`` ("no rounding ... (integers)").
 
     Found live 2026-10-24: the provider sends ``multiplier`` as ``100.0``
     (and possibly integral floats for volume/open_interest); the curated

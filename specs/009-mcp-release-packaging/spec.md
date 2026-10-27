@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "quiero agregar una forma simple de empaquetar este MCP y podes distribuirlo. Que incluya manuales y lo justo y necesario para que funcione de forma completa. El paquete donde se distribuye no debe contener nada de lo que estrictamente para desarrollar, para no facilitar que otro lo continue."
+**Input**: User description: "I want to add a simple way to package this MCP so you can distribute it. It should include manuals and just the essentials needed for it to work fully. The distributed package must not contain anything strictly for development, so as not to make it easy for someone else to continue it."
 
 ## User Scenarios & Testing *(mandatory)*
 

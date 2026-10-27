@@ -1,57 +1,57 @@
-# Data Model: Extracción de Cadena de Opciones con Filtros
+# Data Model: Option Chain Extraction with Filters
 
 Feature: 008-extract-option-chain | Date: 2026-10-23
 
-## 1. Entidades
+## 1. Entities
 
-### OptionChainQuery (input validado)
+### OptionChainQuery (validated input)
 
-Parámetros de la invocación, validados antes de cualquier upcall.
+Invocation parameters, validated before any upcall.
 
-| Campo | Tipo | Default | Validación |
+| Field | Type | Default | Validation |
 |---|---|---|---|
-| `symbol` | string | — (obligatorio) | no vacío, sin espacios internos; se pasa tal cual al proveedor (el matching/normalización es del proveedor) |
+| `symbol` | string | — (mandatory) | non-empty, no internal spaces; passed as-is to the provider (matching/normalization is the provider's job) |
 | `max_strikes` | int | `50` | ≥ 1 |
-| `option_type` | enum `both` \| `calls` \| `puts` | `both` | valor del enum |
-| `delta_target` | float \| null | `null` | si presente: `0 < |delta_target| < 1` |
-| `dte_max` | int \| null | `null` | si presente: ≥ 1; si ausente, tope vigente = 60 |
+| `option_type` | enum `both` \| `calls` \| `puts` | `both` | enum value |
+| `delta_target` | float \| null | `null` | if present: `0 < |delta_target| < 1` |
+| `dte_max` | int \| null | `null` | if present: ≥ 1; if absent, current cap = 60 |
 
-Semántica de defaults: `dte_max=null` NO significa "sin tope" — significa
-"no elijo DTE" y aplica el tope por defecto de 60 días (FR-005).
+Semantics of defaults: `dte_max=null` does NOT mean "no cap" — it means
+"I don't choose a DTE" and it applies the default cap of 60 days
+(FR-005).
 
-### ChainMeta (metadatos de la respuesta)
+### ChainMeta (response metadata)
 
-| Campo | Tipo | Semántica |
+| Field | Type | Semantics |
 |---|---|---|
-| `symbol` | string | instrumento consultado (eco) |
-| `generated_at` | string ISO-8601 UTC | momento de la consulta |
-| `data_state` | `realtime` \| `delayed` | frescura reportada por la fuente |
-| `underlying_price` | float \| null | precio vigente del subyacente (`includeUnderlyingQuote`) |
-| `filters` | objeto | eco de la consulta efectiva (incluye `dte_max_effective`: 60 o el valor pedido) |
-| `contract_fields` | lista de strings | orden de columnas de cada array de pierna (ver §2) |
+| `symbol` | string | queried instrument (echo) |
+| `generated_at` | ISO-8601 UTC string | time of the query |
+| `data_state` | `realtime` \| `delayed` | freshness reported by the source |
+| `underlying_price` | float \| null | current price of the underlying (`includeUnderlyingQuote`) |
+| `filters` | object | echo of the effective query (includes `dte_max_effective`: 60 or the requested value) |
+| `contract_fields` | list of strings | column order of each leg array (see §2) |
 
-### Expiration (vencimiento)
+### Expiration (expiration date)
 
-| Campo | Tipo | Semántica |
+| Field | Type | Semantics |
 |---|---|---|
-| `expiration_date` | string `YYYY-MM-DD` | fecha de vencimiento (clave de `*ExpDateMap`) |
-| `dte` | int | días de calendario desde hoy hasta el vencimiento |
-| `atm_strike` | float | strike más cercano a `underlying_price` (centro de la ventana de strikes; referencia de análisis) |
-| `strikes` | lista de StrikeRow | filas ordenadas por strike ascendente |
+| `expiration_date` | string `YYYY-MM-DD` | expiration date (key of `*ExpDateMap`) |
+| `dte` | int | calendar days from today to the expiration |
+| `atm_strike` | float | strike closest to `underlying_price` (center of the strike window; analysis reference) |
+| `strikes` | list of StrikeRow | rows ordered by ascending strike |
 
-### StrikeRow (fila por strike)
+### StrikeRow (row per strike)
 
-| Campo | Tipo | Semántica |
+| Field | Type | Semantics |
 |---|---|---|
-| `strike` | float | precio de ejercicio |
-| `call` | array de números/null \| ausente | pierna CALL en orden `contract_fields`; ausente si el filtro excluye CALLs |
-| `put` | array de números/null \| ausente | pierna PUT en orden `contract_fields`; ausente si el filtro excluye PUTs |
+| `strike` | float | exercise price |
+| `call` | array of numbers/null \| absent | CALL leg in `contract_fields` order; absent if the filter excludes CALLs |
+| `put` | array of numbers/null \| absent | PUT leg in `contract_fields` order; absent if the filter excludes PUTs |
 
-Reglas: la pierna existe solo si el tipo está incluido por
-`option_type`; el strike aparece si al menos una pierna incluida existe
-en el payload.
+Rules: a leg exists only if the type is included by `option_type`; the
+strike appears if at least one included leg exists in the payload.
 
-### ContractFields (columnas de cada pierna — orden fijo)
+### ContractFields (columns of each leg — fixed order)
 
 `bid`, `ask`, `last`, `mark`, `mark_change`, `mark_pct_change`,
 `high`, `low`, `open`, `close`, `volume`, `open_interest`,
@@ -59,61 +59,62 @@ en el payload.
 `theoretical_value`, `time_value`, `multiplier`, `trade_time`,
 `deliverable_note`
 
-- Griegas completas: delta, gamma, theta, vega, rho (FR-006).
-- Redondeo determinista: precios/valores a 2 decimales; griegas e IV a 4
-  decimales; sin redondeo para `volume`/`open_interest`/`multiplier`
-  (enteros).
-- Campo ausente en la fuente → `null` en su columna (FR-007).
-- Campos estructurales excluidos del formato curado (disponibles vía
-  `extended=true`): ver research R6.
+- Complete Greeks: delta, gamma, theta, vega, rho (FR-006).
+- Deterministic rounding: prices/values to 2 decimals; Greeks and IV to
+  4 decimals; no rounding for `volume`/`open_interest`/`multiplier`
+  (integers).
+- Field missing at the source → `null` in its column (FR-007).
+- Structural fields excluded from the curated format (available via
+  `extended=true`): see research R6.
 
-## 2. Relaciones
+## 2. Relationships
 
 ```
-OptionChainQuery --valida--> upcall proveedor
+OptionChainQuery --validates--> provider upcall
 ChainMeta 1 --N Expiration
 Expiration 1 --N StrikeRow
-StrikeRow 0..1 pierna call + 0..1 pierna put
+StrikeRow 0..1 call leg + 0..1 put leg
 ```
 
-- Cada `Expiration` proviene de una clave de `callExpDateMap` /
-  `putExpDateMap` del payload (unión de ambas claves por fecha).
-- `atm_strike` se calcula por vencimiento contra `underlying_price`.
-- La ventana de strikes (sin delta) es simétrica alrededor de
-  `atm_strike`; la ventana por delta es por tipo (clarificación 2026-10-23).
+- Each `Expiration` comes from a key of `callExpDateMap` /
+  `putExpDateMap` in the payload (union of both keys by date).
+- `atm_strike` is calculated per expiration against `underlying_price`.
+- The strike window (without delta) is symmetric around `atm_strike`;
+  the per-delta window is per type (clarification 2026-10-23).
 
-## 3. Algoritmos de selección (deterministas)
+## 3. Selection algorithms (deterministic)
 
-- **Ventana por strikes (sin delta)**: por vencimiento, los
-  `max_strikes` strikes más cercanos por debajo y por encima de
-  `atm_strike` (incluido el ATM si existe); si hay menos, todos.
-- **Ventana por delta**: por vencimiento y por tipo incluido: contrato
-  con delta más cercana a `delta_target` (valor absoluto) + 2 contiguos
-  de cada lado → hasta 5 (o los disponibles alrededor). No interactúa con
-  `max_strikes` (clarificación 2026-10-23).
-- **Filtro de DTE**: `dte ≤ dte_max_effective`; el filtrado también ocurre
-  en origen (`fromDate`/`toDate`) y el post-filtro corrige bordes.
+- **Strike window (without delta)**: per expiration, the `max_strikes`
+  closest strikes below and above `atm_strike` (including the ATM if it
+  exists); if there are fewer, all of them.
+- **Delta window**: per expiration and per included type: contract with
+  the delta closest to `delta_target` (absolute value) + 2 contiguous on
+  each side → up to 5 (or the available ones around). Does not interact
+  with `max_strikes` (clarification 2026-10-23).
+- **DTE filter**: `dte ≤ dte_max_effective`; the filtering also happens
+  at the origin (`fromDate`/`toDate`) and the post-filter corrects the
+  edges.
 
-## 4. Validación y estados de resultado
+## 4. Validation and result states
 
-Estados de resultado (no hay ciclo de vida: tool sin estado):
+Result states (no lifecycle: stateless tool):
 
-| Estado | Cuándo | Forma |
+| State | When | Shape |
 |---|---|---|
-| `ok` | cadena devuelta | ChainMeta + expirations |
-| `no_options_listed` | la fuente no reporta mapas de expiración para el símbolo | resultado estructurado con `detail` (FR-009) |
-| `no_expirations_in_range` | tope de DTE excluye todos los vencimientos | resultado estructurado con `detail` y tope vigente (FR-009) |
-| error de validación | filtros inválidos (§1) | error accionable antes de upcall (FR-008) |
-| error de transporte | fallo de fuente / vencimiento entero sin datos | error estructurado sin cadena parcial (FR-013) |
+| `ok` | chain returned | ChainMeta + expirations |
+| `no_options_listed` | the source reports no expiration maps for the symbol | structured result with `detail` (FR-009) |
+| `no_expirations_in_range` | the DTE cap excludes all expirations | structured result with `detail` and the current cap (FR-009) |
+| validation error | invalid filters (§1) | actionable error before upcall (FR-008) |
+| transport error | source failure / entire expiration without data | structured error without partial chain (FR-013) |
 
-## 5. Volumen esperado (para tests de presupuesto)
+## 5. Expected volume (for budget tests)
 
-- Fila de strike con ambas piernas: ~55–75 tokens (columnas, redondeo).
-- Subyacente típico con defaults (50/lado → 100 strikes × ~12
-  vencimientos): ~600–1200 filas → **~45–75k tokens estimados**;
-  presupuesto normativo fijado en **≤75.000 tokens** con defaults
-  (clarificación 2026-10-24, SC-002, justificación en plan.md) y
-  **<3.000** con `delta_target`. El test de presupuesto usa fixture
-  representativo y mide la serialización real.
-- Con `delta_target` activo: ~5 strikes × 2 tipos × N vencimientos →
-  típicamente < 3k tokens.
+- Strike row with both legs: ~55–75 tokens (columns, rounding).
+- Typical underlying with defaults (50/side → 100 strikes × ~12
+  expirations): ~600–1200 rows → **~45–75k estimated tokens**;
+  normative budget set at **≤75,000 tokens** with defaults (clarification
+  2026-10-24, SC-002, justification in plan.md) and **<3,000** with
+  `delta_target`. The budget test uses a representative fixture and
+  measures the actual serialization.
+- With `delta_target` active: ~5 strikes × 2 types × N expirations →
+  typically < 3k tokens.

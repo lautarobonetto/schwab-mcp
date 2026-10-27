@@ -6,16 +6,16 @@
 
 **Status**: Draft
 
-**Input**: User description: "Usemos los detalles que se encuentran en .specify/assessments/api-engine/decision.md e implementemos inicialmente toda la parte de OAuth para poder usar las APIs."
+**Input**: User description: "Let's use the details found in .specify/assessments/api-engine/decision.md and initially implement the entire OAuth portion so we can use the APIs."
 
 ## Clarifications
 
 ### Session 2026-10-19
 
-- Q: ¿Cómo se dispara la autorización de primera vez: automática al iniciar el server sin token, o mediante un comando explícito? → A: Comando explícito de autorización, separado del arranque del server (server completamente headless).
-- Q: ¿Cómo provee el dueño las credenciales de aplicación (API key y secret) al server? → A: Variables de entorno (opcionalmente vía archivo de entorno fuera del repo).
-- Q: ¿El server valida el token proactivamente al arrancar o perezosamente al primer request? → A: Validación proactiva al arrancar: verifica el acceso con la API antes de quedar listo.
-- Q: ¿Qué eventos de autenticación debe registrar el sistema en su bitácora local (sin secretos)? → A: Eventos clave: inicio/éxito/fallo de autorización y de renovación de token (timestamp + resultado, sin secretos).
+- Q: How is first-time authorization triggered: automatically when starting the server without a token, or via an explicit command? → A: Explicit authorization command, separate from server startup (fully headless server).
+- Q: How does the owner provide the application credentials (API key and secret) to the server? → A: Environment variables (optionally via an environment file outside the repo).
+- Q: Does the server validate the token proactively at startup or lazily at the first request? → A: Proactive validation at startup: it verifies access against the API before becoming ready.
+- Q: Which authentication events should the system record in its local log (no secrets)? → A: Key events: authorization start/success/failure and token renewal (timestamp + outcome, no secrets).
 
 ## User Scenarios & Testing *(mandatory)*
 

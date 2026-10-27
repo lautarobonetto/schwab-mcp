@@ -1,4 +1,4 @@
-# Bug Fix: `get_transaction_history` curaba todo trade como `CURRENCY_USD`
+# Bug Fix: `get_transaction_history` curated every trade as `CURRENCY_USD`
 
 - **Slug**: nok-symbol-filter-miss
 - **Fixed**: 2026-10-24
@@ -7,23 +7,23 @@
 
 ## Summary
 
-El mapper `map_provider_transactions` tomaba el primer `transferItems[].instrument` con símbolo para curar `symbol`; en el payload real las patas de efectivo/comisiones (`CURRENCY_USD`) van primero, así que ~131 de 173 trades reales quedaban etiquetados como divisa y el filtro `symbol=NOK` jamás matcheaba. Ahora el mapper recolecta todos los candidatos (top-level `instrument` + `transferItems`) y cura el **primer instrumento no-divisa**, cayendo en el primer candidato solo para movimientos genuinamente de efectivo. TDD: regresión en Red con el shape real → fix → Green → suite completa 842 passed, 0 skipped.
+The `map_provider_transactions` mapper picked the first `transferItems[].instrument` with a symbol for curation; in the real payload the cash/fee legs (`CURRENCY_USD`) come first, so ~131 of 173 real trades ended up labeled as currency and the `symbol=NOK` filter never matched. The mapper now collects all candidates (top-level `instrument` + `transferItems`) and curates the **first non-currency instrument**, falling back to the first candidate only for genuinely cash movements. TDD: regression failing on Red with the real shape → fix → Green → full suite 842 passed, 0 skipped.
 
 ## Changes
 
 | File | Change | Notes |
 |------|--------|-------|
-| `src/schwab_mcp/transactions.py` | modified | `map_provider_transactions`: curación por primer instrumento no-divisa; nuevo helper `_is_currency_instrument()` (única definición de "pata de divisa", DRY) |
-| `tests/unit/test_transactions_live_response.py` | added tests | Sección `1c. Multi-leg trade shape` con el payload real (4 patas de fees `CURRENCY_USD` no-None primero + pata OPTION última, encontrado en vivo 2026-10-24) |
-| `docs/tools.md` | modified | Fila `symbol` de `MovementEntry`: documenta la regla de curación no-divisa |
-| `specs/006-transaction-history/data-model.md` | modified | Misma regla en la tabla de `MovementEntry` |
-| `docs/CHANGELOG.md` | modified | Nueva sección `[0.5.1]` con el fix |
-| `pyproject.toml` | modified | Versión `0.5.0` → `0.5.1` (PATCH, consistente con CHANGELOG) |
+| `src/schwab_mcp/transactions.py` | modified | `map_provider_transactions`: curation by first non-currency instrument; new `_is_currency_instrument()` helper (single definition of "currency leg", DRY) |
+| `tests/unit/test_transactions_live_response.py` | added tests | `1c. Multi-leg trade shape` section with the real payload (4 non-None `CURRENCY_USD` fee legs first + OPTION leg last, observed live on 2026-10-24) |
+| `docs/tools.md` | modified | `symbol` row of `MovementEntry`: documents the non-currency curation rule |
+| `specs/006-transaction-history/data-model.md` | modified | Same rule in the `MovementEntry` table |
+| `docs/CHANGELOG.md` | modified | New `[0.5.1]` section with the fix |
+| `pyproject.toml` | modified | Version `0.5.0` → `0.5.1` (PATCH, consistent with CHANGELOG) |
 
 ## Diff Highlights
 
 ```python
-# Antes: primer instrumento con símbolo → las patas de fees lo tapaban
+# Before: first instrument with a symbol → fee legs masked it
 instrument = tx.get("instrument")
 if not (isinstance(instrument, dict) and instrument.get("symbol")):
     instrument = None
@@ -33,7 +33,7 @@ if not (isinstance(instrument, dict) and instrument.get("symbol")):
             instrument = cand
             break
 
-# Ahora: candidatos en orden de encuentro, gana el primer no-divisa
+# Now: candidates in encounter order, first non-currency wins
 candidates: list[dict] = []
 top_instrument = tx.get("instrument")
 if isinstance(top_instrument, dict) and top_instrument.get("symbol"):
@@ -60,28 +60,28 @@ def _is_currency_instrument(instrument: dict) -> bool:
 
 ## Tests Added or Updated
 
-- `tests/unit/test_transactions_live_response.py::TestMultiLegTradeShape::test_option_leg_curated_over_fee_legs` — pin: la pata OPTION gana sobre 4 patas de fees `CURRENCY_USD` no-None; `underlying_symbol = "NOK"` derivado del símbolo corregido
-- `...::test_symbol_filter_matches_multileg_option` — pin e2e: `symbol="NOK"` retorna el movimiento cuya raíz OCC es NOK (M2), no `no_movements_for_instrument`
-- `...::test_cash_only_trade_stays_currency` — pin: movimientos genuinamente de efectivo siguen curando `CURRENCY_USD/CURRENCY`
-- `...::test_first_noncurrency_leg_wins_deterministically` — pin: regla determinista (primera pata no-divisa en orden de encuentro)
-- `...::test_top_level_currency_instrument_not_preferred_over_legs` — pin: un `instrument` top-level de divisa no tapa el instrumento de `transferItems`
+- `tests/unit/test_transactions_live_response.py::TestMultiLegTradeShape::test_option_leg_curated_over_fee_legs` — pin: the OPTION leg wins over 4 non-None `CURRENCY_USD` fee legs; `underlying_symbol = "NOK"` derived from the corrected symbol
+- `...::test_symbol_filter_matches_multileg_option` — e2e pin: `symbol="NOK"` returns the movement whose OCC root is NOK (M2), not `no_movements_for_instrument`
+- `...::test_cash_only_trade_stays_currency` — pin: genuinely cash movements still curate to `CURRENCY_USD/CURRENCY`
+- `...::test_first_noncurrency_leg_wins_deterministically` — pin: deterministic rule (first non-currency leg in encounter order)
+- `...::test_top_level_currency_instrument_not_preferred_over_legs` — pin: a top-level currency `instrument` does not mask the `transferItems` instrument
 
 ## Local Verification
 
-- `uv run pytest tests/unit/test_transactions_live_response.py::TestMultiLegTradeShape -x -q` (antes del fix) → **1 failed** (Red: `CURRENCY_USD` tapaba el OCC — reproduce el defecto)
-- `uv run pytest tests/unit/test_transactions_live_response.py -q` (después del fix) → 20 passed
-- `uv run pytest -q` (suite completa, gate de commit) → **842 passed, 0 skipped, 0 failed**
-- Verificación con datos en vivo: el shape de los fixtures replica byte-a-byte el observado en el payload real de 2026-10-24 (`extended.transferItems` de trades PLTR/INTC/NOK). Verificación end-to-end contra el servidor MCP en vivo requiere reinicio del proceso `schwab-mcp` para cargar el código corregido (ver Follow-ups).
+- `uv run pytest tests/unit/test_transactions_live_response.py::TestMultiLegTradeShape -x -q` (before the fix) → **1 failed** (Red: `CURRENCY_USD` masked the OCC — reproduces the defect)
+- `uv run pytest tests/unit/test_transactions_live_response.py -q` (after the fix) → 20 passed
+- `uv run pytest -q` (full suite, commit gate) → **842 passed, 0 skipped, 0 failed**
+- Verification with live data: the fixture shape replicates byte-for-byte the one observed in the real payload of 2026-10-24 (`extended.transferItems` of PLTR/INTC/NOK trades). End-to-end verification against the live MCP server requires restarting the `schwab-mcp` process to load the corrected code (see Follow-ups).
 
 ## Deviations from Assessment
 
-- **No se implementó el campo `instruments[]` ni la forma de match M4** (parte 2 del remedio preferido). Justificación con evidencia nueva: el análisis en vivo de los 173 movimientos del período mostró **0 transacciones con más de un instrumento no-divisa** (135 con exactamente 1, 38 solo-efectivo); el proveedor emite una transacción por pata. El filtro M1/M2/M3 existente sobre el símbolo curado corregido cubre el 100% de los casos observados; `instruments[]` + M4 era generalidad especulativa (constitución: KISS/YAGNI) y habría cambiado el contrato del payload y el presupuesto de 16 KB/página sin beneficio observado. Queda como follow-up si aparecen payloads multi-instrumento (p. ej. asignaciones RECEIVE_AND_DELIVER con acciones+opciones).
-- **No se modificó `tests/unit/test_transactions_filter_query.py`** (listado en el assessment para los tests de M4): el filtro no cambió y el test e2e `symbol="NOK"` quedó en `test_transactions_live_response.py` junto a los fixtures del shape real.
-- **Sin fallback de descripción**: los trades reales traen `description` vacía a nivel de transacción; derivarla de la descripción del instrumento sería una mejora útil pero fuera del alcance del assessment (follow-up).
+- **The `instruments[]` field and match shape M4 were not implemented** (part 2 of the preferred remediation). Justification with new evidence: live analysis of the 173 movements in the period showed **0 transactions with more than one non-currency instrument** (135 with exactly 1, 38 cash-only); the provider emits one transaction per leg. The existing M1/M2/M3 filter over the corrected curated symbol covers 100% of observed cases; `instruments[]` + M4 was speculative generality (constitution: KISS/YAGNI) and would have changed the payload contract and the 16 KB/page budget with no observed benefit. Left as a follow-up in case multi-instrument payloads appear (e.g. RECEIVE_AND_DELIVER assignments with stocks+options).
+- **`tests/unit/test_transactions_filter_query.py` was not modified** (listed in the assessment for the M4 tests): the filter did not change and the e2e `symbol="NOK"` test lives in `test_transactions_live_response.py` next to the real-shape fixtures.
+- **No description fallback**: real trades come with an empty transaction-level `description`; deriving it from the instrument description would be a useful improvement but out of the assessment's scope (follow-up).
 
 ## Follow-ups
 
-- Reiniciar el servidor MCP (`uv run schwab-mcp serve`) y re-ejecutar `get_transaction_history(symbol="NOK", start_date="2026-04-23", end_date="2026-10-23")` en vivo para confirmar las 14 legs de NOK (verificación end-to-end del fix contra el proveedor real).
-- Vigilar en futuros barridos si aparecen transacciones con múltiples instrumentos no-divisa (asignaciones/ejercicios); si ocurre, implementar `instruments[]` + match M4 según el assessment.
-- Evaluar derivar `description` desde la descripción del instrumento cuando la transacción no la trae (reduce movimientos "anónimos" en trades curados).
-- `/speckit.bug.test slug=nok-symbol-filter-miss` para la verificación formal.
+- Restart the MCP server (`uv run schwab-mcp serve`) and re-run `get_transaction_history(symbol="NOK", start_date="2026-04-23", end_date="2026-10-23")` live to confirm the 14 NOK legs (end-to-end verification of the fix against the real provider).
+- Watch future sweeps for transactions with multiple non-currency instruments (assignments/exercises); if they occur, implement `instruments[]` + match M4 per the assessment.
+- Consider deriving `description` from the instrument description when the transaction does not carry one (reduces "anonymous" movements in curated trades).
+- `/speckit.bug.test slug=nok-symbol-filter-miss` for formal verification.

@@ -183,14 +183,14 @@ class OptionChainQuery:
         if self.symbol.strip() == "":
             raise ValueError(
                 "symbol must not be empty "
-                "(data-model §1: 'no vacío, sin espacios internos')"
+                "(data-model §1: 'non-empty, no internal spaces')"
             )
         if self.symbol.strip() != self.symbol or any(
             ch.isspace() for ch in self.symbol
         ):
             raise ValueError(
                 "symbol must not contain internal whitespace "
-                "(data-model §1: 'no vacío, sin espacios internos'); "
+                "(data-model §1: 'non-empty, no internal spaces'); "
                 f"got {self.symbol!r}"
             )
 
@@ -214,7 +214,7 @@ class OptionChainQuery:
         if self.option_type not in _CONTRACT_TYPE_MAP:
             raise ValueError(
                 "option_type must be one of: both, calls, puts "
-                "(data-model §1: 'valor del enum'); "
+                "(data-model §1: 'enum value'); "
                 f"got {self.option_type!r}"
             )
 
@@ -231,7 +231,7 @@ class OptionChainQuery:
             if not 0 < abs(self.delta_target) < 1:
                 raise ValueError(
                     "delta_target must satisfy 0 < |delta_target| < 1 "
-                    "(data-model §1: 'si presente: 0 < |delta_target| < 1'); "
+                    "(data-model §1: 'if present: 0 < |delta_target| < 1'); "
                     f"got {self.delta_target}"
                 )
 
@@ -248,7 +248,7 @@ class OptionChainQuery:
             if self.dte_max < 1:
                 raise ValueError(
                     "dte_max must be >= 1 "
-                    "(data-model §1: 'si presente: ≥ 1'); "
+                    "(data-model §1: 'if present: ≥ 1'); "
                     f"got {self.dte_max}"
                 )
 
@@ -445,8 +445,8 @@ def _check_partial_chain(leg_maps: dict[str, dict], legs: tuple[str, ...]) -> No
 
     For every included leg kind and every date in the union of the included
     maps' date keys, that kind's map must carry a non-empty contract dict.
-    Date-level asymmetry is a partial chain (spec clarification: "error
-    estructurado sin datos parciales"); strike-level holes are legitimate.
+    Date-level asymmetry is a partial chain (spec clarification: "structured
+    error without partial chain"); strike-level holes are legitimate.
     """
     non_empty = {kind: leg_maps[kind] for kind in legs if leg_maps.get(kind)}
     if not non_empty:
@@ -731,7 +731,7 @@ def get_option_chain(
     no pagination (FR-011/SC-004).  Validation runs before any upcall
     (FR-008); a whole expiration without data aborts with
     :class:`ChainDataError` (FR-013).  ``extended=True`` adds the raw
-    provider payload under ``"provider"`` (patrón 003/006).
+    provider payload under ``"provider"`` (pattern 003/006).
     """
     auth_event("options_chain_query_start", "initiated", detail="starting")
 

@@ -1,39 +1,39 @@
-# Contrato de eventos de auditoría: `get_transaction_history` (006)
+# Audit Events Contract: `get_transaction_history` (006)
 
-Canal: stderr vía `log.auth_event` (reusado de 002/003, con redaction
-filter activo). Ningún evento contiene tokens, secretos, números de
-cuenta ni URLs de autorización. Formato de línea idéntico al existente:
+Channel: stderr via `log.auth_event` (reused from 002/003, with the
+redaction filter active). No event contains tokens, secrets, account
+numbers or authorization URLs. Line format identical to the existing
+one:
 
 ```text
 2026-10-23T14:00:00Z+00:00 auth_event=<event> outcome=<outcome> detail=<detail>
 ```
 
-## Eventos por invocación
+## Events per invocation
 
-Cada invocación emite **exactamente un evento terminal** (patrón de
-`get_open_positions` en 003): `transactions_query_success` para
-resultados ok/partial, `transactions_query_failure` para fallos.
+Each invocation emits **exactly one terminal event** (pattern of
+`get_open_positions` in 003): `transactions_query_success` for
+ok/partial results, `transactions_query_failure` for failures.
 
-| Evento | Outcome | Detail | Cuándo |
+| Event | Outcome | Detail | When |
 |--------|---------|--------|--------|
-| `transactions_query_success` | `ok` | `history_retrieved` · `no_movements` · `no_movements_for_instrument` | Todas las cuentas respondieron |
-| `transactions_query_success` | `partial_failure` | `account_failed` | ≥ 1 cuenta falló, el resto respondió |
-| `transactions_query_failure` | `transient` | `provider_unreachable` | Fallo transitorio en el primer intento (sin reintentos internos) |
-| `transactions_query_failure` | `reauth` | `reauth_needed` | Store ausente/corrupto o refresh rechazado (ya emitido por el handler de errores, sin duplicar) |
-| `transactions_query_failure` | `validation` | `invalid_query` | Error de validación del request (FR-004) — emitido para auditabilidad aunque la tool responda con error estándar MCP |
+| `transactions_query_success` | `ok` | `history_retrieved` · `no_movements` · `no_movements_for_instrument` | All accounts responded |
+| `transactions_query_success` | `partial_failure` | `account_failed` | ≥ 1 account failed, the rest responded |
+| `transactions_query_failure` | `transient` | `provider_unreachable` | Transient failure on the first attempt (no internal retries) |
+| `transactions_query_failure` | `reauth` | `reauth_needed` | Missing/corrupt store or rejected refresh (already emitted by the error handler, not duplicated) |
+| `transactions_query_failure` | `validation` | `invalid_query` | Request validation error (FR-004) — emitted for auditability even though the tool responds with a standard MCP error |
 
-## Reglas
+## Rules
 
-- **Namespace del `detail`**: el campo `detail` de los **eventos** es un
-  namespace propio de este contrato (`history_retrieved`,
+- **`detail` namespace**: the `detail` field of the **events** is a
+  namespace of its own for this contract (`history_retrieved`,
   `no_movements`, `no_movements_for_instrument`, `account_failed`,
-  `provider_unreachable`, `reauth_needed`, `invalid_query`) y NO es el
-  enum `TransactionDetail` del data model: los valores de evento
-  describen la causa de auditoría, no el resultado de la tool
-  (p. ej. una validación fallida emite `outcome=validation,
-  detail=invalid_query` en stderr, mientras la tool responde con error
-  estándar MCP).
-- Nunca se emite un evento de éxito antes de conocer el resultado.
-- El evento de validación se emite una sola vez por invocación.
-- Los `detail` son valores cerrados de este contrato; cualquier texto
-  libre proveniente del proveedor se redacta por el filtro existente.
+  `provider_unreachable`, `reauth_needed`, `invalid_query`) and is NOT
+  the `TransactionDetail` enum of the data model: event values describe
+  the audit cause, not the tool result (e.g. a failed validation emits
+  `outcome=validation, detail=invalid_query` on stderr, while the tool
+  responds with a standard MCP error).
+- A success event is never emitted before the result is known.
+- The validation event is emitted only once per invocation.
+- The `detail` values are closed values of this contract; any free
+  text coming from the provider is redacted by the existing filter.

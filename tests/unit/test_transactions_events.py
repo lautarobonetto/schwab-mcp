@@ -620,8 +620,8 @@ class TestTransactionEventDetailNamespace:
 
     From the contract::
 
-        El campo ``detail`` de los **eventos** es un namespace propio
-        de este contrato y NO es el enum ``TransactionDetail``.
+        The ``detail`` field of the **events** belongs to this contract's
+        own namespace and is NOT the ``TransactionDetail`` enum.
 
     This means:
     - The detail values are the *same strings* as TransactionDetail values

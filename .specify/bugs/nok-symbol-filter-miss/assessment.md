@@ -1,66 +1,66 @@
-# Bug Assessment: `get_transaction_history` pierde la pata del instrumento en trades multi-leg (`symbol=NOK` nunca matchea)
+# Bug Assessment: `get_transaction_history` drops the instrument leg in multi-leg trades (`symbol=NOK` never matches)
 
 - **Slug**: nok-symbol-filter-miss
-- **Created**: 2026-10-23 (actualizado 2026-10-24 con evidencia en vivo)
+- **Created**: 2026-10-23 (updated 2026-10-24 with live evidence)
 - **Source**: pasted text
-- **Verdict**: valid (reproducido y root cause confirmado con payload en vivo)
+- **Verdict**: valid (reproduced and root cause confirmed with a live payload)
 - **Severity**: high
 
 ## Report (verbatim or summarized)
 
-> "Porque la tool schwab.get_transaction_history [start_date=2026-04-23, end_date=2026-10-23, symbol=NOK] no trajo registros, si hubo transaccion de opciones sobre NOK y el OCC de esas transacciones debio tener NOK como raiz."
+> "Because the tool schwab.get_transaction_history [start_date=2026-04-23, end_date=2026-10-23, symbol=NOK] returned no records, even though there were NOK options transactions and the OCC of those transactions must have had NOK as the root."
 
-Segunda pasada del usuario: "si eliminas el filtro por instrumento de la tool vas a ver que las transacciones de opciones si existen en ese periodo."
+User's second pass: "if you remove the instrument filter from the tool you will see that the options transactions do exist in that period."
 
 ## Symptom
 
-`get_transaction_history(symbol="NOK")` sobre la ventana 2026-04-23..2026-10-23 devuelve `ok / no_movements_for_instrument` con 0 registros, aunque existen 14 legs de opciones sobre NOK en el período. En realidad el bug es más amplio: **casi todo movimiento `trade` queda etiquetado `CURRENCY_USD | CURRENCY` con descripción vacía** — la pata del instrumento real (opción/acción) se pierde en el mapeo, por lo que el filtro por símbolo nunca puede matchear.
+`get_transaction_history(symbol="NOK")` over the 2026-04-23..2026-10-23 window returns `ok / no_movements_for_instrument` with 0 records, although there are 14 NOK options legs in the period. In fact the bug is broader: **almost every `trade` movement ends up labeled `CURRENCY_USD | CURRENCY` with an empty description** — the real instrument leg (option/equity) is lost in the mapping, so the symbol filter can never match.
 
-## Reproduction (confirmada en vivo, 2026-10-24)
+## Reproduction (confirmed live, 2026-10-24)
 
-1. Invocar `get_transaction_history(start_date="2026-09-24", end_date="2026-10-23")` (sin filtro): 23 movimientos, **18 con `category=trade` pero todos `symbol=CURRENCY_USD`**, pares de montos en el mismo timestamp (patas de spreads).
-2. Re-invocar la misma ventana con `extended=true`: los `extended.transferItems` crudos **sí contienen la pata de la opción** (p. ej. `PLTR  261120P00180000`, `INTC  261120P00085000`) después de 4 items de efectivo/comisiones (`CURRENCY_USD` con `feeType` COMMISSION/SEC_FEE/OPT_REG_FEE/TAF_FEE).
-3. Invocar con `symbol="NOK"` → 0 registros; con `symbol="AMD"` → 0 registros (también operó AMD en el período).
-4. Barrido de 6 meses con `extended=true`: **131 de los movimientos `trade` están etiquetados `CURRENCY_USD` ocultando un instrumento real**; se identificaron 14 legs de NOK en `transferItems`.
+1. Invoke `get_transaction_history(start_date="2026-09-24", end_date="2026-10-23")` (no filter): 23 movements, **18 with `category=trade` but all `symbol=CURRENCY_USD`**, amount pairs at the same timestamp (spread legs).
+2. Re-invoke the same window with `extended=true`: the raw `extended.transferItems` **do contain the option leg** (e.g. `PLTR  261120P00180000`, `INTC  261120P00085000`) after 4 cash/fee items (`CURRENCY_USD` with `feeType` COMMISSION/SEC_FEE/OPT_REG_FEE/TAF_FEE).
+3. Invoke with `symbol="NOK"` → 0 records; with `symbol="AMD"` → 0 records (AMD was also traded in the period).
+4. Six-month sweep with `extended=true`: **131 of the `trade` movements are labeled `CURRENCY_USD` hiding a real instrument**; 14 NOK legs were identified in `transferItems`.
 
 ## Suspected Code Paths
 
-- `src/schwab_mcp/transactions.py:824-860` (`map_provider_transactions`) — **ROOT CAUSE CONFIRMADO**. Extrae el símbolo del top-level `instrument` o del **primer** `transferItems[].instrument` con `symbol` (líneas 829-833). En los payloads reales, los primeros items de `transferItems` son las patas de efectivo/comisiones con `instrument: {symbol: "CURRENCY_USD", assetType: "CURRENCY"}` (no-None), por lo que `symbol` queda en `CURRENCY_USD` y `instrument_type` en `CURRENCY`. El `underlying_symbol` (líneas 857-860) depende del mismo `symbol`, así que también se pierde. Nota: el test `test_transactions_live_response.py:_real_trade_tx` modela la pata de efectivo con `instrument: None` — el payload real de 2026-10-24 la trae **no-None** (`CURRENCY_USD`), y va primero.
-- `src/schwab_mcp/transactions.py:75-120` (`movement_involves_filter`) — **correcto** (M1/M2/M3 verificados en vivo y por `tests/unit/test_transactions_underlying.py`); el filtro no matchea porque el movimiento curado ya no contiene el instrumento.
-- `docs/tools.md` (garantías de la tool) — la contratse afirma descripción/símbolo curados; el caso multi-leg con patas de fees no está modelado.
+- `src/schwab_mcp/transactions.py:824-860` (`map_provider_transactions`) — **ROOT CAUSE CONFIRMED**. It extracts the symbol from the top-level `instrument` or from the **first** `transferItems[].instrument` with a `symbol` (lines 829-833). In real payloads, the first `transferItems` items are the cash/fee legs with `instrument: {symbol: "CURRENCY_USD", assetType: "CURRENCY"}` (non-None), so `symbol` ends up as `CURRENCY_USD` and `instrument_type` as `CURRENCY`. `underlying_symbol` (lines 857-860) depends on the same `symbol`, so it is lost too. Note: the test `test_transactions_live_response.py:_real_trade_tx` models the cash leg with `instrument: None` — the real payload of 2026-10-24 carries it **non-None** (`CURRENCY_USD`), and first.
+- `src/schwab_mcp/transactions.py:75-120` (`movement_involves_filter`) — **correct** (M1/M2/M3 verified live and via `tests/unit/test_transactions_underlying.py`); the filter does not match because the curated movement no longer contains the instrument.
+- `docs/tools.md` (tool guarantees) — the contract claims curated description/symbol; the multi-leg case with fee legs is not modeled.
 
 ## Root Cause Hypothesis
 
-**Confirmada (confianza alta)**: en el payload real de `/transactions`, cada TRADE lleva en `transferItems` primero las patas de efectivo y comisiones (todas con `instrument.symbol = "CURRENCY_USD"`, `assetType = "CURRENCY"`) y al final la pata del instrumento negociado. El mapper toma el primer item con símbolo no-None → todo trade queda curado como `CURRENCY_USD/CURRENCY`. Consecuencia: el filtro local `symbol=X` jamás matchea salvo que el movimiento sea de efectivo puro; `no_movements_for_instrument` se emite como afirmación de ausencia siendo falsa. Evidencia: los 14 legs de NOK (05-05, 05-06, 06-02, 06-05 ×8, 06-24 ×2, 08-27) están presentes en `transferItems` con `assetType: OPTION` y `rootSymbol: NOK`, pero sus movimientos curados dicen `CURRENCY_USD`.
+**Confirmed (high confidence)**: in the real `/transactions` payload, every TRADE carries the cash and fee legs first in `transferItems` (all with `instrument.symbol = "CURRENCY_USD"`, `assetType = "CURRENCY"`) and the traded instrument leg last. The mapper takes the first item with a non-None symbol → every trade is curated as `CURRENCY_USD/CURRENCY`. Consequence: the local filter `symbol=X` never matches unless the movement is pure cash; `no_movements_for_instrument` is emitted as a false claim of absence. Evidence: the 14 NOK legs (05-05, 05-06, 06-02, 06-05 ×8, 06-24 ×2, 08-27) are present in `transferItems` with `assetType: OPTION` and `rootSymbol: NOK`, but their curated movements say `CURRENCY_USD`.
 
 ## Proposed Remediation
 
 **Preferred**:
-1. **Mapeo** (`map_provider_transactions`): al escanear `transferItems`, elegir como símbolo del movimiento el primer instrumento **no-divisa** (preferir `assetType != CURRENCY`; caer en `CURRENCY_USD` solo si no hay otro). Como mínimo, la decisión debe ser determinista y testeada contra el shape real (fees primero). Conservar además la lista de símbolos involucrados (p. ej. `instruments: [...]`) para no descartar legs.
-2. **Filtro** (`movement_involves_filter` + orquestador): matchear `filter_symbol` contra **todos** los instrumentos del movimiento (M1/M2 sobre el símbolo curado + M4 sobre `instruments[]`/`transferItems`), para que un trade multi-leg con NOK en cualquier pata matchee. Documentar la nueva forma en data-model §2 y `docs/tools.md`.
+1. **Mapping** (`map_provider_transactions`): when scanning `transferItems`, choose as the movement's symbol the first **non-currency** instrument (prefer `assetType != CURRENCY`; fall back to `CURRENCY_USD` only if there is no other). At minimum, the decision must be deterministic and tested against the real shape (fees first). Also keep the list of involved symbols (e.g. `instruments: [...]`) so no legs are discarded.
+2. **Filter** (`movement_involves_filter` + orchestrator): match `filter_symbol` against **all** the movement's instruments (M1/M2 on the curated symbol + M4 over `instruments[]`/`transferItems`), so a multi-leg trade with NOK in any leg matches. Document the new shape in data-model §2 and `docs/tools.md`.
 
 **Alternatives**:
-- Solo (1): arregla el símbolo curado del trade simple, pero los spreads multi-instrumento (p. ej. roll NOK 260717→260821 en la misma marca de tiempo en transacciones separadas) seguirían mostrando un solo instrumento por movimiento. Menor cambio de contrato, solución parcial.
-- Exponer solo `extended` y que el agente filtre client-side: ya posible hoy, pero contradice el contrato del parámetro `symbol` y es frágil (el agente debe saber del bug).
+- Only (1): fixes the curated symbol of the simple trade, but multi-instrument spreads (e.g. roll NOK 260717→260821 at the same timestamp in separate transactions) would still show a single instrument per movement. Smaller contract change, partial solution.
+- Expose only `extended` and let the agent filter client-side: already possible today, but it contradicts the `symbol` parameter contract and is fragile (the agent must know about the bug).
 
 **Files likely to change**:
-- `src/schwab_mcp/transactions.py` (mapeo de `transferItems`; filtro y su llamada en el orquestador)
-- `tests/unit/test_transactions_live_response.py` (regresión con el shape real: 4 patas de fees `CURRENCY_USD` no-None primero + pata OPTION última)
-- `tests/unit/test_transactions_filter_query.py` (M4 / match multi-instrumento)
-- `docs/tools.md`, `specs/006-transaction-history/contracts/` (data-model §2: nueva forma de match y/o campo `instruments`)
+- `src/schwab_mcp/transactions.py` (`transferItems` mapping; filter and its invocation in the orchestrator)
+- `tests/unit/test_transactions_live_response.py` (regression with the real shape: 4 non-None `CURRENCY_USD` fee legs first + OPTION leg last)
+- `tests/unit/test_transactions_filter_query.py` (M4 / multi-instrument match)
+- `docs/tools.md`, `specs/006-transaction-history/contracts/` (data-model §2: new match shape and/or `instruments` field)
 
 **Tests to add or update**:
-- Regresión de mapeo: transacción real (fees `CURRENCY_USD` no-None primero, opción al final) → `symbol` = OCC de la opción, `instrument_type = OPTION`, `underlying_symbol` = raíz.
-- Regresión de extremo a extremo: `get_transaction_history(symbol="NOK")` con ese payload debe retornar el movimiento (M2).
-- Multi-leg: movimiento con dos instrumentos no-divisa → el filtro matchea si cualquiera coincide.
-- No romper: movimiento genuino de efectivo (solo `CURRENCY_USD`) sigue curándose igual.
+- Mapping regression: real transaction (non-None `CURRENCY_USD` fees first, option last) → `symbol` = option's OCC, `instrument_type = OPTION`, `underlying_symbol` = root.
+- End-to-end regression: `get_transaction_history(symbol="NOK")` with that payload must return the movement (M2).
+- Multi-leg: movement with two non-currency instruments → the filter matches if either matches.
+- No breakage: a genuine cash movement (only `CURRENCY_USD`) is still curated the same way.
 
 ## Risks & Considerations
 
-- Cambio de contracto del data-model (§2 y esquema de `MovementEntry`) → actualizar spec/contracts y tests de presupuesto (`tests/performance/test_transactions_budgets.py`).
-- Los trades ya curados en outputs previos cambian de forma: breaking change semántico para consumidores del MCP (documentar en CHANGELOG).
-- `no_movements_for_instrument` pasará a ser confiable; hoy los agentes pueden haber sacado conclusiones falsas (ocurrió en esta sesión: "no operaste NOK").
+- Data-model contract change (§2 and `MovementEntry` schema) → update spec/contracts and budget tests (`tests/performance/test_transactions_budgets.py`).
+- Trades already curated in previous outputs change shape: semantic breaking change for MCP consumers (document in CHANGELOG).
+- `no_movements_for_instrument` will become reliable; today agents may have drawn false conclusions (it happened in this session: "you didn't trade NOK").
 
 ## Open Questions
 
-- Ninguno bloqueante; el root cause está confirmado con evidencia en vivo.
+- None blocking; the root cause is confirmed with live evidence.

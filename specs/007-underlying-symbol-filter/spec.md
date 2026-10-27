@@ -6,16 +6,16 @@
 
 **Status**: Draft
 
-**Input**: User description: "Lo que busco es que los agentes puedan usar la tool de get_transaction_history con el filtro `symbol=\"NOK\"` y que la tool pueda mostrar tanto los subyacentes, como las opciones que tienen \"NOK\" como parte del OCC." (extends the improvement note: derive/document the underlying symbol in every movement so agent-side filtering is trivial)
+**Input**: User description: "What I want is for agents to be able to use the get_transaction_history tool with the `symbol=\"NOK\"` filter, and for the tool to be able to show both the underlyings and the options that have \"NOK\" as part of their OCC." (extends the improvement note: derive/document the underlying symbol in every movement so agent-side filtering is trivial)
 
 ## Clarifications
 
 ### Session 2026-10-24
 
-- Q: ¿Cómo se matchea un filtro de símbolo contra opciones? → A: el filtro aplica al **subyacente**: un movimiento involucra al instrumento filtrado si su símbolo registrado es exactamente el filtro (acciones, efectivo etiquetado) **o** si es una opción cuyo **root** (el identificador del subyacente al inicio del símbolo de opción estándar) es el filtro. Comparación exacta, insensible a mayúsculas/minúsculas. Sin fuzzy matching.
-- Q: ¿Qué pasa si el agente pasa como filtro un símbolo OCC completo de una opción? → A: **Soportado**: si el filtro matchea un símbolo de opción exacto registrado por la fuente, la tool devuelve los movimientos de esa opción puntual (además del matcheo por subyacente).
-- Q: ¿Qué pasa si el filtro no se resuelve en el directorio de instrumentos pero hay movimientos con ese root/símbolo? → A: **Validación dual**: primero se consulta el directorio; si no resuelve el filtro, se intenta la consulta igual y solo se reporta `instrument_not_found` si además no hay movimientos que matcheen (ni por símbolo registrado, ni por root, ni por símbolo de opción completo).
-- Q: ¿De dónde sale el subyacente de un movimiento de opción? → A: del **root** del símbolo de opción estándar registrado por el proveedor (la propia cadena codifica subyacente, vencimiento, tipo y strike); el proveedor no expone el subyacente como campo separado en ese payload.
+- Q: How is a symbol filter matched against options? → A: the filter applies to the **underlying**: a movement involves the filtered instrument if its registered symbol is exactly the filter (equities, tagged cash) **or** if it is an option whose **root** (the underlying identifier at the start of the standard option symbol) is the filter. Exact, case-insensitive comparison. No fuzzy matching.
+- Q: What happens if the agent passes a complete OCC symbol of an option as the filter? → A: **Supported**: if the filter matches an exact option symbol registered by the source, the tool returns the movements of that specific option (in addition to underlying matching).
+- Q: What happens if the filter does not resolve in the instrument directory but there are movements with that root/symbol? → A: **Dual validation**: the directory is queried first; if it does not resolve the filter, the query is attempted anyway and `instrument_not_found` is only reported if, in addition, no movements match (neither by registered symbol, nor by root, nor by complete option symbol).
+- Q: Where does an option movement's underlying come from? → A: from the **root** of the standard option symbol registered by the provider (the symbol itself encodes underlying, expiry, type and strike); the provider does not expose the underlying as a separate field in that payload.
 
 ## User Scenarios & Testing *(mandatory)*
 

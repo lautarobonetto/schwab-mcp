@@ -236,7 +236,7 @@ class TestPositionsResult:
 
     Tests cover:
     - outcome ∈ {ok, partial_failure, transient_failure, reauth_required}
-    - positions: [] válido solo con outcome: "ok"
+    - positions: [] valid only with outcome: "ok"
     - retryable: true solo con transient_failure
     - accounts_failed solo con partial_failure
     - detail vocabulary closed

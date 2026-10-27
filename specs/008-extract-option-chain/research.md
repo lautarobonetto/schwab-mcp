@@ -1,175 +1,176 @@
-# Research: Extracción de Cadena de Opciones con Filtros
+# Research: Option Chain Extraction with Filters
 
 Feature: 008-extract-option-chain | Date: 2026-10-23
 
-## R1 — Endpoint del proveedor y mapeo de filtros
+## R1 — Provider endpoint and filter mapping
 
-**Decision**: usar `schwabdev.Client.option_chains(symbol, ...)` (endpoint
-`/marketdata/v1/chains` del Schwab Trader API) con:
+**Decision**: use `schwabdev.Client.option_chains(symbol, ...)` (endpoint
+`/marketdata/v1/chains` of the Schwab Trader API) with:
 
-- `contractType`/`optionType` ← filtro de tipo: `both→ALL`, `calls→CALL`,
+- `contractType`/`optionType` ← type filter: `both→ALL`, `calls→CALL`,
   `puts→PUT`.
-- `strikeCount` ← límite de strikes por lado: la API devuelve N strikes
-  por encima **y** por debajo del dinero, lo que coincide con la semántica
-  del filtro (50 por lado por defecto).
-- `fromDate` ← fecha actual; `toDate` ← fecha actual + tope de DTE
-  (60 por defecto o el valor pedido). La API no acepta `fromDate` anterior
-  a la fecha actual, así que la ventana de DTE se expresa como rango de
-  fechas de vencimiento.
-- `includeUnderlyingQuote: true` para obtener el precio vigente del
-  subyacente (referencia del strike al dinero y metadato de la respuesta).
+- `strikeCount` ← strike limit per side: the API returns N strikes above
+  **and** below the money, which matches the filter semantics (50 per
+  side by default).
+- `fromDate` ← current date; `toDate` ← current date + DTE cap (60 by
+  default or the requested value). The API does not accept a `fromDate`
+  earlier than the current date, so the DTE window is expressed as a
+  range of expiration dates.
+- `includeUnderlyingQuote: true` to obtain the current price of the
+  underlying (reference for the at-the-money strike and response
+  metadata).
 
-**Rationale**: es el único endpoint de cadenas expuesto por el SDK ya
-integrado; mapea 1:1 con los filtros de la spec y evita traer vencimientos
-fuera del rango DTE (reducción de volumen en origen, no solo en destino).
-
-**Alternatives considered**:
-- `option_expiration_chain` (solo fechas de vencimiento): útil como
-  enumeración previa, pero duplicaría upcalls para la misma información que
-  ya trae el payload de `option_chains` (claves `callExpDateMap` /
-  `putExpDateMap`). Rechazado por DRY/KISS.
-- Param `daysToExpiration` de la API: opera como valor puntual, no como
-  tope de rango. Rechazado.
-
-## R2 — Selección de la ventana de 5 strikes por delta objetivo
-
-**Decision**: la API no filtra por delta, así que la selección es un
-**post-filtro local**:
-
-1. Cuando hay delta objetivo, el fetch interno pide
-   `strikeCount = max(límite pedido, 100)` (cota interna 100) para
-   garantizar que la zona del delta objetivo esté dentro de la ventana
-   devuelta por la API; cuando no hay delta objetivo, se pide el límite
-   pedido (default 50).
-2. Por cada vencimiento del payload y por cada tipo incluido (CALLs y
-   PUTs por separado, delta en valor absoluto):
-   - identificar el contrato con delta más cercana al objetivo;
-   - devolver ese strike más los dos strikes contiguos de cada lado
-     (hasta 5, o todos los disponibles alrededor).
-3. Si el objetivo no queda acotado dentro de la ventana interna (delta
-   objetivo más profunda que los strikes fetchados), se hace **una**
-   segunda llamada ampliando la ventana (cota 200); si sigue sin acotarse,
-   se devuelven los contratos disponibles más cercanos al objetivo.
-
-**Rationale**: la delta es monótona en el strike dentro de cada tipo, así
-que "5 alrededor del más cercano" es determinista y verificable; pedir
-strikeCount interno mayor solo cuando hay filtro de delta evita inflar el
-volumen del caso por defecto.
+**Rationale**: it is the only chains endpoint exposed by the already
+integrated SDK; it maps 1:1 with the spec filters and avoids fetching
+expirations outside the DTE range (volume reduction at the origin, not
+only at the destination).
 
 **Alternatives considered**:
-- Pedir siempre `range="ALL"` (toda la curva): volumen en origen
-  innecesario y riesgo documentado por el SDK de "Body buffer overflow"
-  en respuestas grandes. Rechazado.
-- Iterar vencimiento por vencimiento: multiplica upcalls; rechazado.
+- `option_expiration_chain` (expiration dates only): useful as prior
+  enumeration, but it would duplicate upcalls for the same information
+  already carried by the `option_chains` payload (keys
+  `callExpDateMap` / `putExpDateMap`). Rejected for DRY/KISS.
+- API param `daysToExpiration`: operates as a point value, not a range
+  cap. Rejected.
 
-## R3 — DTE y ordenación de vencimientos
+## R2 — Selection of the 5-strike window per target delta
 
-**Decision**: DTE = días de calendario entre la fecha actual (local del
-servidor, fecha de la consulta) y la fecha de vencimiento; los
-vencimientos se ordenan ascendente por fecha. El tope vigente (60 por
-defecto o el valor pedido) filtra vencimientos con DTE > tope. Un DTE
-pedido que excluye todos los vencimientos produce la respuesta explícita
-de cadena vacía (FR-009), no un error.
+**Decision**: the API does not filter by delta, so the selection is a
+**local post-filter**:
 
-**Rationale**: coincidir con la lectura operativa del trader (los DTE de
-vencimientos semanales se cuentan en días de calendario) y con la ventana
-`fromDate/toDate` de la API.
+1. When there is a target delta, the internal fetch requests
+   `strikeCount = max(requested limit, 100)` (internal bound of 100) to
+   guarantee that the zone of the target delta is inside the window
+   returned by the API; when there is no target delta, the requested
+   limit is requested (default 50).
+2. For each expiration in the payload and each included type (CALLs and
+   PUTs separately, delta in absolute value):
+   - identify the contract with the delta closest to the target;
+   - return that strike plus the two contiguous strikes on each side
+     (up to 5, or all available around).
+3. If the target is not bracketed within the internal window (target
+   delta deeper than the fetched strikes), **one** second call widening
+   the window (bound 200) is made; if it is still not bracketed, the
+   available contracts closest to the target are returned.
 
-**Alternatives considered**: DTE en días de mercado; rechazado porque la
-API filtra por fechas de calendario y el caso de uso (selección de
-vencimiento) usa días corridos.
+**Rationale**: delta is monotonic in the strike within each type, so "5
+around the closest one" is deterministic and verifiable; requesting a
+higher internal strikeCount only when there is a delta filter avoids
+inflating the volume of the default case.
 
-## R4 — Presupuesto de tokens y esquema compacto
+**Alternatives considered**:
+- Always requesting `range="ALL"` (the whole curve): unnecessary volume
+  at the origin and a documented SDK risk of "Body buffer overflow" on
+  large responses. Rejected.
+- Iterating expiration by expiration: multiplies upcalls; rejected.
+
+## R3 — DTE and expiration ordering
+
+**Decision**: DTE = calendar days between the current date (server
+local, date of the query) and the expiration date; expirations are
+ordered ascending by date. The current cap (60 by default or the
+requested value) filters out expirations with DTE > cap. A requested DTE
+that excludes all expirations produces the explicit empty-chain response
+(FR-009), not an error.
+
+**Rationale**: match the trader's operative reading (DTEs of weekly
+expirations are counted in calendar days) and the `fromDate/toDate`
+window of the API.
+
+**Alternatives considered**: DTE in market days; rejected because the
+API filters by calendar dates and the use case (expiration selection)
+uses elapsed days.
+
+## R4 — Token budget and compact schema
 
 **Decision**:
 
-- Esquema de salida **columnar por strike**: cada vencimiento contiene
-  una lista de filas de strike; cada fila tiene el strike y como máximo
-  dos arrays de valores (`call` y `put`) en un **orden de columnas
-  documentado** en el propio payload (`contract_fields`). Esto elimina la
-  repetición de nombres de campo por contrato (mayor costo del formato
-  clave-valor) y la repetición del valor de strike entre piernas.
-- Redondeo determinista: precios/valores a 2 decimales, griegas e IV a 4
-  decimales.
-- Campos ausentes → `null` explícito en su columna (cumple FR-007 con
-  costo mínimo); no se inventan valores.
-- Test de presupuesto (`tests/performance/test_options_chain_budgets.py`)
-  mide la serialización de un fixture representativo (subyacente líquido,
-  ~12 vencimientos, 100 strikes por vencimiento) contra el presupuesto
-  normativo de 75.000 tokens con defaults y < 3.000 con `delta_target`
-  (SC-002; aproximación: caracteres/4).
+- **Columnar per-strike** output schema: each expiration contains a list
+  of strike rows; each row has the strike and at most two arrays of
+  values (`call` and `put`) in a **documented column order** declared in
+  the payload itself (`contract_fields`). This removes the repetition of
+  field names per contract (the largest cost of the key-value format)
+  and the repetition of the strike value between legs.
+- Deterministic rounding: prices/values to 2 decimals, Greeks and IV to
+  4 decimals.
+- Missing fields → explicit `null` in their column (meets FR-007 at
+  minimal cost); no values are invented.
+- Budget test (`tests/performance/test_options_chain_budgets.py`)
+  measures the serialization of a representative fixture (liquid
+  underlying, ~12 expirations, 100 strikes per expiration) against the
+  normative budget of 75,000 tokens with defaults and < 3,000 with
+  `delta_target` (SC-002; approximation: chars/4).
 
-**Rationale**: la combinación de defaults de la spec (50/lado × 2 tipos ×
-~12 vencimientos × el superset curado) es inherentemente voluminosa; el
-esquema columnar es la única palanca de compactación que no viola FR-006
-(superset curado) ni FR-002/FR-005 (defaults). **Resolución de la
-clarificación 2026-10-24**: se mantiene el default de 50 (decisión del
-usuario) y el presupuesto normativo con defaults se fija en **≤75.000
-tokens** (SC-002), con **<3.000** para llamadas con `delta_target`;
-justificación registrada en plan.md (Complexity Tracking, Principio V).
-La salida declara el tamaño esperado en `docs/tools.md`.
+**Rationale**: the combination of spec defaults (50/side × 2 types × ~12
+expirations × the curated superset) is inherently bulky; the columnar
+schema is the only compaction lever that does not violate FR-006 (curated
+superset) or FR-002/FR-005 (defaults). **Resolution of the 2026-10-24
+clarification**: the default of 50 stays (user decision) and the
+normative budget with defaults is set at **≤75,000 tokens** (SC-002),
+with **<3,000** for calls with `delta_target`; justification recorded in
+plan.md (Complexity Tracking, Principle V). The output declares the
+expected size in `docs/tools.md`.
 
 **Alternatives considered**:
-- Formato clave-valor por contrato: ~2–3× más tokens. Rechazado.
-- Recortar campos de baja utilidad (open/high/low/close de la pierna):
-  FR-006 quedó acotado al superset curado `contract_fields` + modo
-  extendido (clarificación 2026-10-24), por lo que este recorte ya no es
-  necesario; el passthrough `extended` cubre el resto.
-- Paginación: viola FR-011 (una sola invocación). Rechazado.
-- Reducir defaults (p. ej. 25 strikes/lado): rechazado por decisión del
-  usuario en la clarificación 2026-10-24 (el default 50 se mantiene y el
-  presupuesto sube a 75k con justificación registrada).
+- Key-value format per contract: ~2–3× more tokens. Rejected.
+- Trimming low-utility fields (open/high/low/close of the leg): FR-006
+  was bounded to the curated `contract_fields` superset + extended mode
+  (clarification 2026-10-24), so this trimming is no longer necessary;
+  the `extended` passthrough covers the rest.
+- Pagination: violates FR-011 (a single invocation). Rejected.
+- Reducing defaults (e.g. 25 strikes/side): rejected by user decision in
+  the 2026-10-24 clarification (the default 50 stays and the budget
+  rises to 75k with recorded justification).
 
-## R5 — Errores, política de parciales y reutilización
+## R5 — Errors, partials policy and reuse
 
 **Decision**:
 
-- Unwrapping y clasificación de errores: reutilizar
-  `provider.response_json` (401/403 → re-auth; 5xx/408/429 →
-  `ConnectivityError`; otros 4xx → `ValueError` de validación) y
-  `tokens.retry_call` para transitorios.
-- Política FR-013: si la fuente falla o un vencimiento entero viene sin
-  datos (mapa de vencimiento vacío o ausente), la tool aborta con error
-  estructurado sin devolver cadena parcial.
-- Validación de filtros **antes** de cualquier upcall: tipo de opción
-  desconocido, delta con |delta| ∉ (0,1), strikes ≤ 0, dte ≤ 0, símbolo
-  vacío → error de validación accionable.
-- Errores de dominio nuevos (mínimos, mismos principios que 006):
-  `no_options_listed` (el instrumento no tiene opciones) y
-  `no_expirations_in_range` (el tope de DTE excluye todos los
-  vencimientos) — comunicados como resultado estructurado, no como error
-  de transporte (FR-009).
+- Unwrapping and error classification: reuse `provider.response_json`
+  (401/403 → re-auth; 5xx/408/429 → `ConnectivityError`; other 4xx →
+  validation `ValueError`) and `tokens.retry_call` for transients.
+- FR-013 policy: if the source fails or an entire expiration comes with
+  no data (empty or missing expiration map), the tool aborts with a
+  structured error without returning a partial chain.
+- Filter validation **before** any upcall: unknown option type, delta
+  with |delta| ∉ (0,1), strikes ≤ 0, dte ≤ 0, empty symbol → actionable
+  validation error.
+- New domain errors (minimal, same principles as 006):
+  `no_options_listed` (the instrument has no options) and
+  `no_expirations_in_range` (the DTE cap excludes all expirations) —
+  communicated as structured results, not as transport errors (FR-009).
 
-**Rationale**: reutiliza la taxonomía única ya probada (Principios II y
-III) y separa "sin datos" de "falló" para que el agente pueda decidir el
-paso siguiente.
+**Rationale**: reuses the single already-proven taxonomy (Principles II
+and III) and separates "no data" from "failed" so the agent can decide
+the next step.
 
-**Alternatives considered**: taxonomía nueva para esta tool; rechazada
-por duplicación.
+**Alternatives considered**: a new taxonomy for this tool; rejected as
+duplication.
 
-## R6 — Curado de campos por contrato
+## R6 — Field curation per contract
 
-**Decision**: incluir por pierna los campos que la fuente expone y que
-aportan al análisis de posiciones de opciones, excluyendo ruido
-estructural/de transporte:
+**Decision**: include per leg the fields the source exposes that
+contribute to the analysis of option positions, excluding
+structural/transport noise:
 
-- **Cotización**: `bid`, `ask`, `last`, `mark`, `markChange`,
-  `markPercentChange`, `highPrice`, `lowPrice`, `openPrice`, `closePrice`.
-- **Liquidez**: `totalVolume`, `openInterest`.
-- **Riesgo/griegas**: `volatility` (IV), `delta`, `gamma`, `theta`,
-  `vega`, `rho`, `theoreticalOptionValue`, `timeValue`.
-- **Referencia**: `multiplier`, `daysToExpiration`, `tradeTime`,
-  `deliverableNote` (relevante para asignación en LEAPs).
-- **Excluidos**: `skipBars`, `isPitRanged`, `executable`,
-  `settlementType`, `deliverables` (estructurales, sin valor de análisis;
-  disponibles vía `extended=true` con passthrough del payload crudo,
-  patrón de 003/006).
+- **Quote**: `bid`, `ask`, `last`, `mark`, `markChange`,
+  `markPercentChange`, `highPrice`, `lowPrice`, `openPrice`,
+  `closePrice`.
+- **Liquidity**: `totalVolume`, `openInterest`.
+- **Risk/Greeks**: `volatility` (IV), `delta`, `gamma`, `theta`, `vega`,
+  `rho`, `theoreticalOptionValue`, `timeValue`.
+- **Reference**: `multiplier`, `daysToExpiration`, `tradeTime`,
+  `deliverableNote` (relevant for assignment in LEAPs).
+- **Excluded**: `skipBars`, `isPitRanged`, `executable`,
+  `settlementType`, `deliverables` (structural, with no analysis value;
+  available via `extended=true` with passthrough of the raw payload,
+  pattern of 003/006).
 
-**Rationale**: cumple FR-006 ("todas las griegas y todos los valores
-técnicos disponibles") con una curación determinista y declarada; el
-passthrough `extended` preserva acceso al 100% del payload sin inflar el
-formato curado.
+**Rationale**: meets FR-006 ("all the Greeks and all the available
+technical values") with a deterministic and declared curation; the
+`extended` passthrough preserves access to 100% of the payload without
+inflating the curated format.
 
-**Alternatives considered**: passthrough crudo como formato único;
-rechazado porque el payload de la API es de formato clave-valor verbose
-(multiplica el costo de tokens ~2–3×) y mezcla metadatos estructurales.
+**Alternatives considered**: raw passthrough as the only format;
+rejected because the API payload is a verbose key-value format
+(multiplies the token cost ~2–3×) and mixes structural metadata.

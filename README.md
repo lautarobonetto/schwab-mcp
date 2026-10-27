@@ -1,43 +1,42 @@
 # schwab-mcp
 
-Servidor **MCP local (stdio)** para acceder a la información de cuenta
-de [Charles Schwab](https://www.schwab.com) desde un cliente de IA:
-posiciones, historial de transacciones y cadenas de opciones. Todo corre
-en tu máquina: sin sockets entrantes y con credenciales que nunca salen
-de tu equipo.
+A **local MCP server (stdio)** for accessing [Charles Schwab](https://www.schwab.com)
+account information from an AI client: positions, transaction history, and
+option chains. Everything runs on your machine: no incoming sockets, and
+credentials that never leave your computer.
 
-## Documentación
+## Documentation
 
-| Tema | Dónde |
-|------|-------|
-| Instalación y configuración | [docs/instalacion.md](docs/instalacion.md) |
-| Uso, autorización y diagnóstico | [docs/uso.md](docs/uso.md) |
-| Referencia de tools para agentes de AI | [docs/tools.md](docs/tools.md) |
-| Historia de cambios | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
-| **Release / distribución a destinatarios** | [docs/release-mantenimiento.md](docs/release-mantenimiento.md) |
+| Topic | Where |
+|-------|-------|
+| Installation and setup | [docs/installation.md](docs/installation.md) |
+| Usage, authorization, and troubleshooting | [docs/usage.md](docs/usage.md) |
+| Tools reference for AI agents | [docs/tools.md](docs/tools.md) |
+| Change history | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
+| **Release / distribution to recipients** | [docs/release-maintenance.md](docs/release-maintenance.md) |
 
-## Comandos
+## Commands
 
 ```sh
-uv sync                        # instalar entorno
-uv run pytest                  # suite completa
-uv run schwab-mcp auth         # autorización interactiva
-uv run schwab-mcp serve        # servidor MCP sobre stdio
-uv run schwab-mcp auth-status  # diagnóstico local de credenciales
-uv run schwab-mcp renew        # renovación explícita
+uv sync                        # set up the environment
+uv run pytest                  # full test suite
+uv run schwab-mcp auth         # interactive authorization
+uv run schwab-mcp serve        # MCP server over stdio
+uv run schwab-mcp auth-status  # local credential diagnostics
+uv run schwab-mcp renew        # explicit renewal
 ```
 
-## Paquete para destinatarios
+## Package for recipients
 
-Los destinatarios que solo reciben el paquete de distribución siguen los
-manuales en inglés incluidos dentro del archive (también en
-[docs/release/](docs/release/README.md)). El paquete se construye con
-`uv run schwab-mcp-release build` — ver
-[docs/release-mantenimiento.md](docs/release-mantenimiento.md).
+Recipients who only receive the distribution package follow the English
+manuals bundled inside the archive (also in
+[docs/release/](docs/release/README.md)). The package is built with
+`uv run schwab-mcp-release build` — see
+[docs/release-maintenance.md](docs/release-maintenance.md).
 
-## Seguridad de credenciales
+## Credential safety
 
-Las credenciales de Schwab y los tokens viven únicamente en
-`~/.schwab-mcp/tokens.db` (configurable), jamás en logs, outputs ni
-repositorio. La constitución del proyecto gobierna todos los cambios:
+Schwab credentials and tokens live only in
+`~/.schwab-mcp/tokens.db` (configurable), never in logs, outputs, or
+the repository. The project constitution governs all changes:
 [.specify/memory/constitution.md](.specify/memory/constitution.md).

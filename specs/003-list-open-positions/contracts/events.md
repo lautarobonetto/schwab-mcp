@@ -1,43 +1,43 @@
-# Contract: Eventos de auditoría de posiciones
+# Contract: Positions Audit Events
 
 **Feature**: `003-list-open-positions` | **Date**: 2026-10-20
 
-Extiende el canal de auditoría establecido en
+Extends the audit channel established in
 [`specs/002-automated-token-renewal/contracts/events.md`](../../002-automated-token-renewal/contracts/events.md)
-(mismo mecanismo `log.auth_event`, mismo formato de línea, mismo filtro
-de redacción). Esta feature agrega **nuevo vocabulario** — no modifica
-los eventos de auth.
+(same `log.auth_event` mechanism, same line format, same redaction
+filter). This feature adds **new vocabulary** — it does not modify
+the auth events.
 
-## Formato de línea
+## Line format
 
 ```text
 <timestamp ISO-8601> auth_event=<event> outcome=<outcome> detail=<detail>
 ```
 
-(Es el mismo emisor `auth_event=` — reutilizado a propósito por DRY para
-un solo formato parseable; el `event` distingue el dominio.)
+(It is the same `auth_event=` emitter — deliberately reused for DRY with
+a single parseable format; the `event` distinguishes the domain.)
 
-## Eventos por invocación de `get_open_positions`
+## Events per `get_open_positions` invocation
 
-Cada invocación emite **exactamente un** `positions_query_start`
-seguido de **exactamente un** evento terminal. Nunca dos terminales,
-nunca un start huérfano.
+Every invocation emits **exactly one** `positions_query_start`
+followed by **exactly one** terminal event. Never two terminals,
+never an orphan start.
 
-| Evento | outcome | detail | Significado |
-|--------|---------|--------|-------------|
-| `positions_query_start` | `initiated` | `extended` \| `curated` | Consulta iniciada (indica modo) |
-| `positions_query_success` | `ok` \| `partial_failure` | `positions_found` \| `no_positions` \| `account_failed` | Resultado estructurado devuelto; el outcome del evento es exactamente el `outcome` del resultado (incluye `partial_failure` — FR-010) |
-| `positions_query_failure` | `transient` \| `reauth` | `provider_unreachable` \| `reauth_needed` \| `store_absent` \| `store_corrupted` | Resultado estructurado de fallo devuelto |
+| Event | outcome | detail | Meaning |
+|-------|---------|--------|---------|
+| `positions_query_start` | `initiated` | `extended` \| `curated` | Query initiated (indicates mode) |
+| `positions_query_success` | `ok` \| `partial_failure` | `positions_found` \| `no_positions` \| `account_failed` | Structured result returned; the event's outcome is exactly the result's `outcome` (includes `partial_failure` — FR-010) |
+| `positions_query_failure` | `transient` \| `reauth` | `provider_unreachable` \| `reauth_needed` \| `store_absent` \| `store_corrupted` | Structured failure result returned |
 
-## Reglas
+## Rules
 
-- **Sin secretos**: nunca tokens, credenciales ni URLs; el filtro de
-  redacción de 001 cubre estas líneas (defensa adicional).
-- **Sin PII financiera en el evento**: el evento NO incluye símbolos,
-  cantidades ni valores (esos datos viajan solo en el resultado al
-  cliente MCP). Solo clasificación.
-- **Una línea por transición**: la secuencia `start` → terminal es la
-  única permitida; un fallo interno no clasificable emite
-  `positions_query_failure` con `outcome=error`, `detail=internal`.
-- Los eventos van al canal auxiliar (stderr); el resultado estructurado
-  es lo único que viaja por el canal de datos de la tool.
+- **No secrets**: never tokens, credentials, or URLs; the redaction filter
+  from 001 covers these lines (defense in depth).
+- **No financial PII in the event**: the event does NOT include symbols,
+  quantities, or values (that data travels only in the result to the
+  MCP client). Classification only.
+- **One line per transition**: the `start` → terminal sequence is the
+  only one allowed; an unclassifiable internal failure emits
+  `positions_query_failure` with `outcome=error`, `detail=internal`.
+- Events go to the auxiliary channel (stderr); the structured result
+  is the only thing that travels through the tool's data channel.

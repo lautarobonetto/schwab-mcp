@@ -7,10 +7,10 @@
 
 ## Idea (as captured)
 
-> "Necesito conectarme a las APIs de Schwab, y no estoy seguro si me conviene
-> interacturar con las API directamente, o si mejor uso alguna libreria ya
-> existe te (ej: https://schwab-py.readthedocs.io/en/latest/ o
-> https://github.com/tylerebowers/Schwabdev)"
+> "I need to connect to the Schwab APIs, and I'm not sure whether it's better
+> for me to interact with the APIs directly, or whether I should use an
+> existing library instead (e.g., https://schwab-py.readthedocs.io/en/latest/
+> or https://github.com/tylerebowers/Schwabdev)"
 
 ### Referenced sources
 

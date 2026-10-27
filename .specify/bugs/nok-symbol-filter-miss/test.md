@@ -1,4 +1,4 @@
-# Bug Verification: `get_transaction_history` curaba todo trade como `CURRENCY_USD`
+# Bug Verification: `get_transaction_history` curated every trade as `CURRENCY_USD`
 
 - **Slug**: nok-symbol-filter-miss
 - **Tested**: 2026-10-24
@@ -8,22 +8,22 @@
 
 ## Summary
 
-El síntoma original ya no reproduce: la consulta exacta del reporte (`start_date=2026-04-23, end_date=2026-10-23, symbol="NOK"`) ejecutada en vivo contra la API real con el código corregido retorna las **14 legs de opciones NOK** del período (pre-fix: `ok / no_movements_for_instrument` con 0 registros). Todas las patas curan con el OCC correcto y `underlying_symbol=NOK`; el control sin filtro se mantiene en 173 movimientos (sin regresión en el volumen de datos).
+The original symptom no longer reproduces: the exact query from the report (`start_date=2026-04-23, end_date=2026-10-23, symbol="NOK"`) executed live against the real API with the corrected code returns the period's **14 NOK options legs** (pre-fix: `ok / no_movements_for_instrument` with 0 records). All legs curate with the correct OCC and `underlying_symbol=NOK`; the unfiltered control remains at 173 movements (no regression in data volume).
 
 ## Checks Performed
 
 | Check | Command / Action | Result | Notes |
 |-------|------------------|--------|-------|
-| Reproduction (post-fix) | `uv run python tmp/live_check_nok.py` (script one-off read-only con cliente real + tokens almacenados; ejecuta la consulta exacta del assessment con paginación) | **pass** | 14 movimientos NOK retornados (pre-fix: 0); el consentimiento del usuario fue otorgado para esta verificación de red |
-| Reproduction (pre-fix baseline) | Misma consulta vía MCP en la sesión (código viejo cargado en el proceso del servidor) | pass (baseline) | Confirmó el síntoma original (`ok / no_movements_for_instrument`, total=0) — baseline obtenido antes del fix |
-| New / updated tests | `uv run pytest tests/unit/test_transactions_live_response.py -q` | pass | 20 passed — incluye la sección `1c. Multi-leg trade shape` (5 tests de regresión) |
-| Regression suite | `uv run pytest -q` | pass | **842 passed, 0 skipped, 0 failed** (gate de commit de la constitución) |
-| Lint / type-check | — | not-run | No hay tooling de lint/type-check configurado en `pyproject.toml` |
-| Control sin filtro (misma ventana) | `get_transaction_history(client, "2026-04-23", "2026-10-23")` en el script en vivo | pass | total=173, idéntico al barrido pre-fix — el fix no alteró el volumen de movimientos fetchados |
+| Reproduction (post-fix) | `uv run python tmp/live_check_nok.py` (one-off read-only script with the real client + stored tokens; runs the exact query from the assessment with pagination) | **pass** | 14 NOK movements returned (pre-fix: 0); the user's consent was granted for this network verification |
+| Reproduction (pre-fix baseline) | Same query via MCP in the session (old code loaded in the server process) | pass (baseline) | Confirmed the original symptom (`ok / no_movements_for_instrument`, total=0) — baseline obtained before the fix |
+| New / updated tests | `uv run pytest tests/unit/test_transactions_live_response.py -q` | pass | 20 passed — includes the `1c. Multi-leg trade shape` section (5 regression tests) |
+| Regression suite | `uv run pytest -q` | pass | **842 passed, 0 skipped, 0 failed** (constitution commit gate) |
+| Lint / type-check | — | not-run | No lint/type-check tooling configured in `pyproject.toml` |
+| Unfiltered control (same window) | `get_transaction_history(client, "2026-04-23", "2026-10-23")` in the live script | pass | total=173, identical to the pre-fix sweep — the fix did not alter the volume of fetched movements |
 
 ## Output Excerpts
 
-Reproducción en vivo post-fix (`symbol=NOK`, ventana de 6 meses):
+Live post-fix reproduction (`symbol=NOK`, 6-month window):
 
 ```
 page offset=0: outcome=TransactionOutcome.ok detail=TransactionDetail.history_retrieved total=14 returned=14
@@ -41,15 +41,15 @@ NOK movements retrieved: 14
 control unfiltered: outcome=TransactionOutcome.ok total=173
 ```
 
-Las 14 legs coinciden 1:1 con las identificadas en el assessment vía `extended.transferItems` (fechas, contratos, cantidades), confirmando que el fix recupera exactamente los movimientos que el bug ocultaba.
+The 14 legs match 1:1 with those identified in the assessment via `extended.transferItems` (dates, contracts, quantities), confirming that the fix recovers exactly the movements the bug was hiding.
 
 ## Residual Risks
 
-- **Proceso del servidor MCP desactualizado**: el servidor `schwab-mcp` en ejecución sigue cargando el código pre-fix; las herramientas MCP de esta sesión seguirán mostrando el bug hasta reiniciarlo (`uv run schwab-mcp serve`). La verificación en vivo se ejecutó in-process con el código corregido, por lo que el resultado es válido.
-- **Transacciones con múltiples instrumentos no-divisa**: fuera de alcance por decisión documentada (fix.md, Deviations) — 0 casos en 173 movimientos en vivo; si aparecen (p. ej. asignaciones RECEIVE_AND_DELIVER), solo se curará la primera pata no-divisa.
-- **Descripción vacía en trades**: los trades reales no traen `description` a nivel de transacción; el fix no la deriva del instrumento (follow-up registrado).
-- **Script de verificación**: `tmp/live_check_nok.py` queda en `tmp/` (git-ignored) como artefacto de la verificación; es re-ejecutable y solo-lectura.
+- **Stale MCP server process**: the running `schwab-mcp` server still has the pre-fix code loaded; the MCP tools in this session will keep showing the bug until it is restarted (`uv run schwab-mcp serve`). The live verification was executed in-process with the corrected code, so the result is valid.
+- **Transactions with multiple non-currency instruments**: out of scope by documented decision (fix.md, Deviations) — 0 cases among 173 live movements; if they appear (e.g. RECEIVE_AND_DELIVER assignments), only the first non-currency leg will be curated.
+- **Empty description in trades**: real trades do not carry a transaction-level `description`; the fix does not derive it from the instrument (follow-up recorded).
+- **Verification script**: `tmp/live_check_nok.py` remains in `tmp/` (git-ignored) as a verification artifact; it is re-runnable and read-only.
 
 ## Recommendation
 
-Cerrar el bug — verificado end-to-end: la reproducción original del assessment se ejercitó en vivo contra el proveedor real con el código corregido y el síntoma desapareció (14/14 legs NOK recuperadas), la suite completa está verde y el volumen de datos del barrido sin filtro no cambió. Pendiente operativo único: reiniciar el proceso del servidor MCP para que las tools servidas usen el código corregido.
+Close the bug — verified end-to-end: the original reproduction from the assessment was exercised live against the real provider with the corrected code and the symptom disappeared (14/14 NOK legs recovered), the full suite is green, and the data volume of the unfiltered sweep did not change. Single remaining operational step: restart the MCP server process so the served tools use the corrected code.

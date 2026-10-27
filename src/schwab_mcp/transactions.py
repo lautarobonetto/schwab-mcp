@@ -1290,7 +1290,7 @@ def get_transaction_history_tool(
     Converts validation errors (``ValueError``/``TypeError``) and
     ``InstrumentNotFoundError`` into the MCP SDK's ``ToolError`` so that the
     actionable message — not the SDK's generic wrapper text — reaches the
-    agent (FR-009d, SC-005, contracts/mcp-tools.md "Errores de validación").
+    agent (FR-009d, SC-005, contracts/mcp-tools.md "Validation errors").
     """
     from mcp.server.mcpserver.exceptions import ToolError
 

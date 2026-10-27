@@ -85,6 +85,20 @@ non-code files (Dockerfiles, shell scripts, configs), or when graph tools
 return insufficient results. When the fallback is used because of a coverage
 gap, the gap MUST be noted in the analysis output.
 
+### VII. English-Only Documentation & Comments
+
+All documentation and all code comments in this repository MUST be written
+in English. This applies without exception to: files in `docs/` (including
+`docs/CHANGELOG.md` and every usage, installation, and release guide),
+`README.md`, docstrings and inline code comments, Spec Kit artifacts
+(specs, plans, tasks, contracts, quickstarts), and any other human-readable
+prose committed to the repository. New content MUST NOT be written in any
+other language, and existing content MUST be migrated to English when it is
+touched. Rationale: a single documentation language keeps the codebase
+consistent and accessible to every contributor and AI agent, avoids
+ambiguous translations of technical terms, and simplifies review and
+tooling.
+
 ## Repository Layout
 
 The repository layout is fixed and non-negotiable. Every file created in
@@ -163,6 +177,8 @@ All changes follow the Spec Kit flow (`/speckit.specify` →
    repository MUST be refreshed (re-index via `index_repository`, or
    equivalent auto-refresh) before any subsequent graph-based analysis is
    trusted (Principle VI).
+8. **Language gate**: every new or modified documentation file and code
+   comment is written in English (Principle VII).
 
 ### Index Currency Rule
 
@@ -212,4 +228,4 @@ are part of the compliance review.
   Kit plan documents; agents MUST consult the constitution at the start of
   plan and implement phases.
 
-**Version**: 1.4.1 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-26
+**Version**: 1.5.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-26

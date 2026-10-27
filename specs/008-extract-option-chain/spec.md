@@ -1,4 +1,4 @@
-# Feature Specification: Extracción de Cadena de Opciones con Filtros
+# Feature Specification: Option Chain Extraction with Filters
 
 **Feature Branch**: `008-extract-option-chain`
 
@@ -6,312 +6,302 @@
 
 **Status**: Draft
 
-**Input**: User description: "quiero agregar una nueva tool al mcp, que permita extraer toda la cadena de opciones de un instrumento. Para que no sea muy voluminoso el resultado que debe devolver el MCP, quiero que la tool tenga todos los siguientes filtro opcionales: (1) cantidad máxima de strikes a traer, aplica para ambos lados del strike, valor predeterminado 50; (2) filtrar solo CALLs, solo PUTs, o ambos, valor predeterminado ambos; (3) filtrar por Delta buscado: si se busca delta 0.20, el filtro trae las opciones de los 5 strikes que estén alrededor del Delta 0.20, valor predeterminado nulo (no filtra por delta); (4) filtro de DTE, valor predeterminado nulo y significa que trae todos los vencimientos hasta los 60 días como máximo. Nota: la cadena debe traer todas las griegas y todos los valores técnicos disponibles para poder hacer buenos análisis de posiciones de opciones complejas (Iron Condors, Naked puts, Calendars, LEAPs, etc)."
+**Input**: User description: "I want to add a new tool to the MCP that allows extracting the entire option chain of an instrument. To keep the result the MCP has to return from being too bulky, I want the tool to have all of the following optional filters: (1) maximum number of strikes to fetch, applies to both sides of the strike, default value 50; (2) filter to CALLs only, PUTs only, or both, default value both; (3) filter by target Delta: if delta 0.20 is sought, the filter brings the options of the 5 strikes around Delta 0.20, default value null (does not filter by delta); (4) DTE filter, default value null and it means it brings all expirations up to 60 days at most. Note: the chain must include all the Greeks and all the technical values available so that good analyses of complex option positions (Iron Condors, Naked puts, Calendars, LEAPs, etc.) can be made."
 
 ## Clarifications
 
 ### Session 2026-10-23
 
-- Q: Cuando el filtro de delta objetivo está activo y el tipo de opción es "ambos", la ventana de 5 strikes se calcula por separado para CALLs y PUTs? → A: ventana **por tipo**: por cada vencimiento, hasta 5 strikes de CALLs alrededor del contrato CALL más cercano al delta objetivo y hasta 5 strikes de PUTs alrededor del contrato PUT más cercano al delta objetivo (comparando delta en valor absoluto); ninguna ventana compartida entre tipos.
-- Q: Cuál es el presupuesto máximo de tamaño de respuesta (en tokens aproximados) que debe respetar una invocación con todos los filtros por defecto? → A: **30.000 tokens** por invocación con filtros por defecto; si una cadena real lo excede, se compacta el formato de salida sin recortar griegas ni violar los límites de filtros.
-- Q: Cuando el filtro de delta objetivo está activo, la ventana de 5 strikes se aplica a todos los vencimientos dentro del tope de DTE vigente, o solo al vencimiento más próximo? → A: a **todos los vencimientos** dentro del tope de DTE vigente (por defecto 60 días), uno por uno; el filtro de delta no restringe el conjunto de vencimientos.
-- Q: Cuando la fuente de datos de mercado falla o devuelve una cadena incompleta, la tool debe abortar con un error estructurado sin datos parciales, o devolver lo que tenga marcando lo faltante? → A: **error estructurado sin datos parciales**: si la fuente falla o un vencimiento entero viene sin datos, la tool no devuelve cadena y reporta el motivo; los campos puntuales faltantes dentro de contratos presentes se marcan como no disponible (FR-007).
+- Q: When the target delta filter is active and the option type is "both", is the 5-strike window computed separately for CALLs and PUTs? → A: window **per type**: for each expiration, up to 5 CALL strikes around the CALL contract closest to the target delta and up to 5 PUT strikes around the PUT contract closest to the target delta (comparing delta in absolute value); no window shared between types.
+- Q: What is the maximum response size budget (in approximate tokens) that an invocation with all filters at their defaults must respect? → A: **30,000 tokens** per invocation with default filters; if a real chain exceeds it, the output format is compacted without trimming Greeks or violating the filter limits.
+- Q: When the target delta filter is active, is the 5-strike window applied to all expirations within the current DTE cap, or only to the nearest expiration? → A: to **all expirations** within the current DTE cap (default 60 days), one by one; the delta filter does not restrict the set of expirations.
+- Q: When the market data source fails or returns an incomplete chain, must the tool abort with a structured error and no partial data, or return what it has while flagging what is missing? → A: **structured error with no partial data**: if the source fails or an entire expiration comes with no data, the tool does not return a chain and reports the reason; individual missing fields within present contracts are flagged as not available (FR-007).
 
 ### Session 2026-10-24
 
-- Q: Para que la respuesta con filtros por defecto sea predecible en tamaño, qué estrategia elegimos: subir el presupuesto de tokens a la medida real, o bajar el default de strikes por lado? → A: **default de 50 strikes por lado se mantiene**; el presupuesto de tokens con filtros por defecto sube a **≤75.000 tokens** (justificación registrada en plan.md, Principio V de la constitución); con `delta_target` activo el objetivo chico (<3.000 tokens) se mantiene. Esta decisión **reemplaza** el presupuesto de 30.000 tokens de la sesión 2026-10-23.
-- Q: Cómo hacemos verificable el criterio de que el agente completa el análisis de una posición compleja sin necesidad de una segunda invocación? → A: **cada escenario de validación (quickstart S1–S3, cubriendo Iron Condor, Naked Put, Calendar y LEAP) se completa con exactamente 1 invocación a la tool**, verificado en los tests de integración.
-- Q: Qué alcance exacto debe tener el set de campos técnicos por contrato: superset curado declarado en la respuesta (con acceso al resto vía modo extendido), o literalmente todos los campos de la fuente? → A: **superset curado declarado en `contract_fields`** (cotización, liquidez, IV, las 5 griegas, valores teóricos, time value, multiplicador, trade time, nota de entregables); los campos estructurales restantes de la fuente quedan accesibles vía modo extendido con el payload crudo completo.
-- Q: Qué objetivo de latencia unificamos como criterio de éxito: el más exigente de plan y contrato (≤5 s p95) o el más laxo de la spec (<10 s)? → A: **≤5 segundos p95 por invocación**, unificado en spec, plan y contrato.
-- Q: Cómo verificamos el cumplimiento de la ventana de 5 strikes por delta: fixtures en la suite automática, con validación live adicional, o solo cadenas reales? → A: **suite automática con fixtures representativos** (incluyendo bordes: delta en el límite de la curva, strikes faltantes) **+ validación contra cadena real como paso del quickstart S2**.
+- Q: To make the response with default filters predictable in size, which strategy do we choose: raise the token budget to the actual measured size, or lower the default strikes per side? → A: **the default of 50 strikes per side stays**; the token budget with default filters rises to **≤75,000 tokens** (justification recorded in plan.md, Principle V of the constitution); with `delta_target` active the small target (<3,000 tokens) stays. This decision **replaces** the 30,000-token budget from the 2026-10-23 session.
+- Q: How do we make the criterion that the agent completes the analysis of a complex position without needing a second invocation verifiable? → A: **each validation scenario (quickstart S1–S3, covering Iron Condor, Naked Put, Calendar and LEAP) completes with exactly 1 tool invocation**, verified in the integration tests.
+- Q: What exact scope must the set of technical fields per contract have: a curated superset declared in the response (with access to the rest via extended mode), or literally all fields from the source? → A: **curated superset declared in `contract_fields`** (quote, liquidity, IV, the 5 Greeks, theoretical values, time value, multiplier, trade time, deliverables note); the remaining structural fields from the source remain accessible via extended mode with the full raw payload.
+- Q: Which latency target do we unify as the success criterion: the strictest one from plan and contract (≤5 s p95) or the laxer one from the spec (<10 s)? → A: **≤5 seconds p95 per invocation**, unified in spec, plan and contract.
+- Q: How do we verify compliance with the 5-strike-per-delta window: fixtures in the automated suite, with additional live validation, or only real chains? → A: **automated suite with representative fixtures** (including edges: delta at the boundary of the curve, missing strikes) **+ validation against a real chain as a step of quickstart S2**.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Analizar una posición de opciones compleja con una sola consulta (Priority: P1)
+### User Story 1 - Analyze a complex option position with a single query (Priority: P1)
 
-Un agente de IA que asesora a un trader necesita construir un análisis de
-una posición de opciones compleja (por ejemplo, un Iron Condor o un Naked
-Put) sobre un instrumento. El agente invoca la tool con el identificador
-del instrumento y los valores por defecto de los filtros, y recibe la
-cadena de opciones completa del instrumento con todos sus vencimientos
-hasta 60 días, ambos tipos de opción (CALLs y PUTs), hasta 50 strikes por
-lado alrededor del strike al dinero, y **todas** las griegas y todos los
-valores técnicos disponibles para cada contrato. Con esa única respuesta el
-agente puede identificar spreads verticales, seleccionar alas para el
-condor y estimar el riesgo de la posición sin necesidad de consultas
-adicionales.
+An AI agent advising a trader needs to build an analysis of a complex
+option position (for example, an Iron Condor or a Naked Put) on an
+instrument. The agent invokes the tool with the instrument identifier and
+the default filter values, and receives the complete option chain of the
+instrument with all its expirations up to 60 days, both option types
+(CALLs and PUTs), up to 50 strikes per side around the at-the-money
+strike, and **all** the Greeks and all the technical values available for
+each contract. With that single response the agent can identify vertical
+spreads, select wings for the condor and estimate the risk of the
+position without needing additional queries.
 
-**Why this priority**: es el caso de uso central de la tool: obtener toda
-la información necesaria para analizar posiciones de opciones en una sola
-invocación, sin exceder el volumen de datos que el agente puede consumir.
+**Why this priority**: it is the core use case of the tool: obtaining all
+the information needed to analyze option positions in a single
+invocation, without exceeding the data volume the agent can consume.
 
-**Independent Test**: invocar la tool con un instrumento que tenga cadena
-de opciones y verificar que la respuesta contiene, para cada vencimiento
-dentro del rango de DTE por defecto, los strikes de ambos lados del
-dinero (hasta el límite por defecto), ambos tipos de opción, y el set
-completo de griegas y valores técnicos de cada contrato.
+**Independent Test**: invoke the tool with an instrument that has an
+option chain and verify that the response contains, for each expiration
+within the default DTE range, the strikes on both sides of the money (up
+to the default limit), both option types, and the complete set of Greeks
+and technical values of each contract.
 
 **Acceptance Scenarios**:
 
-1. **Given** un instrumento con opciones listadas y varios vencimientos,
-   **When** el agente invoca la tool solo con el identificador del
-   instrumento (sin filtros), **Then** recibe los vencimientos dentro de
-   los 60 días, ambos tipos de opción, hasta 50 strikes por lado del
-   dinero por vencimiento, y para cada contrato todas las griegas y
-   valores técnicos disponibles.
-2. **Given** la respuesta de una invocación por defecto, **When** el
-   agente la examina, **Then** cada contrato incluye al menos las cinco
-   griegas clásicas (delta, gamma, theta, vega, rho) y los valores de
-   mercado disponibles (precio de compra/venta, último, volumen, interés
-   abierto, volatilidad implícita, y demás valores técnicos que la fuente
-   exponga para ese contrato).
-3. **Given** una posición de opciones compleja a analizar (Iron Condor),
-   **When** el agente planifica la posición con los datos de la respuesta,
-   **Then** no necesita invocar nuevamente la tool para completar el
-   análisis dentro del rango de vencimientos y strikes recibidos.
+1. **Given** an instrument with listed options and several expirations,
+   **When** the agent invokes the tool with only the instrument
+   identifier (no filters), **Then** it receives the expirations within
+   60 days, both option types, up to 50 strikes per side of the money
+   per expiration, and for each contract all the available Greeks and
+   technical values.
+2. **Given** the response of a default invocation, **When** the agent
+   examines it, **Then** each contract includes at least the five
+   classic Greeks (delta, gamma, theta, vega, rho) and the available
+   market values (bid/ask price, last, volume, open interest, implied
+   volatility, and the other technical values the source exposes for
+   that contract).
+3. **Given** a complex option position to analyze (Iron Condor),
+   **When** the agent plans the position with the data from the
+   response, **Then** it does not need to invoke the tool again to
+   complete the analysis within the range of expirations and strikes
+   received.
 
 ---
 
-### User Story 2 - Focalizar la consulta por tipo de opción y delta objetivo (Priority: P2)
+### User Story 2 - Focus the query by option type and target delta (Priority: P2)
 
-Un agente que diseña una estrategia direccional o de renta (por ejemplo,
-venta de puts cubiertos al delta 0.20) necesita ver solo las opciones
-relevantes alrededor de ese delta. El agente invoca la tool indicando el
-tipo de opción deseado (solo PUTs, por ejemplo) y un delta objetivo de
-0.20; la tool devuelve, para cada vencimiento dentro del rango de DTE
-vigente, las opciones de los 5 strikes que rodean al delta 0.20 en lugar
-de toda la curva de strikes. Esto reduce drásticamente el volumen de la
-respuesta y presenta exactamente la zona delChain donde se ejecutaría la
-estrategia.
+An agent designing a directional or income strategy (for example, selling
+puts covered at delta 0.20) needs to see only the relevant options around
+that delta. The agent invokes the tool indicating the desired option type
+(PUTs only, for example) and a target delta of 0.20; the tool returns,
+for each expiration within the current DTE range, the options of the 5
+strikes surrounding delta 0.20 instead of the entire strike curve. This
+drastically reduces the response volume and presents exactly the zone of
+the chain where the strategy would be executed.
 
-**Why this priority**: es el refinamiento más usado en la práctica para
-selección de strikes por probabilidad (delta como proxy), y depende de la
-tool base de la Historia 1.
+**Why this priority**: it is the most commonly used refinement in
+practice for strike selection by probability (delta as proxy), and it
+depends on the base tool of Story 1.
 
-**Independent Test**: invocar la tool con tipo de opción y delta objetivo
-sobre un instrumento con opciones y verificar que, por cada vencimiento
-elegible, se devuelven exactamente 5 strikes (o todos los disponibles si
-hay menos) centrados alrededor del contrato cuya delta está más cerca del
-objetivo, y que el tipo de opción excluido no aparece.
+**Independent Test**: invoke the tool with option type and target delta
+on an instrument with options and verify that, for each eligible
+expiration, exactly 5 strikes are returned (or all available if there are
+fewer) centered around the contract whose delta is closest to the target,
+and that the excluded option type does not appear.
 
 **Acceptance Scenarios**:
 
-1. **Given** un instrumento con opciones, **When** el agente pide solo
-   PUTs con delta objetivo 0.20, **Then** recibe únicamente contratos de
-   tipo PUT y, por cada vencimiento dentro del rango de DTE, los
-   contratos de los 5 strikes alrededor del delta 0.20.
-2. **Given** un delta objetivo cuyo valor más cercano en la cadena queda
-   en el borde de la curva de strikes listados, **When** la tool aplica el
-   filtro de delta, **Then** devuelve hasta 5 strikes: los que existan
-   alrededor de ese punto, sin inventar strikes inexistentes.
-3. **Given** un tipo de opción pedido (CALL o PUT), **When** la tool arma
-   la respuesta, **Then** ningún contrato del tipo no solicitado aparece
-   en la respuesta.
+1. **Given** an instrument with options, **When** the agent requests PUTs
+   only with target delta 0.20, **Then** it receives only PUT-type
+   contracts and, for each expiration within the DTE range, the
+   contracts of the 5 strikes around delta 0.20.
+2. **Given** a target delta whose closest value in the chain falls on the
+   edge of the listed strike curve, **When** the tool applies the delta
+   filter, **Then** it returns up to 5 strikes: those that exist around
+   that point, without inventing non-existent strikes.
+3. **Given** a requested option type (CALL or PUT), **When** the tool
+   builds the response, **Then** no contract of the non-requested type
+   appears in the response.
 
 ---
 
-### User Story 3 - Ajustar el volumen de la respuesta mediante límites explícitos (Priority: P3)
+### User Story 3 - Adjust the response volume via explicit limits (Priority: P3)
 
-Un agente que necesita una vista amplia de la cadena (por ejemplo para
-calendars o LEAPs con vencimientos lejanos) puede ajustar los límites: el
-número máximo de strikes por lado del dinero y el horizonte máximo de
-DTE. El agente invoca la tool aumentando el límite de strikes o el
-horizonte de DTE según lo necesite, y la tool devuelve una respuesta
-determinista acotada por esos límites. Por el contrario, un agente que
-necesita una respuesta mínima reduce el límite de strikes y el horizonte
-de DTE para minimizar el consumo de tokens.
+An agent that needs a broad view of the chain (for example for calendars
+or LEAPs with distant expirations) can adjust the limits: the maximum
+number of strikes per side of the money and the maximum DTE horizon. The
+agent invokes the tool increasing the strike limit or the DTE horizon as
+needed, and the tool returns a deterministic response bounded by those
+limits. Conversely, an agent that needs a minimal response lowers the
+strike limit and the DTE horizon to minimize token consumption.
 
-**Why this priority**: es la palanca de control de volumen; complementa
-pero no bloquea los casos de uso principales.
+**Why this priority**: it is the volume control lever; it complements but
+does not block the main use cases.
 
-**Independent Test**: invocar la tool con distintos valores de límite de
-strikes y horizonte de DTE y verificar que la cantidad de strikes por lado
-y el conjunto de vencimientos devueltos respetan exactamente los límites
-solicitados.
+**Independent Test**: invoke the tool with different strike-limit and
+DTE-horizon values and verify that the number of strikes per side and the
+set of returned expirations respect exactly the requested limits.
 
 **Acceptance Scenarios**:
 
-1. **Given** un instrumento con más de 50 strikes listados por lado,
-   **When** el agente pide un límite de 10 strikes por lado, **Then** la
-   respuesta contiene como máximo 10 strikes por lado del dinero para
-   cada vencimiento, siempre incluyendo la zona del dinero.
-2. **Given** un horizonte de DTE solicitado de 120 días, **When** la tool
-   arma la respuesta, **Then** incluye todos los vencimientos del
-   instrumento con DTE menor o igual a 120 días y ninguno más allá.
-3. **Given** un horizonte de DTE solicitado de 7 días, **When** el
-   vencimiento más próximo del instrumento vence en 10 días, **Then** la
-   respuesta no contiene vencimientos y lo comunica de forma explícita en
-   lugar de fallar.
+1. **Given** an instrument with more than 50 listed strikes per side,
+   **When** the agent requests a limit of 10 strikes per side, **Then**
+   the response contains at most 10 strikes per side of the money for
+   each expiration, always including the at-the-money zone.
+2. **Given** a requested DTE horizon of 120 days, **When** the tool
+   builds the response, **Then** it includes all the expirations of the
+   instrument with DTE less than or equal to 120 days and none beyond.
+3. **Given** a requested DTE horizon of 7 days, **When** the nearest
+   expiration of the instrument expires in 10 days, **Then** the
+   response contains no expirations and communicates this explicitly
+   instead of failing.
 
 ---
 
 ### Edge Cases
 
-- ¿Qué pasa cuando el instrumento no tiene opciones listadas? La tool lo
-  comunica de forma explícita y estructurada (sin datos, sin error
-  ambiguo), de modo que el agente pueda decidir el paso siguiente.
-- ¿Qué pasa cuando el filtro de DTE excluye todos los vencimientos (por
-  ejemplo, DTE máximo menor que el vencimiento más próximo)? La respuesta
-  es una cadena vacía acompañada de una explicación explícita, no un
-  error genérico.
-- ¿Qué pasa cuando el delta objetivo no tiene un contrato cercano razonable
-  (por ejemplo, delta objetivo 0.02 en una cadena corta)? La tool devuelve
-  los strikes disponibles alrededor del punto más cercano al objetivo y
-  hasta 5, sin fallar.
-- ¿Qué pasa cuando el número de strikes disponibles es menor que el límite
-  solicitado? Se devuelven todos los disponibles para ese lado.
-- ¿Qué pasa con valores de filtro inválidos (delta fuera del rango
-  esperado, límite de strikes cero o negativo, DTE negativo)? La tool
-  rechaza la invocación con un mensaje de validación claro antes de
-  consultar datos.
-- ¿Qué pasa cuando la fuente de datos no informa alguna griega o valor
-  técnico para un contrato puntual? El campo correspondiente se marca
-  como no disponible de forma explícita, sin inventar valores.
-- ¿Qué pasa cuando la fuente de datos falla o un vencimiento entero viene
-  sin datos? La tool no devuelve cadena parcial: aborta con un error
-  estructurado que describe el motivo, para que el agente pueda reintentar
-  o informar al usuario (FR-013).
-- ¿Qué pasa si el instrumento existe pero cotiza en un mercado cerrado con
-  datos demorados? La tool devuelve los datos disponibles e indica la
-  demora o el estado de los datos, para que el agente sepa qué tan
-  frescos son.
+- What happens when the instrument has no listed options? The tool
+  communicates it explicitly and structurally (no data, no ambiguous
+  error), so the agent can decide the next step.
+- What happens when the DTE filter excludes all expirations (for
+  example, a maximum DTE smaller than the nearest expiration)? The
+  response is an empty chain accompanied by an explicit explanation, not
+  a generic error.
+- What happens when the target delta has no reasonable nearby contract
+  (for example, target delta 0.02 in a short chain)? The tool returns
+  the available strikes around the point closest to the target and up to
+  5, without failing.
+- What happens when the number of available strikes is smaller than the
+  requested limit? All available ones are returned for that side.
+- What happens with invalid filter values (delta outside the expected
+  range, strike limit of zero or negative, negative DTE)? The tool
+  rejects the invocation with a clear validation message before querying
+  data.
+- What happens when the data source does not report some Greek or
+  technical value for a specific contract? The corresponding field is
+  flagged as not available explicitly, without inventing values.
+- What happens when the data source fails or an entire expiration comes
+  with no data? The tool does not return a partial chain: it aborts with
+  a structured error that describes the reason, so the agent can retry
+  or inform the user (FR-013).
+- What happens if the instrument exists but trades in a closed market
+  with delayed data? The tool returns the available data and indicates
+  the delay or the data state, so the agent knows how fresh it is.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: El sistema MUST expone una tool de extracción de cadena de
-  opciones que recibe el identificador del instrumento subyacente como
-  único dato obligatorio.
-- **FR-002**: La tool MUST aceptar un filtro opcional de cantidad máxima
-  de strikes por lado del dinero, con valor predeterminado 50; el límite
-  aplica simétricamente a los strikes por debajo y por encima del dinero
-  para cada vencimiento devuelto.
-- **FR-003**: La tool MUST aceptar un filtro opcional de tipo de opción
-  con tres valores posibles: solo CALLs, solo PUTs, o ambos; el valor
-  predeterminado es ambos.
-- **FR-004**: La tool MUST aceptar un filtro opcional de delta objetivo;
-  cuando está presente, por cada vencimiento dentro del tope de DTE
-  vigente y por cada tipo de opción
-  incluido (con "ambos", CALLs y PUTs se procesan por separado, comparando
-  delta en valor absoluto) devuelve los contratos de los 5 strikes que
-  rodean al contrato de ese tipo cuya delta está más cerca del objetivo
-  (el punto más cercano más los dos strikes contiguos de cada lado,
-  limitados a los strikes existentes); cuando está ausente, no filtra por
-  delta.
-- **FR-005**: La tool MUST aceptar un filtro opcional de DTE máximo;
-  cuando está ausente aplica un tope por defecto de 60 días; cuando está
-  presente, el valor indicado reemplaza ese tope por defecto. En ambos
-  casos solo se devuelven vencimientos con DTE menor o igual al tope
-  vigente.
-- **FR-006**: Para cada contrato devuelto, la tool MUST incluir todas las
-  griegas disponibles en la fuente (al menos delta, gamma, theta, vega y
-  rho) y el superset curado de valores técnicos declarado en
-  `contract_fields` dentro de la propia respuesta (cotización, liquidez,
-  volatilidad implícita, valores teóricos, time value, multiplicador,
-  trade time, nota de entregables); los campos estructurales restantes
-  que exponga la fuente quedan accesibles vía modo extendido con el
-  payload crudo completo.
-- **FR-007**: Cuando un campo de griega o valor técnico no está disponible
-  para un contrato, la tool MUST indicarlo explícitamente como no
-  disponible en lugar de omitirlo silenciosamente o inventar un valor.
-- **FR-008**: La tool MUST validar los filtros antes de consultar datos y
-  rechazar con un mensaje de validación claro cualquier invocación con
-  valores inválidos (tipo de opción desconocido, delta fuera del rango
-  esperado para opciones compradoras/vendedoras según el tipo pedido,
-  límite de strikes no positivo, DTE no positivo).
-- **FR-009**: La tool MUST comunicar de forma explícita y estructurada los
-  casos sin datos: instrumento sin opciones listadas y filtro de DTE que
-  excluye todos los vencimientos.
-- **FR-010**: La tool MUST incluir en la respuesta metadatos que permitan
-  al agente interpretar la cadena: identificador del instrumento, estado o
-  demora de los datos, y para cada vencimiento su fecha y su DTE.
-- **FR-011**: La tool MUST devolver la respuesta completa en una única
-  invocación, sin paginación ni necesidad de consultas de seguimiento
-  dentro de los límites solicitados.
-- **FR-012**: El volumen de la respuesta MUST quedar acotado por los
-  filtros: la respuesta nunca excede el producto de (vencimientos dentro
-  del tope de DTE) × (tipos pedidos) × (strikes permitidos por lado).
-- **FR-013**: Cuando la fuente de datos de mercado falla o un vencimiento
-  entero viene sin datos, la tool MUST abortar con un error estructurado
-  que describa el motivo, sin devolver una cadena parcial; los campos
-  puntuales faltantes dentro de contratos presentes se rigen por FR-007
-  (marca explícita de no disponible).
+- **FR-001**: The system MUST expose an option chain extraction tool
+  that receives the underlying instrument identifier as the only
+  mandatory input.
+- **FR-002**: The tool MUST accept an optional filter of maximum number
+  of strikes per side of the money, with default value 50; the limit
+  applies symmetrically to the strikes below and above the money for
+  each returned expiration.
+- **FR-003**: The tool MUST accept an optional option-type filter with
+  three possible values: CALLs only, PUTs only, or both; the default
+  value is both.
+- **FR-004**: The tool MUST accept an optional target delta filter;
+  when present, for each expiration within the current DTE cap and for
+  each option type included (with "both", CALLs and PUTs are processed
+  separately, comparing delta in absolute value) it returns the
+  contracts of the 5 strikes surrounding the contract of that type whose
+  delta is closest to the target (the closest point plus the two
+  contiguous strikes on each side, limited to existing strikes); when
+  absent, it does not filter by delta.
+- **FR-005**: The tool MUST accept an optional maximum DTE filter; when
+  absent it applies a default cap of 60 days; when present, the provided
+  value replaces that default cap. In both cases only expirations with
+  DTE less than or equal to the current cap are returned.
+- **FR-006**: For each returned contract, the tool MUST include all the
+  Greeks available in the source (at least delta, gamma, theta, vega and
+  rho) and the curated superset of technical values declared in
+  `contract_fields` within the response itself (quote, liquidity,
+  implied volatility, theoretical values, time value, multiplier, trade
+  time, deliverables note); the remaining structural fields the source
+  exposes remain accessible via extended mode with the full raw payload.
+- **FR-007**: When a Greek or technical value field is not available for
+  a contract, the tool MUST flag it explicitly as not available instead
+  of silently omitting it or inventing a value.
+- **FR-008**: The tool MUST validate the filters before querying data
+  and reject with a clear validation message any invocation with invalid
+  values (unknown option type, delta outside the expected range for
+  buying/selling options depending on the requested type, non-positive
+  strike limit, non-positive DTE).
+- **FR-009**: The tool MUST explicitly and structurally communicate the
+  no-data cases: instrument without listed options and a DTE filter that
+  excludes all expirations.
+- **FR-010**: The tool MUST include in the response metadata that allows
+  the agent to interpret the chain: instrument identifier, data state or
+  delay, and for each expiration its date and its DTE.
+- **FR-011**: The tool MUST return the complete response in a single
+  invocation, with no pagination or need for follow-up queries within
+  the requested limits.
+- **FR-012**: The response volume MUST be bounded by the filters: the
+  response never exceeds the product of (expirations within the DTE cap)
+  × (requested types) × (allowed strikes per side).
+- **FR-013**: When the market data source fails or an entire expiration
+  comes with no data, the tool MUST abort with a structured error that
+  describes the reason, without returning a partial chain; individual
+  missing fields within present contracts are governed by FR-007
+  (explicit not-available flag).
 
 ### Key Entities *(include if feature involves data)*
 
-- **Cadena de opciones**: el conjunto de vencimientos y contratos de un
-  instrumento subyacente, con metadatos del instrumento y del estado de
-  los datos.
-- **Vencimiento**: una fecha de expiración dentro de la cadena, con su
-  fecha exacta y su DTE calculado; es la unidad sobre la que aplican los
-  límites de strikes y el filtro de delta.
-- **Contrato de opción**: una opción puntual (tipo CALL o PUT, strike y
-  vencimiento), con sus valores de mercado, sus griegas y sus valores
-  técnicos; incluye la referencia del subyacente y del strike al dinero
-  vigente para su vencimiento.
+- **Option chain**: the set of expirations and contracts of an underlying
+  instrument, with metadata about the instrument and the data state.
+- **Expiration**: an expiration date within the chain, with its exact
+  date and its calculated DTE; it is the unit on which the strike limits
+  and the delta filter apply.
+- **Option contract**: a specific option (CALL or PUT type, strike and
+  expiration), with its market values, its Greeks and its technical
+  values; it includes the reference of the underlying and of the current
+  at-the-money strike for its expiration.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Un agente puede obtener la cadena de opciones completa de un
-  instrumento con opciones (filtros por defecto) en una sola invocación,
-  en **≤5 segundos p95** desde la invocación hasta la respuesta.
-- **SC-002**: Con los filtros por defecto (50 strikes por lado, ambos
-  tipos, tope de DTE vigente), el volumen de la respuesta para un
-  subyacente típico se mantiene dentro de un presupuesto declarado de
-  **75.000 tokens** por invocación, verificable por test automático
-  (justificación del crecimiento registrada en plan.md — Principio V);
-  con `delta_target` activo el objetivo es **< 3.000 tokens**. El formato
-  de salida se compacta sin recortar griegas ni violar los límites de
-  filtros.
-- **SC-003**: El 100% de los contratos devueltos incluye las cinco griegas
-  clásicas o la marca explícita de no disponible; ningún campo se omite
-  silenciosamente.
-- **SC-004**: Cada escenario de validación del quickstart (S1–S3,
-  cubriendo los análisis de Iron Condor, Naked Put, Calendar y LEAP
-  dentro del rango de vencimientos y strikes recibidos) se completa con
-  **exactamente 1 invocación** a la tool, verificado en los tests de
-  integración.
-- **SC-005**: Con el filtro de delta objetivo activo y tipo "ambos", cada
-  vencimiento devuelto contiene hasta 5 strikes de CALLs y hasta 5
-  strikes de PUTs alrededor del delta objetivo (o todos los disponibles
-  si hay menos). Verificación: suite automática con fixtures
-  representativos del proveedor (incluyendo casos de borde) más una
-  validación contra cadena real como paso del quickstart S2.
-- **SC-006**: Los límites solicitados (strikes por lado, tipos de opción,
-  DTE) se respetan al 100% en la respuesta; cero contratos fuera de
-  límite en los casos de prueba.
+- **SC-001**: An agent can obtain the complete option chain of an
+  instrument with options (default filters) in a single invocation, in
+  **≤5 seconds p95** from invocation to response.
+- **SC-002**: With the default filters (50 strikes per side, both types,
+  current DTE cap), the response volume for a typical underlying stays
+  within a declared budget of **75,000 tokens** per invocation,
+  verifiable by automated test (growth justification recorded in plan.md
+  — Principle V); with `delta_target` active the target is
+  **< 3,000 tokens**. The output format is compacted without trimming
+  Greeks or violating the filter limits.
+- **SC-003**: 100% of the returned contracts include the five classic
+  Greeks or the explicit not-available flag; no field is silently
+  omitted.
+- **SC-004**: Each validation scenario of the quickstart (S1–S3,
+  covering the Iron Condor, Naked Put, Calendar and LEAP analyses within
+  the range of expirations and strikes received) completes with
+  **exactly 1 invocation** to the tool, verified in the integration
+  tests.
+- **SC-005**: With the target delta filter active and type "both", each
+  returned expiration contains up to 5 CALL strikes and up to 5 PUT
+  strikes around the target delta (or all available if there are fewer).
+  Verification: automated suite with representative fixtures from the
+  provider (including edge cases) plus a validation against a real chain
+  as a step of quickstart S2.
+- **SC-006**: The requested limits (strikes per side, option types, DTE)
+  are respected 100% in the response; zero out-of-bounds contracts in
+  the test cases.
 
 ## Assumptions
 
-- **Aplicación por vencimiento**: los límites de strikes y el filtro de
-  delta se aplican por cada vencimiento devuelto (no sobre la respuesta
-  completa); es la lectura natural de "ambos lados del strike" y de "los 5
-  strikes alrededor del delta".
-- **Interacción delta × límite de strikes**: cuando el filtro de delta
-  está activo, los 5 strikes alrededor del delta gobiernan la selección y
-  el límite de strikes por lado no la reduce adicionalmente; el límite de
-  strikes solo aplica cuando no hay filtro de delta.
-- **Centrado del filtro de delta**: "alrededor del delta 0.20" se
-  interpreta como centrado: por tipo de opción incluido (ver
-  Clarifications, sesión 2026-10-23), el contrato con delta más cercana
-  al objetivo más dos strikes contiguos de cada lado (hasta 5, o los
-  que existan).
-- **Strike de referencia del límite de strikes**: el centro de la ventana
-  de strikes es el strike al dinero del vencimiento (el contrato con
-  precio de ejercicio más cercano al precio vigente del subyacente para
-  ese vencimiento).
-- **Tope por defecto de DTE**: "valor predeterminado nulo" para el filtro
-  de DTE se interpreta como: no filtra por un DTE elegido por el usuario,
-  pero aplica un tope de 60 días como máximo; un valor explícito
-  reemplaza ese tope (mayor o menor).
-- **Rango de delta objetivo**: el delta objetivo se expresa en valor
-  absoluto (por ejemplo 0.20) y la tool lo mapea al signo correcto según
-  el tipo de opción pedido (puts con delta negativa); un delta fuera del
-  rango razonable se rechaza en la validación.
-- **Frescura de datos**: la herramienta reutiliza la fuente de datos de
-  mercado ya integrada en este proyecto; no se agrega una fuente nueva.
-- **Alcance**: la tool es de solo lectura (no coloca órdenes ni mueve
-  dinero) y está orientada a agentes de IA que consumen el MCP.
+- **Per-expiration application**: the strike limits and the delta filter
+  apply to each returned expiration (not to the complete response); it
+  is the natural reading of "both sides of the strike" and of "the 5
+  strikes around the delta".
+- **Delta × strike-limit interaction**: when the delta filter is active,
+  the 5 strikes around the delta govern the selection and the strike
+  limit per side does not reduce it further; the strike limit only
+  applies when there is no delta filter.
+- **Centering of the delta filter**: "around delta 0.20" is interpreted
+  as centered: per option type included (see Clarifications, session
+  2026-10-23), the contract with the delta closest to the target plus
+  two contiguous strikes on each side (up to 5, or those that exist).
+- **Reference strike of the strike limit**: the center of the strike
+  window is the at-the-money strike of the expiration (the contract with
+  exercise price closest to the current price of the underlying for that
+  expiration).
+- **Default DTE cap**: "default value null" for the DTE filter is
+  interpreted as: it does not filter by a user-chosen DTE, but it
+  applies a cap of 60 days at most; an explicit value replaces that cap
+  (higher or lower).
+- **Target delta range**: the target delta is expressed in absolute
+  value (for example 0.20) and the tool maps it to the correct sign
+  according to the requested option type (puts have negative delta); a
+  delta outside the reasonable range is rejected in validation.
+- **Data freshness**: the tool reuses the market data source already
+  integrated in this project; no new source is added.
+- **Scope**: the tool is read-only (it does not place orders or move
+  money) and is aimed at AI agents that consume the MCP.

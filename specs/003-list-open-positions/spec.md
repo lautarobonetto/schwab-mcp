@@ -6,19 +6,19 @@
 
 **Status**: Draft
 
-**Input**: User description: "Agregar una tool que permita conocer todas las posiciones que se encuentran abiertas en este momento, y que con cada una de ellas se provean todos los metadatos relacionados."
+**Input**: User description: "Add a tool that makes it possible to know all the positions that are currently open, and that for each one of them provides all the related metadata."
 
 ## Clarifications
 
 ### Session 2026-10-20
 
-- Q: ¿En qué superficie se expone la capacidad: como tool del servidor MCP, como comando one-shot de la CLI, o ambas? → A: Tool MCP real, registrada por el servidor para consumo directo vía cliente MCP (sin pasar por shell).
-- Q: ¿"Todos los metadatos relacionados" significa el conjunto completo de campos que provee la fuente de datos, o un conjunto curado optimizado para consumo por un LLM dentro de un presupuesto de tokens? → A: Conjunto curado completo para agentes (todos los campos que un agente necesita para entender y decidir sobre cada posición), con campos adicionales del proveedor disponibles bajo demanda mediante una petición explícita; el payload por defecto se mantiene compacto.
-- Q: ¿Qué frescura deben tener el valor de mercado y el P/L no realizado que se reportan por cada posición? → A: En vivo cuando el mercado está abierto, último cierre cuando está cerrado; siempre incluyendo la marca de tiempo del precio usado.
-- Q: ¿Qué identifica únicamente a cada entrada de posición en la respuesta? → A: Una entrada por (cuenta, instrumento): los lotes del mismo instrumento se consolidan con costo promedio, cada contract de una estrategia multi-pata (strangle, condor, roll) aparece como entrada separada, y la cantidad es con signo (largo positivo, corto negativo).
-- Q: ¿La consulta de posiciones debe emitir eventos de auditoría (inicio/resultado) como ya lo hacen la renovación y autorización del sistema? → A: Sí: evento de inicio + evento terminal en cada consulta, igual que las renovaciones, sin secretos y por el canal auxiliar.
-- Q: ¿Qué política de reintentos internos debe aplicar la consulta ante fallos transitorios del proveedor? → A: Sin reintentos internos: reporta el fallo transitorio en el primer intento fallido; el agente reintenta según su playbook.
-- Q: ¿Qué debe incluir exactamente "posiciones abiertas"? → A: Solo tenencias efectivas con cantidad con signo no cero; las órdenes abiertas/pendientes quedan explícitamente fuera de alcance (feature futuro posible).
+- Q: On which surface is the capability exposed: as a tool of the MCP server, as a one-shot CLI command, or both? → A: A real MCP tool, registered by the server for direct consumption via an MCP client (without going through the shell).
+- Q: Does "all the related metadata" mean the complete set of fields provided by the data source, or a curated set optimized for LLM consumption within a token budget? → A: Complete curated set for agents (all the fields an agent needs to understand and decide about each position), with additional provider fields available on demand via an explicit request; the default payload stays compact.
+- Q: How fresh must the market value and unrealized P/L reported for each position be? → A: Live when the market is open, last close when it is closed; always including the timestamp of the price used.
+- Q: What uniquely identifies each position entry in the response? → A: One entry per (account, instrument): lots of the same instrument are consolidated with average cost, each contract of a multi-leg strategy (strangle, condor, roll) appears as a separate entry, and quantity is signed (long positive, short negative).
+- Q: Should the positions query emit audit events (start/result) as system renewal and authorization already do? → A: Yes: a start event + a terminal event on every query, the same as renewals, without secrets and through the auxiliary channel.
+- Q: What internal retry policy should the query apply against transient provider failures? → A: No internal retries: it reports the transient failure on the first failed attempt; the agent retries according to its playbook.
+- Q: What exactly must "open positions" include? → A: Only effective holdings with non-zero signed quantity; open/pending orders are explicitly declared out of scope (possible future feature).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -68,8 +68,8 @@ acquired, what it is worth at the current moment, how it has performed
 (instrument type, identifiers). The agent never has to fire a second
 query just to understand a position it already received.
 
-**Why this priority**: The user explicitly asked for "todos los
-metadatos relacionados" with each position; metadata completeness is a
+**Why this priority**: The user explicitly asked for "all the
+related metadata" with each position; metadata completeness is a
 defining part of the feature, not an afterthought. It is ranked after
 the core query because it refines what the query returns rather than
 being a separate capability.
@@ -280,7 +280,7 @@ correct retryability semantics.
   close positions, or move money. Read/write discipline of the
   constitution is respected by scope: no write operations are
   introduced.
-- "Posiciones abiertas" means holdings with non-zero quantity at the
+- "Open positions" means holdings with non-zero quantity at the
   moment of the query as reported by the provider; how the provider
   reports closed-but-unsettled lots is treated as an edge case with one
   documented, consistent behavior.

@@ -2,162 +2,160 @@
 
 Feature: 007-underlying-symbol-filter | Date: 2026-10-24
 
-## R1. Cómo armar el resultado filtrado dado que el proveedor no puede filtrar opciones por subyacente
+## R1. How to assemble the filtered result given that the provider cannot filter options by underlying
 
-**Decision**: cuando `symbol` está presente, la tool consulta el rango
-**sin filtro upstream** (mismas upcalls que la consulta sin filtro) y
-aplica el matching de las tres formas **localmente**, sobre el historial
-fusionado y deduplicado que ya produce la orquestación de 006.
+**Decision**: when `symbol` is present, the tool queries the range
+**unfiltered upstream** (same upcalls as the unfiltered query) and
+applies the three-form matching **locally**, on the merged and
+deduplicated history that 006's orchestration already produces.
 
-**Rationale**: verificado en vivo (2026-10-23/24, feature 006):
-- `symbol=NOK` (subyacente) → el endpoint responde `200` con **0
-  resultados** aunque hubo 14 transacciones de opciones de NOK en el
-  período: el filtro upstream solo matchea el símbolo registrado de cada
-  transacción, y las de opciones se registran bajo su símbolo OCC.
-- `symbol="NOK   261218P00011000"` (OCC) → el endpoint rechaza la llamada
-  con `HTTP 400 {"message":"symbol: Invalid Symbol"}`.
+**Rationale**: verified live (2026-10-23/24, feature 006):
+- `symbol=NOK` (underlying) → the endpoint responds `200` with **0
+  results** even though there were 14 NOK option transactions in the
+  period: the upstream filter only matches the registered symbol of each
+  transaction, and option transactions are registered under their OCC
+  symbol.
+- `symbol="NOK   261218P00011000"` (OCC) → the endpoint rejects the call
+  with `HTTP 400 {"message":"symbol: Invalid Symbol"}`.
 
-Por lo tanto ningún uso del parámetro `symbol` upstream entrega el
-resultado que la spec exige. El barrido sin filtro + matcher local:
-(1) garantiza la subset-consistency (FR-005) **por construcción** — el
-resultado filtrado es literalmente un subconjunto del resultado sin
-filtro del mismo rango; (2) no agrega upcalls (las upcalls son idénticas
-a la consulta sin filtro); (3) reutiliza íntegra la orquestación,
-bisección y deduplicación existentes.
-
-**Alternatives considered**:
-- *Filtro upstream como hoy + segundo barrido para opciones*: 2× upcalls
-  por consulta, dos fusiones, y el primer conjunto ya es incompleto
-  (misma limitación) — rechazado (KISS, V).
-- *Consultar por cada símbolo OCC conocido del subyacente*: imposible
-  saber de antemano qué OCC symbols registró la cuenta sin el barrido —
-  rechazado.
-- *Mantener el filtro upstream solo para match exacto y barrido
-  adicional solo si hay opciones*: indistinguible en costo del barrido
-  directo y agrega un camino condicional — rechazado (KISS).
-
-Nota de comportamiento: al dejar de enviar `symbol` upstream, la consulta
-filtrada también deja de sufrir el `HTTP 400` por símbolo OCC — el caso
-OC/AC4 del spec (opción puntual) queda soportado sin llamadas extra.
-
-## R2. Derivación del root (subyacente) desde el símbolo OCC registrado
-
-**Decision**: el root de una opción es la porción previa a los últimos
-15 caracteres del símbolo registrado (`root = symbol[:-15].strip()`),
-anclaje derecho idéntico al ya verificado en vivo para posiciones
-(`_parse_occ_option_symbol`, bug positions-response-unwrap: los últimos
-15 caracteres son siempre `YYMMDD + C/P + strike×1000`).
-
-**Rationale**: el estándar OCC rellena el root a 6 caracteres con
-espacios (`AMD   261120P00630000` → root `AMD`); anclar por la derecha
-hace el parseo independiente del padding. Validado en vivo: los
-instrumentos OPTION reales traen `symbol`, `putCall`, `underlyingSymbol`
-(pero no `strikePrice`/`expirationDate`) — el símbolo es la fuente
-confiable.
-
-**Reglas de fallback** (edge cases del spec):
-- Si el tail de 15 caracteres no matchea el patrón OCC (no son dígitos
-  en las posiciones esperadas, o el C/P no es `C`/`P`), el root no es
-  identificable: el movimiento solo puede matchear por igualdad exacta
-  del símbolo registrado (FR-001a) y **no** expone `underlying_symbol`
-  en el output curado.
-- El root se reporta tal como la fuente lo registra (tras quitar
-  padding), sin reformatear.
+Therefore no use of the upstream `symbol` parameter delivers the result
+the spec demands. The unfiltered sweep + local matcher:
+(1) guarantees subset-consistency (FR-005) **by construction** — the
+filtered result is literally a subset of the unfiltered result of the
+same range; (2) adds no upcalls (the upcalls are identical to the
+unfiltered query); (3) reuses the existing orchestration, bisection and
+deduplication in full.
 
 **Alternatives considered**:
-- *Parseo del root anclado a la izquierda (6 chars fijos)*: rompe con
-  roots de longitud distinta o padding inconsistente — rechazado.
-- *Usar `instrument.underlyingSymbol` del payload extendido*: no está
-  disponible en el modo curado (solo `extended=true`) y el campo puede
-  venir vacío; el símbolo OCC es la fuente completa — rechazado como
-  fuente primaria (queda en extended como passthrough).
+- *Upstream filter as today + second sweep for options*: 2× upcalls per
+  query, two merges, and the first set is already incomplete (same
+  limitation) — rejected (KISS, V).
+- *Querying each known OCC symbol of the underlying*: impossible to know
+  in advance which OCC symbols the account registered without the sweep —
+  rejected.
+- *Keeping the upstream filter only for exact match and an extra sweep
+  only if there are options*: indistinguishable in cost from the direct
+  sweep and adds a conditional path — rejected (KISS).
 
-## R3. Validación dual del filtro (clarificación C del spec)
+Behavior note: by no longer sending `symbol` upstream, the filtered query
+also stops suffering the `HTTP 400` for OCC symbols — the spec's
+OC/AC4 case (a specific option) is supported without extra calls.
 
-**Decision**: mantener el upcall `instruments(symbols=[filtro],
-projection="symbol-search")` como primer paso (un solo lookup, como hoy).
-Si el directorio **resuelve** el filtro → continuar (comportamiento
-actual). Si **no resuelve** → NO fallar: proceder con el barrido y
-clasificar al final — si hay movimientos que matcheen (símbolo
-registrado, root u OCC completo), devolverlos con `ok`; si no hay
-ninguno, devolver el error `instrument_not_found` nombrando el filtro
-(como hoy).
+## R2. Root (underlying) derivation from the registered OCC symbol
 
-**Rationale**: implementación directa de la clarificación C. El caso
-`CURRENCY_USD` (no resuelto en el directorio pero presente como símbolo
-registrado en movimientos) pasa de `instrument_not_found` a devolver sus
-movimientos — cambio de comportamiento documentado en el contrato y en
-`docs/tools.md` (el caveat de 006 se actualiza).
+**Decision**: the root of an option is the portion before the last 15
+characters of the registered symbol (`root = symbol[:-15].strip()`),
+right-anchoring identical to the one already verified live for positions
+(`_parse_occ_option_symbol`, positions-response-unwrap bug: the last 15
+characters are always `YYMMDD + C/P + strike×1000`).
+
+**Rationale**: the OCC standard pads the root to 6 characters with spaces
+(`AMD   261120P00630000` → root `AMD`); anchoring from the right makes
+parsing independent of the padding. Validated live: real OPTION
+instruments carry `symbol`, `putCall`, `underlyingSymbol` (but not
+`strikePrice`/`expirationDate`) — the symbol is the reliable source.
+
+**Fallback rules** (spec edge cases):
+- If the 15-character tail does not match the OCC pattern (no digits in
+  the expected positions, or C/P is not `C`/`P`), the root is not
+  identifiable: the movement can only match by exact equality of the
+  registered symbol (FR-001a) and does **not** expose `underlying_symbol`
+  in the curated output.
+- The root is reported as the source records it (after removing
+  padding), without reformatting.
 
 **Alternatives considered**:
-- *Validación sin cambios (A del clarify)*: mentiría con
-  `instrument_not_found` cuando hay actividad con ese root — rechazado
-  por el usuario.
-- *Validar el root derivado en vez del filtro crudo*: el filtro puede
-  ser un OCC completo o un subyacente; el lookup del filtro crudo es el
-  contrato vigente — rechazado.
+- *Left-anchored root parsing (fixed 6 chars)*: breaks with roots of
+  different lengths or inconsistent padding — rejected.
+- *Using `instrument.underlyingSymbol` from the extended payload*: not
+  available in curated mode (only `extended=true`) and the field can come
+  empty; the OCC symbol is the complete source — rejected as primary
+  source (stays in extended as passthrough).
 
-## R4. Case-insensitivity del matching
+## R3. Dual filter validation (spec clarification C)
 
-**Decision**: normalizar el filtro y los candidatos a mayúsculas para
-comparar (`filter.upper() == symbol.upper()` / `root.upper()`); el
-output reporta los símbolos tal como la fuente los registra, sin
-reformatear.
+**Decision**: keep the upcall
+`instruments(symbols=[filter], projection="symbol-search")` as the first
+step (a single lookup, as today). If the directory **resolves** the
+filter → continue (current behavior). If it **does not resolve** → DO NOT
+fail: proceed with the sweep and classify at the end — if there are
+movements that match (registered symbol, root or complete OCC), return
+them with `ok`; if there are none, return the `instrument_not_found`
+error naming the filter (as today).
 
-**Rationale**: los roots OCC son mayúsculas por estándar; los agentes
-pueden enviar `nok`. Comparar en mayúsculas es determinista y evita
-dependencia del caso de entrada. Los símbolos de la fuente ya son
-mayúsculas en la práctica — la normalización es idempotente.
+**Rationale**: direct implementation of clarification C. The
+`CURRENCY_USD` case (not resolved in the directory but present as a
+registered symbol in movements) goes from `instrument_not_found` to
+returning its movements — behavior change documented in the contract and
+in `docs/tools.md` (006's caveat is updated).
 
-**Alternatives considered**: matching case-sensitive + error
-instructivo — fricción innecesaria para el caso dominante.
+**Alternatives considered**:
+- *Validation unchanged (clarify A)*: it would lie with
+  `instrument_not_found` when there is activity with that root — rejected
+  by the user.
+- *Validating the derived root instead of the raw filter*: the filter can
+  be a complete OCC or an underlying; the lookup of the raw filter is the
+  current contract — rejected.
 
-## R5. Impacto del campo `underlying_symbol` en el presupuesto de 16 KB
+## R4. Case-insensitivity of matching
 
-**Decision**: `underlying_symbol` se agrega al output curado solo para
-movimientos de opción (`Optional`, excluido con `exclude_none` como los
-campos opcionales existentes). Impacto estimado: ~25 bytes JSON por
-movimiento de opción (`"underlying_symbol":"AMD"` + overhead); una
-página de 50 movimientos todos-opción agrega ~1.2 KB sobre el máximo
-actual.
+**Decision**: normalize the filter and candidates to uppercase for
+comparison (`filter.upper() == symbol.upper()` / `root.upper()`); the
+output reports symbols as the source records them, without reformatting.
 
-**Rationale**: la página default de 006 midió ≤ 16 KB con 50 movimientos
-extended=false; el margen del presupuesto se verifica con el test de
-token-usage existente extendido al caso peor (50 movimientos de opción,
-cada uno con root). Si el caso peor excediera 16 KB, la constitución
-exige justificación registrada — research preliminar indica margen
-suficiente (página de 50 curada ≈ 8-9 KB hoy).
+**Rationale**: OCC roots are uppercase by standard; agents may send
+`nok`. Comparing in uppercase is deterministic and avoids dependence on
+input case. Source symbols are already uppercase in practice — the
+normalization is idempotent.
 
-**Alternatives considered**: un campo siempre-presente (incluye
-`null`) — desperdicio de tokens; solo-OPTION + `exclude_none` es lo ya
-establecido por el patrón de `symbol`/`instrument_type`.
+**Alternatives considered**: case-sensitive matching + an instructive
+error — unnecessary friction for the dominant case.
 
-## R6. Semántica del `detail` con el nuevo matching
+## R5. Impact of the `underlying_symbol` field on the 16 KB budget
 
-**Decision**: vocabulario de `detail` sin cambios: `history_retrieved`,
-`no_movements`, `no_movements_for_instrument` (este último ahora significa
-"nada matchea el filtro en ninguna forma"). Con la validación dual,
-`instrument_not_found` solo aparece cuando no hay match y el directorio
-no resolvió el filtro.
+**Decision**: `underlying_symbol` is added to the curated output only for
+option movements (`Optional`, excluded with `exclude_none` like the
+existing optional fields). Estimated impact: ~25 JSON bytes per option
+movement (`"underlying_symbol":"AMD"` + overhead); a page of 50
+all-option movements adds ~1.2 KB over the current maximum.
 
-**Rationale**: no ampliar el enum cerrado (data-model de 006) evita
-cambios de contrato en los outcomes; la semántica del detail existente
-se refine sin renombrar nada.
+**Rationale**: 006's default page measured ≤ 16 KB with 50 movements
+extended=false; the budget margin is verified with the existing
+token-usage test extended to the worst case (50 option movements, each
+with a root). If the worst case exceeded 16 KB, the constitution requires
+recorded justification — preliminary research indicates sufficient margin
+(a curated page of 50 ≈ 8-9 KB today).
 
-**Alternatives considered**: un detail nuevo
-`no_movements_for_underlying` — duplicaría significado (DRY, II).
+**Alternatives considered**: an always-present field (includes `null`) —
+token waste; OPTION-only + `exclude_none` is what the existing
+`symbol`/`instrument_type` pattern already established.
 
-## R7. Subset-consistency: cómo se prueba
+## R6. `detail` semantics with the new matching
 
-**Decision**: la propiedad se testea a nivel unitario comparando, para
-el mismo rango y fixtures, el resultado filtrado contra el filtrado
-local del resultado sin filtro (misma función matcher); la prueba live
-de quickstart la verifica contra la API real con un subyacente con
-actividad de ambos tipos.
+**Decision**: `detail` vocabulary unchanged: `history_retrieved`,
+`no_movements`, `no_movements_for_instrument` (the latter now means
+"nothing matches the filter in any form"). With dual validation,
+`instrument_not_found` appears only when there is no match and the
+directory did not resolve the filter.
 
-**Rationale**: con R1 (barrido + matcher local) la propiedad es
-estructural; el test la fija para evitar regresiones si el plan de
-implementación introduce atajos upstream.
+**Rationale**: not extending the closed enum (006's data model) avoids
+contract changes in the outcomes; the existing detail semantics are
+refined without renaming anything.
 
-**Alternatives considered**: comparar contra el proveedor en el test —
-no determinista.
+**Alternatives considered**: a new detail
+`no_movements_for_underlying` — would duplicate meaning (DRY, II).
+
+## R7. Subset-consistency: how it is tested
+
+**Decision**: the property is tested at the unit level by comparing, for
+the same range and fixtures, the filtered result against the local
+filtering of the unfiltered result (same matcher function); the
+quickstart live test verifies it against the real API with an underlying
+that has activity of both types.
+
+**Rationale**: with R1 (sweep + local matcher) the property is
+structural; the test pins it to prevent regressions if the implementation
+plan introduces upstream shortcuts.
+
+**Alternatives considered**: comparing against the provider in the test —
+not deterministic.

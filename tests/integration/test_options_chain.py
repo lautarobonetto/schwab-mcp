@@ -914,12 +914,12 @@ class TestSc004SingleInvocationUs3:
 
 
 # =============================================================================
-# T022 — quickstart S4 "Fuente caída": provider 5xx/408/429 (FR-013)
+# T022 — quickstart S4 "Source down": provider 5xx/408/429 (FR-013)
 # =============================================================================
 
 
 class TestSourceDownTransient:
-    """Quickstart S4 "Fuente caída" (contracts/mcp-tools.md §4, FR-013).
+    """Quickstart S4 "Source down" (contracts/mcp-tools.md §4, FR-013).
 
     When the provider answers a transient failure status (5xx, 408, 429),
     ``response_json`` maps it through the shared taxonomy and

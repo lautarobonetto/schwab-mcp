@@ -6,17 +6,17 @@
 
 **Status**: Draft
 
-**Input**: User description: "Quiero agregar una nueva tool que permita pedir la historia de todos los movimientos que se hicieron en un rango de dias. Que se pueda especificar desde una fecha de inicio y hasta una fecha de fin. Que se pueda pedir que la historia se filtre por un instrumento particular, o que traiga todo. Lo movimientos no debe contener solo venta a compra de instrumentos, sino que tambien deben incluir transferencias, intereses, etc (todo)."
+**Input**: User description: "I want to add a new tool that allows requesting the history of all movements made over a range of days. It should be possible to specify a start date and an end date. It should be possible to request that the history be filtered by a particular instrument, or that it bring everything. The movements must not include only sales and purchases of instruments, but must also include transfers, interest, etc. (everything)."
 
 ## Clarifications
 
 ### Session 2026-10-23
 
-- Q: ¿Cuál debe ser la ventana máxima de consulta por request (rango inicio–fin) antes de exigir dividir la consulta? → A: 1 año.
-- Q: ¿Contra qué zona horaria se interpretan las fechas de inicio y fin del rango? → A: Zona horaria del mercado de la cuenta (America/New_York), ambos bordes inclusivos.
-- Q: ¿Cómo se reporta la categoría de cada movimiento — enum cerrado curado o texto del proveedor? → A: Enum cerrado curado con fallback `other`; el texto original del proveedor va solo en el detalle extendido.
-- Q: ¿Cuántos movimientos trae como máximo una página de respuesta? → A: 50 movimientos por página.
-- Q: (refinamiento en plan) ¿Cómo se clasifica un movimiento que el proveedor reporta como dividendo *o* interés sin distinguirlos? → A: valor de enum adicional `dividend_or_interest`; `interest`/`dividend`/`fee`/`corporate_action` quedan reservados sin mapeo upstream en v1.
+- Q: What should the maximum query window per request (start–end range) be before requiring the query to be split? → A: 1 year.
+- Q: Against which timezone are the start and end dates of the range interpreted? → A: The account's market timezone (America/New_York), both boundaries inclusive.
+- Q: How is the category of each movement reported — a curated closed enum or the provider's text? → A: Curated closed enum with the `other` fallback; the provider's original text goes only in the extended detail.
+- Q: What is the maximum number of movements a response page brings? → A: 50 movements per page.
+- Q: (plan refinement) How is a movement classified when the provider reports it as dividend *or* interest without distinguishing them? → A: additional enum value `dividend_or_interest`; `interest`/`dividend`/`fee`/`corporate_action` remain reserved with no upstream mapping in v1.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -35,7 +35,7 @@ trades. Each movement is reported with everything needed to interpret it:
 when it happened, what it was, and its monetary effect.
 
 **Why this priority**: This is the core capability the user asked for —
-"la historia de todos los movimientos en un rango". Without an
+"the history of all movements over a range". Without an
 unfiltered, all-movement-types history over a date range, nothing else in
 this feature has value.
 
