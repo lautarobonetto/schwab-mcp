@@ -43,3 +43,6 @@ Thumbs.db
 # codebase-memory-mcp artifacts (regenerable graph data, never committed)
 .codebase-memory/graph.db.zst
 .codebase-memory/artifact.json
+
+# Spec Kit extension cache (regenerable catalogs and downloads)
+.specify/extensions/.cache/
