@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Fixed
+
+- **`SCHWAB_CALLBACK_URL` preserves the exact configured value**
+  (bug `callback-trailing-slash`, 2026-11-02): the previous
+  `.rstrip("/")` normalization could produce a `redirect_uri`
+  mismatch at the authorize step — Schwab compares the
+  `redirect_uri` character for character against the developer-portal
+  registration, and the portal may REQUIRE the trailing slash
+  (`https://127.0.0.1/`; some apps enter an error state without it).
+  `load_config()` now strips surrounding whitespace only and preserves
+  the value verbatim. Because `schwabdev` 4.0.0 (latest on PyPI)
+  rejects callbacks ending in `/`, a runtime compatibility shim
+  (`src/schwab_mcp/schwabdev_compat.py`, installed by `auth`, `renew`,
+  and `serve` before the client is constructed) relaxes only that
+  validation — a single trailing `/` passes and the exact value is
+  stored for authorize/exchange; `//` is still rejected; the shim
+  fails loudly if a future schwabdev changes the internals it relies
+  on. The shim lives in the package, so it survives `uv sync`
+  (patching the vendored library file did not). Tests:
+  `tests/unit/test_config.py` (trailing slash preserved),
+  `tests/unit/test_schwabdev_compat.py`.
+
 ## [0.7.0] - 2026-10-27
 
 Fourth MCP tool `get_quotes` (feature 010): real-time quotes with
@@ -514,7 +538,8 @@ Feature 006 — **Full movement history** (spec:
   cannot be submitted for approval), while `schwabdev` rejects callbacks
   ending in `/`. `load_config()` now normalizes the value (strips
   trailing slashes), so both forms work without touching the
-  app registration.
+  app registration. *(Reversed in Unreleased — stripping caused a
+  `redirect_uri` mismatch; see `callback-trailing-slash`.)*
 - **`get_open_positions` live** (bug `positions-response-unwrap`,
   2026-10-24): the tool failed on every real invocation for three
   chained reasons — the SDK returns an unparsed `requests.Response` (now

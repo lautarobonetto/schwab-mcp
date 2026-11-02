@@ -38,12 +38,14 @@ On [developer.schwab.com](https://developer.schwab.com) → **My Apps**:
    with unclear errors (for example `4001 Session rejected`).
 2. Add **both APIs** to the app: *Accounts and Trading Production* and
    *Market Data Production*.
-3. Callback URL: `https://127.0.0.1` — **register the exact form the
-   portal demands** (some apps require the trailing slash
-   `https://127.0.0.1/`; without it the portal marks the app as in
-   error). Either form works: `load_config()` normalizes the local value
-   by stripping trailing slashes, because the `schwabdev` library
-   rejects callbacks that end in `/`.
+3. Callback URL: register the exact form the **portal demands** (some
+   apps require the trailing slash, `https://127.0.0.1/`; without it the
+   portal marks the app as in error). Then set `SCHWAB_CALLBACK_URL` to
+   **exactly that registered value** — Schwab compares the
+   `redirect_uri` character for character at the authorize step, so any
+   difference (including the trailing slash) causes a mismatch. The
+   value is preserved verbatim; a bundled compatibility shim relaxes the
+   third-party `schwabdev` check that rejects callbacks ending in `/`.
 4. Copy the **App Key** and **App Secret** from this same app. If you
    have several apps in the portal, verify that the key and secret
    belong to the same one: mixing them produces failures that are hard
@@ -69,7 +71,7 @@ chmod 600 ~/.schwab-mcp/env
 |----------|-------------|---------|-------------|
 | `SCHWAB_APP_KEY` | yes | — | App key (client ID) of your Schwab app |
 | `SCHWAB_APP_SECRET` | yes | — | App secret, from the **same** app |
-| `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback registered in the portal. `https` required; the trailing slash is optional (it is normalized automatically) |
+| `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback registered in the portal, copied EXACTLY (character for character, trailing slash included). `https` required |
 | `SCHWAB_TOKEN_DB` | no | `~/.schwab-mcp/tokens.db` | Path of the token store (SQLite). Outside the repo; permissions forced to `0o600` |
 
 ## 4. Load the credentials into the shell

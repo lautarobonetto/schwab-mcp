@@ -22,6 +22,7 @@ from schwab_mcp.errors import (
     TokenStoreCorruptedError,
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
+from schwab_mcp.schwabdev_compat import install_trailing_slash_callback_support
 from schwab_mcp.tokens import peek_store_status, retry_call
 
 _logger = logging.getLogger(__name__)
@@ -83,6 +84,10 @@ def run_serve() -> None:
     import schwabdev  # noqa: PLC0415 — late import so CLI can patch
 
     guard_hook = _build_serve_guard_hook()
+
+    # Same relaxation as ``auth``: preserve a portal-required trailing
+    # slash in the callback URL (literal redirect_uri comparison).
+    install_trailing_slash_callback_support()
 
     try:
         client = schwabdev.Client(

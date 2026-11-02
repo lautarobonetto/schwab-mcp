@@ -187,7 +187,7 @@ specific code. None of them hang or show tracebacks.
 
 | Symptom | Cause | Solution |
 |---------|-------|---------|
-| `ValueError: callback_url cannot be a path (endswith "/")` | Old package version: the trailing slash is already normalized in `load_config()` | Update the code; with the current version both forms work |
+| `ValueError: callback_url cannot be a path (endswith "/")` | The callback URL ends in `//` (double slash) — only a single trailing `/` is supported — or you are on a package version without the compat shim | Fix the double slash in `SCHWAB_CALLBACK_URL`; otherwise update the package |
 | `invalid_grant: RedirectURI does not match` | You mixed URLs from different runs | Fresh run: open the URL printed by **that** run and paste the redirect into **that same** terminal |
 | `4001 Session rejected` at login | Stale browser cookies (with app `Ready for Use`) | Incognito window with the printed URL, or clear cookies of `schwab.com` |
 | The CLI uses values you already changed in the env | The shell keeps stale variables | `set -a; source ~/.schwab-mcp/env; set +a` and verify with `echo` |

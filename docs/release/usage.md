@@ -73,7 +73,7 @@ In that case, re-run `schwab-mcp auth` once (see
 |----------------------|---------|---------|
 | `SCHWAB_APP_KEY` | — (required) | App Key of your developer application. |
 | `SCHWAB_APP_SECRET` | — (required) | Secret of your developer application. |
-| `SCHWAB_CALLBACK_URL` | `https://127.0.0.1` | Callback URL registered in your developer application. |
+| `SCHWAB_CALLBACK_URL` | `https://127.0.0.1` | Callback URL registered in your developer application, copied exactly (trailing slash included if the portal registered it). |
 | `SCHWAB_TOKEN_DB` | `~/.schwab-mcp/tokens.db` | Where tokens are stored. Keep this outside the package folder — it survives upgrades. |
 
 The `env` block of your AI client's server entry (see above) is the usual

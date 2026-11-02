@@ -11,7 +11,9 @@ that belongs to you:
 1. Go to the Schwab developer portal (<https://developer.schwab.com>) and
    sign in with your Schwab account.
 2. Register (or open) an application. For the callback (redirect) URL use
-   exactly `https://127.0.0.1`.
+   the exact form the portal accepts/demands (some apps require the
+   trailing slash: `https://127.0.0.1/`), and set `SCHWAB_CALLBACK_URL`
+   to exactly that registered value.
 3. Note the two values the portal shows for your application: the
    **App Key** (also called client ID) and the **Secret** (also called app
    secret). These are *your* credentials — treat the Secret like a
