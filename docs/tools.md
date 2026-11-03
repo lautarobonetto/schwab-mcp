@@ -13,12 +13,12 @@ The project exposes **two surfaces**, with different roles:
 
 | Surface | How it is invoked | State in this version |
 |------------|----------------|------------------------|
-| MCP server `serve` | MCP client connects over **stdio** | Active transport; **4 tools registered** (`get_open_positions`, `get_transaction_history`, `get_option_chain` and `get_quotes`) |
+| MCP server `serve` | MCP client connects over **stdio** | Active transport; **5 tools registered** (`get_open_positions`, `get_transaction_history`, `get_option_chain`, `get_quotes` and `get_price_history`) |
 | One-shot CLI | The agent runs `schwab-mcp <command>` through the shell | **The agent's main surface** today |
 
 The tools ``get_open_positions``, ``get_transaction_history``,
-``get_option_chain`` and ``get_quotes`` (first, second, third and
-fourth MCP tools registered)
+``get_option_chain``, ``get_quotes`` and ``get_price_history``
+(first, second, third, fourth and fifth MCP tools registered)
 are available through the ``serve`` server, complementing the
 one-shot commands described below.
 
@@ -771,6 +771,202 @@ No credentials, tokens, or account identifiers in events or outputs.
 
 ---
 
+## `get_price_history` (fifth MCP tool)
+
+Fifth MCP tool registered by the ``serve`` server (feature
+``011-price-history-ohlcv``). Historical **OHLCV candles** for **one
+underlying per invocation** — equity/ETF or index — at a declared
+frequency (``5m``/``15m``/``30m``/``1h``/``daily``/``weekly``) over a
+named period preset. Read-only: places no orders and moves no money.
+
+### Invocation
+
+```json
+{"name": "get_price_history", "arguments": {"symbol": "SPY"}}
+{"name": "get_price_history", "arguments": {"symbol": "$SPX", "frequency": "weekly", "period": "1y"}}
+{"name": "get_price_history", "arguments": {"symbol": "SPY", "frequency": "1h", "period": "5d", "extended_hours": true}}
+```
+
+### Arguments (input schema)
+
+| Field | Type | Default | Semantics |
+|-------|------|---------|-----------|
+| `symbol` | string | — (mandatory) | Exactly one symbol, normalized (strip + uppercase); must match the equity/ETF or index grammar below. |
+| `frequency` | string | `"daily"` | One of `5m`, `15m`, `30m`, `1h`, `daily`, `weekly`. |
+| `period` | string | `"1m"` | One named preset valid for the chosen frequency (preset table below). No numeric or date-range values. |
+| `extended_hours` | bool | `false` | Include extended-hours sessions. Only valid for intraday frequencies (`5m`/`15m`/`30m`/`1h`); with `daily`/`weekly` → validation error. |
+| `extended` | bool | `false` | `true`: adds the raw provider payload channel (`provider`) alongside the curated candles. |
+
+### Symbol-kind grammars (normalized uppercase)
+
+| Kind | Grammar | Examples |
+|------|---------|----------|
+| Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
+| Index | `$` + `[A-Z0-9]{1,5}` | `$SPX`, `$VIX` |
+
+Option-contract symbols are **rejected at validation**
+(`unsupported_symbol_kind`): the provider price-history endpoint
+serves underlyings, not option contracts. Use `get_quotes` for
+option-contract prices.
+
+### Period presets × frequency (normative)
+
+The `period` is one named preset from the row of the chosen frequency —
+a preset outside the row is a validation error (`unsupported_period`),
+never a truncation.
+
+| Frequency | Valid presets | Provider mapping |
+|-----------|---------------|------------------|
+| `5m` | `1d`, `2d`, `3d` | `periodType="day"`, period 1/2/3, frequency 5 |
+| `15m` | `1d`, `2d`, `5d`, `10d` | `periodType="day"`, period 1/2/5/10, frequency 15 |
+| `30m` | `1d`, `2d`, `5d`, `10d` | `periodType="day"`, period 1/2/5/10, frequency 30 |
+| `1h` | `1d`, `2d`, `5d`, `10d` | 30-minute fetch aggregated 2:1 |
+| `daily` | `1m`, `3m`, `6m`, `1y`, `ytd` | `frequencyType="daily"`; month 1/3/6, year 1, ytd 1 |
+| `weekly` | `1m`, `3m`, `6m`, `1y`, `2y`, `3y`, `5y`, `ytd` | `frequencyType="weekly"`; month 1/3/6, year 1/2/3/5, ytd 1 |
+
+Global ceiling: **260 candles** per invocation — enforced **by
+construction** (every preset's worst case is at or below it); there is
+no truncation path.
+
+### Output schema (`ok`)
+
+```json
+{
+  "outcome": "ok",
+  "detail": "price_history_retrieved",
+  "symbol": "SPY",
+  "frequency": "daily",
+  "period": "1m",
+  "extended_hours": false,
+  "extended": false,
+  "candle_count": 22,
+  "window": {
+    "first": 1730419200000,
+    "last": 1732742400000
+  },
+  "candles": [
+    {"t": 1730419200000, "o": 566.02, "h": 568.51, "l": 565.11, "c": 568.18, "v": 41234567, "in_progress": false},
+    {"t": 1732742400000, "o": 584.10, "h": 585.67, "l": 584.02, "c": 585.45, "v": 35412300, "in_progress": true}
+  ]
+}
+```
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `outcome` | closed enum | `ok` (see the error table for the other states) |
+| `detail` | closed enum | `price_history_retrieved` on success |
+| `symbol` | string | Echo of the queried symbol (normalized) |
+| `frequency` | string | Effective frequency (defaults included) |
+| `period` | string | Effective period preset (defaults included) |
+| `extended_hours` | bool | Effective flag |
+| `extended` | bool | Effective flag |
+| `candle_count` | int | Number of candles actually delivered |
+| `window` | object | `{first, last}` — epoch-ms timestamps of the covered span, so the agent can judge coverage without counting |
+| `candles` | array | Chronological array of candles (oldest first) |
+
+Each candle:
+
+| Field | Type | Semantics |
+|-------|------|-----------|
+| `t` | int | Epoch **milliseconds** of the candle (see conventions) |
+| `o` · `h` · `l` · `c` | number | Open/high/low/close **as delivered by the source** — no rounding, no adjustment |
+| `v` | int \| null | Volume as delivered; `null` only when the source omits it |
+| `in_progress` | bool | `true` only on the current still-forming candle; at most one candle per response carries it |
+
+Conventions:
+
+- `candles` is a **chronological array** (oldest first), one entry per
+  trading session/bucket actually delivered by the source; gaps
+  (holidays, halts) are **not interpolated**.
+- `t` is epoch milliseconds. For **weekly** candles it is the
+  **closing session's** timestamp. For **aggregated `1h`** candles it
+  is the hour-bucket end (end-labeling).
+- OHLC values are **as delivered by the source** — no rounding, no
+  adjustment. `v` is `null` only when the source omits it.
+- `in_progress` is `true` only on the current still-forming candle; at
+  most one candle per response carries it (the last).
+- `window.first` / `window.last` and `candle_count` state the covered
+  span so the agent can judge coverage without counting.
+- `frequency`/`period` echo the effective selection (defaults
+  included).
+- `extended=true`: the success response additionally carries `provider`
+  — the complete raw source payload for the request, without curation.
+  The curated `candles` array remains present in the same response. For
+  `1h`, the raw channel carries the underlying 30-minute provider
+  payload.
+
+### Error responses
+
+**No partial data** (FR-008): if the source fails or returns no
+candles, the invocation returns a structured error and the `candles`
+array is absent. Fewer candles than the preset implies (halts, short
+history) is **not** an error: the response reports what the source
+delivered.
+
+| `outcome` | `detail` | Trigger | `retryable` |
+|-----------|----------|---------|-------------|
+| `validation_error` | `malformed_symbol` | symbol missing or matches no grammar | `false` |
+| `validation_error` | `unsupported_symbol_kind` | option-contract symbol | `false` |
+| `validation_error` | `unsupported_frequency` | frequency outside the declared set | `false` |
+| `validation_error` | `unsupported_period` | period not in the frequency's preset table; `detail` names the valid presets | `false` |
+| `validation_error` | `extended_hours_not_applicable` | `extended_hours=true` with `daily`/`weekly` | `false` |
+| `history_unavailable` | `source_returned_no_candles` | source returned an empty candle list for a valid request (e.g., unlisted or delisted instrument) | `false` (re-request is valid) |
+| `provider_unreachable` | transport/timeout description | source unreachable, 5xx/408/429, malformed body | `true` |
+| `reauth_needed` | re-authorization required | provider 401/403 | `false` (user action) |
+
+Validation failures happen **before any upcall** (FR-007). The response
+envelope (outcome/detail/retryability semantics) is the one shared by
+`get_open_positions`, `get_transaction_history`, `get_option_chain`
+and `get_quotes`.
+
+### Budgets (Principle V)
+
+| Budget | Target |
+|--------|--------|
+| Latency | ≤ 5 s p95 per invocation (one provider call) |
+| Default response | ≤ ~650 tokens (22 daily candles; measured 588) |
+| Worst-case response | ≤ ~6,500 tokens (260 candles; ceiling by construction; measured ~6.3k) |
+| Per-candle baseline | ≈ 23–24 tokens (measured 23.4–24.2) |
+
+> **Measured restatement (implementation).** research D5's arithmetic
+> (~75 chars ≈ 19–22 tokens per candle; 550 / 5,200 totals) omitted the
+> `in_progress` field carried by every curated candle (quickstart S1),
+> worth ~19 chars ≈ 5 tokens per candle. A curated candle measures 96
+> compact-JSON chars ≈ 24 tokens. The 260-candle ceiling is structural
+> (ceiling-by-construction) and unchanged; only the token budget is
+> restated from the measurement. Enforced by
+> `tests/performance/test_price_history_budgets.py`.
+
+Extended payloads are not budget-capped (raw channel, explicitly
+requested); the curated portion remains within budget.
+
+### Audit events
+
+`price_history_query_start` (initiated) → `price_history_query_success`
+or `price_history_query_failure`, mirroring the `get_quotes` event
+pattern. Symbol and selection are logged; no credentials in events or
+outputs.
+
+### Guarantees
+
+- **Read-only**: market data only, no orders, no money movements.
+- **No secrets** in the output or in the audit events.
+- **No partial data** (FR-008) and no invented values: OHLCV as
+  delivered, no interpolation, no derived indicators.
+- **No truncation**: the 260-candle ceiling is enforced by construction
+  (FR-004) — presets outside the table are validation errors.
+
+### Reference
+
+- Full contract:
+  [`specs/011-price-history-ohlcv/contracts/mcp-tools.md`](../specs/011-price-history-ohlcv/contracts/mcp-tools.md)
+- Data model (preset matrix, candle conventions):
+  [`specs/011-price-history-ohlcv/data-model.md`](../specs/011-price-history-ohlcv/data-model.md)
+- Usage scenarios (S1–S6):
+  [`specs/011-price-history-ohlcv/quickstart.md`](../specs/011-price-history-ohlcv/quickstart.md)
+
+---
+
 ## `schwab-mcp renew`
 
 Explicit renewal of the access credential using the stored refresh
@@ -907,9 +1103,10 @@ of authentication failure. It does not consume provider quota.
 
 ## `schwab-mcp serve` (MCP server)
 
-A **stdio**, headless MCP server. Registers 3 tools
-(``get_open_positions``, ``get_transaction_history`` and
-``get_option_chain``) and is the process
+A **stdio**, headless MCP server. Registers 5 tools
+(``get_open_positions``, ``get_transaction_history``,
+``get_option_chain``, ``get_quotes`` and ``get_price_history``) and is
+the process
 an MCP client (opencode, Claude Desktop, etc.) launches and talks to
 over stdio.
 

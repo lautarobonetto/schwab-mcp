@@ -100,6 +100,73 @@ class FakeQuotesClient:
         )
 
 
+class FakePriceHistoryClient:
+    """Provider double for ``get_price_history`` (feature 011) — no network.
+
+    Serves *payload* from ``price_history()``, wrapped in a real
+    ``requests.Response`` via :func:`build_response`, mirroring the
+    ``schwabdev`` client contract (the SDK does not pre-parse JSON
+    bodies).  *error* raises instead of answering (network-failure
+    simulations).  Every upcall is recorded so tests can assert call
+    counts and arguments (fail-before-upcall and one-call-per-invocation,
+    research D1).
+
+    Fixtures live in ``tests/unit/fixtures/price_history_payloads.py``.
+    """
+
+    def __init__(
+        self,
+        payload: dict | None = None,
+        status: int = 200,
+        error: BaseException | None = None,
+        delay: float = 0.0,
+    ) -> None:
+        self._payload = payload if payload is not None else {}
+        self._status = status
+        self._error = error
+        self._delay = delay
+        self.price_history_calls: list[dict] = []
+
+    @property
+    def call_count(self) -> int:
+        """Total provider upcalls recorded."""
+        return len(self.price_history_calls)
+
+    def price_history(
+        self,
+        symbol: str,
+        periodType: str | None = None,
+        period: int | None = None,
+        frequencyType: str | None = None,
+        frequency: int | None = None,
+        startDate=None,
+        endDate=None,
+        needExtendedHoursData: bool | None = None,
+        needPreviousClose: bool | None = None,
+    ):
+        """Fake ``/marketdata/v1/pricehistory`` call — records and answers."""
+        self.price_history_calls.append(
+            {
+                "symbol": symbol,
+                "periodType": periodType,
+                "period": period,
+                "frequencyType": frequencyType,
+                "frequency": frequency,
+                "startDate": startDate,
+                "endDate": endDate,
+                "needExtendedHoursData": needExtendedHoursData,
+                "needPreviousClose": needPreviousClose,
+            }
+        )
+        if self._delay:
+            import time
+
+            time.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return build_response(self._payload, status=self._status)
+
+
 def build_quote_entry(
     symbol: str = "TEST",
     *,

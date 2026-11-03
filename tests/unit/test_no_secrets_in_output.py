@@ -1360,3 +1360,103 @@ class TestQuotesToolNoSecrets:
         assert "quotes_query_failure" in stderr
         for secret in SECRET_MATERIAL:
             assert secret not in stderr, f"Secret {secret!r} leaked into events"
+
+
+class TestPriceHistoryToolNoSecrets:
+    """Every result form of ``get_price_history`` — and its audit events —
+    carry zero registered secrets and no account identifiers (FR-011).
+
+    Covers: ``ok`` curated, ``ok`` extended (raw provider channel),
+    ``history_unavailable``, ``validation_error``, ``provider_unreachable``,
+    ``reauth_needed``, plus the real ``price_history_query_*`` event lines.
+    """
+
+    def _register(self) -> None:
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+    def _client(self, **kwargs):
+        from tests.unit.fixtures.price_history_payloads import DAILY_PAYLOAD
+        from tests.unit.helpers import FakePriceHistoryClient
+
+        kwargs.setdefault("payload", DAILY_PAYLOAD)
+        return FakePriceHistoryClient(**kwargs)
+
+    def _assert_clean(self, result: dict, where: str) -> None:
+        import json as _json
+
+        text = _json.dumps(result)
+        for secret in SECRET_MATERIAL:
+            assert secret not in text, f"Secret {secret!r} leaked into {where}"
+        for marker in ("accountnumber", "account_number", "account_hash"):
+            assert marker not in text.lower(), (
+                f"Account identifier {marker!r} leaked into {where}"
+            )
+
+    def test_ok_curated_has_no_secrets(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(), "SPY")
+        assert result["outcome"] == "ok"
+        self._assert_clean(result, "ok curated candles JSON")
+
+    def test_ok_extended_has_no_secrets(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(), "SPY", extended=True)
+        assert result["outcome"] == "ok"
+        assert "provider" in result
+        self._assert_clean(result, "ok extended price-history JSON")
+
+    def test_history_unavailable_has_no_secrets(self) -> None:
+        from tests.unit.fixtures.price_history_payloads import EMPTY_PAYLOAD
+
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        client = self._client(payload=EMPTY_PAYLOAD)
+        result = get_price_history(client, "ZZZZ")
+        assert result["outcome"] == "history_unavailable"
+        self._assert_clean(result, "history_unavailable JSON")
+
+    def test_validation_error_has_no_secrets(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(), "BAD SYMBOL")
+        assert result["outcome"] == "validation_error"
+        self._assert_clean(result, "validation_error JSON")
+
+    def test_provider_unreachable_has_no_secrets(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(status=500), "SPY")
+        assert result["outcome"] == "provider_unreachable"
+        self._assert_clean(result, "provider_unreachable JSON")
+
+    def test_reauth_needed_has_no_secrets(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(status=401), "SPY")
+        assert result["outcome"] == "reauth_needed"
+        self._assert_clean(result, "reauth_needed JSON")
+
+    def test_audit_event_lines_have_no_secrets(self, capsys) -> None:
+        """Real ``price_history_query_*`` lines on stderr carry zero secrets
+        (FR-011, redaction as defense-in-depth)."""
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(status=500), "SPY")
+        assert result["outcome"] == "provider_unreachable"
+
+        stderr = capsys.readouterr().err
+        assert "price_history_query_start" in stderr
+        assert "price_history_query_failure" in stderr
+        for secret in SECRET_MATERIAL:
+            assert secret not in stderr, f"Secret {secret!r} leaked into events"

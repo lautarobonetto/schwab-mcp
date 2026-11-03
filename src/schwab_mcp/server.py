@@ -248,6 +248,41 @@ def run_serve() -> None:
         ),
     )
 
+    # Register the get_price_history tool (011-price-history-ohlcv).
+    from schwab_mcp.price_history import get_price_history_tool as _get_price_history
+
+    def _get_price_history_wrapper(
+        symbol: str,
+        frequency: str = "daily",
+        period: str = "1m",
+        extended_hours: bool = False,
+        extended: bool = False,
+    ) -> object:
+        return _get_price_history(
+            client,
+            symbol=symbol,
+            frequency=frequency,
+            period=period,
+            extended_hours=extended_hours,
+            extended=extended,
+        )
+
+    _get_price_history_wrapper.__name__ = "get_price_history"
+    _get_price_history_wrapper.__qualname__ = "get_price_history"
+    mcp.add_tool(
+        _get_price_history_wrapper,
+        name="get_price_history",
+        description=(
+            "Fetch OHLCV candles for ONE symbol (equity/ETF or index) at "
+            "5m/15m/30m/1h/daily/weekly with a named period preset "
+            "(default daily, 1 month; at most 260 candles per invocation). "
+            "Candles are chronological with epoch-ms timestamps; the "
+            "still-forming candle is marked in_progress. Use "
+            "extended_hours=true for intraday pre/post-market data and "
+            "extended=true for full provider passthrough."
+        ),
+    )
+
     # Run the stdio transport — this call blocks until the server exits.
     try:
         asyncio.run(mcp.run_stdio_async())

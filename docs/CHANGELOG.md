@@ -6,6 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.8.0] - 2026-11-02
+
+Fifth MCP tool `get_price_history` (feature 011): OHLCV candles for
+one symbol per invocation, with named period presets under a global
+260-candle ceiling (MINOR bump per SemVer).
+
+### Added
+
+- **`get_price_history` tool (feature 011)**: fifth MCP tool
+  registered by `schwab-mcp serve` — OHLCV candles for **exactly one
+  symbol** per invocation (equity/ETF or index grammar;
+  option-contract symbols rejected at validation). Declared frequency
+  set `5m` / `15m` / `30m` / `1h` / `daily` / `weekly` (default
+  `daily`), each with its own set of **named period presets** (default
+  `1m`); the global ceiling of **260 candles** per invocation holds
+  **by construction** — every preset's worst case is at or below it
+  and there is no truncation path. `extended_hours=true` is an opt-in
+  restricted to intraday frequencies (`daily`/`weekly` reject it with
+  `extended_hours_not_applicable`); `1h` candles are aggregated 2:1
+  from 30-minute provider data. The still-forming candle is marked
+  `in_progress` (at most one per response); `window` and
+  `candle_count` report the covered span so agents can judge coverage
+  without counting, and `extended=true` adds the complete raw provider
+  payload beside the curated candles. Fail-before-upcall validation
+  (`malformed_symbol`, `unsupported_symbol_kind`,
+  `unsupported_frequency`, `unsupported_period`,
+  `extended_hours_not_applicable`), no partial data
+  (`history_unavailable`), and the shared result envelope / error
+  taxonomy of the existing tools (`provider_unreachable`,
+  `reauth_needed`). Budgets (Principle V): ≤ ~650 tokens by default
+  (22 daily candles; measured 588), ≤ ~6,500 tokens worst case
+  (260 candles; measured ~6.3k), ≈ 23–24 tokens per curated candle,
+  and ≤ 5 s p95 latency — token-usage and performance tests enforce
+  all of these. The plan's research D5 arithmetic (550 / 5,200 /
+  19–22 per candle) predated the mandatory `in_progress` field on every
+  candle; the ceiling itself (260) is structural and unchanged. New
+  module `src/schwab_mcp/price_history.py`; audit events
+  `price_history_query_start` / `price_history_query_success` /
+  `price_history_query_failure` (no credentials in any output).
+  Docs: tool section in `docs/tools.md`; contract and data model in
+  `specs/011-price-history-ohlcv/`.
+
 ## [0.7.1] - 2026-11-02
 
 ### Fixed
@@ -732,6 +774,7 @@ Feature 001 — **Schwab OAuth access layer** (spec:
   artifacts in `specs/001-schwab-oauth-access/`.
 - Test suite (unit/integration/performance) with TDD gates.
 
+[0.8.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.1...v0.8.0
 [0.7.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.2...v0.6.3

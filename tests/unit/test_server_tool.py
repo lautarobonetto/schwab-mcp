@@ -1340,3 +1340,114 @@ class TestQuotesToolRegistration:
         assert "symbols" in props, "input_schema missing 'symbols'"
         assert "extended" in props, "input_schema missing 'extended'"
         assert "client" not in props, "the client must be bound by closure"
+
+# =============================================================================
+# get_price_history tool registration (feature 011, T011)
+# =============================================================================
+
+
+class TestPriceHistoryToolRegistration:
+    """``get_price_history`` (fifth MCP tool) is importable, exposes
+    ``symbol`` / ``frequency`` / ``period`` / ``extended_hours`` /
+    ``extended``, and registers via ``MCPServer.add_tool`` following the
+    003/006/008/010 wrapper pattern."""
+
+    def test_function_is_importable(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        assert callable(get_price_history)
+
+    def test_signature_has_the_five_tool_parameters(self) -> None:
+        import inspect
+
+        from schwab_mcp.price_history import get_price_history
+
+        sig = inspect.signature(get_price_history)
+        params = {p.name: p for p in sig.parameters.values()}
+        for name in ("symbol", "frequency", "period", "extended_hours", "extended"):
+            assert name in params, f"missing parameter {name!r}"
+        assert params["frequency"].default == "daily", "FR-002 default frequency"
+        assert params["period"].default == "1m", "FR-002 default period"
+        assert params["extended_hours"].default is False
+        assert params["extended"].default is False
+
+    def test_registers_via_mcp_add_tool(self) -> None:
+        """The client-bound wrapper registers and serves one invocation."""
+        import json
+
+        from mcp.server import MCPServer
+
+        from schwab_mcp.price_history import get_price_history_tool
+        from tests.unit.fixtures.price_history_payloads import DAILY_PAYLOAD
+        from tests.unit.helpers import FakePriceHistoryClient
+
+        client = FakePriceHistoryClient(payload=DAILY_PAYLOAD)
+        fn = lambda symbol, frequency="daily", period="1m", extended_hours=False, extended=False: (
+            get_price_history_tool(
+                client,
+                symbol=symbol,
+                frequency=frequency,
+                period=period,
+                extended_hours=extended_hours,
+                extended=extended,
+            )
+        )
+        fn.__name__ = "get_price_history"
+        fn.__qualname__ = "get_price_history"
+
+        mcp = MCPServer("test")
+        mcp.add_tool(fn, name="get_price_history", description="Fetch candles.")
+
+        tools = asyncio.run(mcp.list_tools())
+        names = [t.name for t in tools]
+        assert "get_price_history" in names, (
+            f"get_price_history not in registered tools: {names}"
+        )
+
+        result = asyncio.run(
+            mcp.call_tool("get_price_history", {"symbol": "SPY"})
+        )
+        assert not result.is_error, f"Tool call returned an error: {result.content}"
+        if result.structured_content is not None:
+            assert result.structured_content["outcome"] == "ok"
+        else:
+            parsed = json.loads(result.content[0].text)
+            assert parsed["outcome"] == "ok"
+
+    def test_input_schema_exposes_tool_parameters(self) -> None:
+        """The MCP input schema carries only the tool-facing parameters;
+        the client is bound by closure (pattern of 003/006/008/010)."""
+        from mcp.server import MCPServer
+
+        from schwab_mcp.price_history import get_price_history_tool
+        from tests.unit.helpers import FakePriceHistoryClient
+
+        client = FakePriceHistoryClient()
+        fn = lambda symbol, frequency="daily", period="1m", extended_hours=False, extended=False: (
+            get_price_history_tool(
+                client,
+                symbol=symbol,
+                frequency=frequency,
+                period=period,
+                extended_hours=extended_hours,
+                extended=extended,
+            )
+        )
+        fn.__name__ = "get_price_history"
+        fn.__qualname__ = "get_price_history"
+
+        mcp = MCPServer("test")
+        mcp.add_tool(fn, name="get_price_history", description="test")
+
+        tools = asyncio.run(mcp.list_tools())
+        schema = tools[0].input_schema or {}
+        props = schema.get("properties", {})
+        for name in (
+            "symbol",
+            "frequency",
+            "period",
+            "extended_hours",
+            "extended",
+        ):
+            assert name in props, f"input_schema missing {name!r}"
+        assert "client" not in props, "the client must be bound by closure"

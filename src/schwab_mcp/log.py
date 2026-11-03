@@ -26,6 +26,9 @@ ALLOWED_EVENTS = frozenset({
     "options_chain_query_failure",
     "quotes_query_start",
     "quotes_query_failure",
+    "price_history_query_start",
+    "price_history_query_success",
+    "price_history_query_failure",
 })
 
 _ALLOWED_OUTCOMES = {
@@ -55,6 +58,14 @@ _ALLOWED_OUTCOMES = {
     },
     "quotes_query_start": {"initiated"},
     "quotes_query_failure": {
+        "validation",
+        "error",
+        "reauth",
+        "provider_unreachable",
+    },
+    "price_history_query_start": {"initiated"},
+    "price_history_query_success": {"ok"},
+    "price_history_query_failure": {
         "validation",
         "error",
         "reauth",
