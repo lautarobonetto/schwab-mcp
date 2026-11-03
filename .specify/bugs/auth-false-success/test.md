@@ -4,7 +4,7 @@
 - **Tested**: 2026-11-03
 - **Assessment**: ./assessment.md
 - **Fix**: ./fix.md
-- **Result**: partial
+- **Result**: verified
 
 ## Summary
 
@@ -13,17 +13,17 @@ store and a client that models schwabdev's exact stale behavior
 (silent refresh fails with `invalid_grant`, hook never invoked),
 `auth` now runs the real flow, never reports false success, and
 restores the previous store on cancellation. All 1598 tests pass.
-The **live** reproduction from the assessment (real revoked refresh
-token on `Server1` against Schwab's API) was not exercised — it
-requires server-side token revocation and real credentials — so the
-verdict is `partial` rather than `verified`.
+**Live validation on `Server1` (2026-11-03, v0.8.2) confirmed by the
+maintainer**: the re-auth over the previously-stale store completed as
+a real fresh authorization flow — no false "Authorization successful"
+on dead credentials.
 
 ## Checks Performed
 
 | Check | Command / Action | Result | Notes |
 |-------|------------------|--------|-------|
 | Reproduction (post-fix, automated equivalent) | `uv run pytest tests/integration/test_auth.py::TestStaleStoreReauthorization -v` | pass | 4/4. The fake client replicates the assessment's transcript mechanism (confirmed in schwabdev source: `tokens.py:_update_access_token` returns `False` without invoking `call_on_auth`); pre-fix these fail, post-fix they pass |
-| Live reproduction on real Schwab API | not exercised | skipped | Requires a server-side revoked refresh token + real credentials on `Server1` (credential safety; not available here) |
+| Live reproduction on real Schwab API | maintainer-confirmed live run on `Server1` after deploying v0.8.2 (2026-11-03) | pass | Real re-auth over the stale store completed as a fresh flow — no captured transcript, confirmed verbally by the maintainer |
 | New / updated tests | `uv run pytest tests/integration/test_auth.py` | pass | 32 passed (incl. updated `TestReauthFlow` + 4 regression tests) |
 | Helper unit tests | `uv run pytest tests/unit/test_tokens_backup.py` | pass | 12 passed (backup/restore/discard contract, permissions, collision safety) |
 | Regression suite | `uv run pytest` | pass | 1598 passed, 0 skipped (pre-fix baseline: 1582) |
@@ -42,10 +42,8 @@ tests/integration/test_auth.py::TestStaleStoreReauthorization::test_successful_r
 
 ## Residual Risks
 
-- **Live validation pending**: the fix is proven against a fake that
-  mirrors schwabdev 4.0.0 behavior at the cited source lines, but the
-  original transcript scenario (real `invalid_grant` on `Server1`) has
-  not been replayed after the fix.
+- The live confirmation was verbal (no captured transcript); the
+  automated suite remains the pinned regression evidence.
 - A running `serve` process keeps serving the renamed (stale) store
   until restarted — documented in `fix.md` Follow-ups, unchanged by
   this verification.
@@ -54,11 +52,5 @@ tests/integration/test_auth.py::TestStaleStoreReauthorization::test_successful_r
 
 ## Recommendation
 
-Close the bug **after** one live validation: once this fix reaches
-`Server1`, re-run the assessment's reproduction (store with
-`invalid_grant` refresh token → `uv run schwab-mcp auth`) and confirm
-the authorization URL is printed, the browser flow runs, and success is
-reported only after the fresh exchange. If that passes, the `partial`
-verdict can be upgraded to `verified` retroactively in this file; if
-the symptom still reproduces live, reopen via
-`/speckit.bug.assess slug=auth-false-success` with the new transcript.
+Close the bug — verified end-to-end (automated suite + live validation
+on the affected host with v0.8.2).

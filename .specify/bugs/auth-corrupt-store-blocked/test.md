@@ -4,7 +4,7 @@
 - **Tested**: 2026-11-03
 - **Assessment**: ./assessment.md
 - **Fix**: ./fix.md
-- **Result**: partial
+- **Result**: verified
 
 ## Summary
 
@@ -13,16 +13,16 @@ corrupted store (non-SQLite file, or a valid DB shadowed by a hot
 journal — the assessed Server1 mechanism), `auth` now quarantines the
 file (content preserved) and runs the real flow instead of exiting 5
 with the circular "run schwab-mcp auth" message. All 1605 tests pass.
-The **live** reproduction on `Server1` was not exercised — the fix is
-not yet deployed there — so the verdict is `partial` rather than
-`verified`.
+**Live validation on `Server1` (2026-11-03, v0.8.2) confirmed by the
+maintainer**: `auth` recovered on its own — the corrupt store was
+handled and the fresh authorization flow completed successfully.
 
 ## Checks Performed
 
 | Check | Command / Action | Result | Notes |
 |-------|------------------|--------|-------|
 | Reproduction (post-fix, automated equivalent) | `uv run pytest tests/integration/test_auth.py::TestCorruptStoreRecovery tests/integration/test_failures.py::TestAuthCorruptedStore -v` | pass | 5/5. Corrupt file → quarantined (`*.corrupt.*`, content preserved) → flow reached (exit 0 with fresh tokens / exit 3 when cancelled); never exit 5 |
-| Live reproduction on `Server1` | not exercised | skipped | Fix not yet deployed to the affected host; the transcript scenario needs the real corrupt store there |
+| Live reproduction on `Server1` | maintainer-confirmed live run after deploying v0.8.2 (2026-11-03) | pass | `auth` recovered on its own and the fresh flow completed — no captured transcript, confirmed verbally by the maintainer |
 | New unit tests (quarantine + sidecar hygiene) | `uv run pytest tests/unit/test_tokens_quarantine.py tests/unit/test_tokens_backup.py` | pass | 18 passed, incl. the poisoning mechanism: valid DB + hot journal reads "corrupted" → quarantined intact |
 | Regression suite | `uv run pytest` | pass | 1605 passed, 0 skipped (pre-fix baseline: 1598) |
 | Lint / type-check | — | not-run | No linter/type-checker configured; the project gate is `uv sync && uv run pytest` (CI), covered by the regression suite |
@@ -41,11 +41,6 @@ tests/integration/test_failures.py::TestAuthCorruptedStore::test_auth_corrupted_
 
 ## Residual Risks
 
-- **Live validation pending**: the fix is proven against the fakes
-  (inert client and schwabdev-shaped client) plus the unit-level
-  journal-poisoning mechanism, but the real `Server1` state (whatever
-  left the store unreadable — interrupted flow, hot journal, or
-  permissions) has not been replayed after the fix.
 - Quarantine/backup files (`*.corrupt.*`, `*.bak.*`) accumulate without
   retention; documented as a follow-up, not a functional risk.
 - A running `serve` process is unaffected by quarantine of the on-disk
@@ -53,11 +48,6 @@ tests/integration/test_failures.py::TestAuthCorruptedStore::test_auth_corrupted_
 
 ## Recommendation
 
-Close the bug **after** live validation: deploy the fix to `Server1`
-(next release), run `uv run schwab-mcp auth`, and confirm the corrupt
-store is quarantined automatically (a `tokens.db.corrupt.*` file
-appears), the authorization URL is printed, and the browser flow
-completes. If it does, upgrade this verdict to `verified` retroactively;
-if the dead-end persists on the host, reopen via
-`/speckit.bug.assess slug=auth-corrupt-store-blocked` with the new
-transcript and the `~/.schwab-mcp/` directory listing.
+Close the bug — verified end-to-end (automated suite + live validation
+on the affected host with v0.8.2). The maintenance follow-ups
+(retention of `*.bak.*`/`*.corrupt.*` files) remain optional cleanup.
