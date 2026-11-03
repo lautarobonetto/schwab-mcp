@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
-## [Unreleased]
+## [0.8.2] - 2026-11-03
 
 ### Fixed
 
@@ -857,7 +857,7 @@ Feature 001 — **Schwab OAuth access layer** (spec:
 
 [0.8.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.1...v0.8.0
 [0.8.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.0...v0.8.1
-[Unreleased]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.1...HEAD
+[0.8.2]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.1...v0.8.2
 [0.7.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4
