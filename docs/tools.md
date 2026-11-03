@@ -5,7 +5,7 @@ Complete reference of the surface consumable by an AI agent
 the output, with exact semantics so the agent can decide without
 human intervention.
 
-**Document version**: 0.8.0 (see [CHANGELOG](./CHANGELOG.md)).
+**Document version**: 0.9.7 (see [CHANGELOG](./CHANGELOG.md)).
 
 ## How this MCP is consumed
 
@@ -489,11 +489,14 @@ validation error:
    with `option_type must be one of: both, calls, puts`. Do not translate
    "I want the puts" into `"put"` — the enum is already defined.
 2. **`dte_max` is a ceiling, NOT a minimum.** There is no `dte_min`. To
-   look for expirations with **DTE ≥ N**: invoke with the maximum
-   allowed `dte_max` and filter client-side using `expirations[].dte`. Also,
-   since the hard ceiling is 60 days, the tool can **never** return
-   expirations with `dte > 60` — if your analysis requires further out,
-   the tool falls short and that must be stated explicitly.
+   look for expirations with **DTE ≥ N**: invoke with the largest
+   acceptable `dte_max` and filter client-side using `expirations[].dte`.
+   The 60-day value is only the **default ceiling** for `dte_max: null` —
+   an explicit `dte_max` (any integer ≥ 1, no hard upper limit) raises
+   the ceiling to that value, so the tool **can** return expirations
+   with `dte > 60` (e.g. `dte_max: 90` returned DTE 73 on `$SPX`,
+   live 2026-11-03). Verify the applied ceiling in
+   `filters.dte_max_effective`.
 3. **`dte_max: null` does not mean "no ceiling"**: it applies the current
    60-day ceiling (verifiable in `filters.dte_max_effective`).
 4. **With `delta_target` the window is narrow**: up to **5 strikes per

@@ -6,6 +6,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.7] - 2026-11-03
+
+### Fixed
+
+- **`docs/tools.md` no longer claims `get_option_chain` can never return
+  expirations with `dte > 60`** (documentation-only, no code change): the
+  agent guidance wrongly stated a "hard ceiling is 60 days", but 60 is
+  only the **default ceiling** applied when `dte_max: null` — an explicit
+  `dte_max` (any integer ≥ 1, no hard upper limit) raises the ceiling to
+  that value, exactly as `OptionChainQuery.dte_max_effective` and the
+  008 contract implement it. Confirmed live: `dte_max: 90` on `$SPX`
+  returned an expiration with DTE 73 (2026-11-03). The guidance now
+  points to `filters.dte_max_effective` as the verifiable applied
+  ceiling. Document version field bumped 0.8.0 → 0.9.7 (the field had
+  drifted behind the doc updates shipped since 0.9.0).
+
 ## [0.9.6] - 2026-11-03
 
 ### Fixed
