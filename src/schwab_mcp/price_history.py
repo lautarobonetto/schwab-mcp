@@ -144,36 +144,40 @@ PRESET_TABLE: dict[str, dict[str, tuple[str, int, str, int]]] = {
 # =============================================================================
 
 
-def _validation_error(detail: str, **extra: Any) -> dict:
+def _validation_error(detail: str, symbol: str, **extra: Any) -> dict:
     return {
         "outcome": "validation_error",
         "detail": detail,
         "retryable": False,
+        "symbol": symbol,
         **extra,
     }
 
 
-def _provider_unreachable(detail: str = "provider_unreachable") -> dict:
+def _provider_unreachable(symbol: str, detail: str = "provider_unreachable") -> dict:
     return {
         "outcome": "provider_unreachable",
         "detail": detail,
         "retryable": True,
+        "symbol": symbol,
     }
 
 
-def _reauth_needed() -> dict:
+def _reauth_needed(symbol: str) -> dict:
     return {
         "outcome": "reauth_needed",
         "detail": "reauth_needed",
         "retryable": False,
+        "symbol": symbol,
     }
 
 
-def _history_unavailable() -> dict:
+def _history_unavailable(symbol: str) -> dict:
     return {
         "outcome": "history_unavailable",
         "detail": "source_returned_no_candles",
         "retryable": False,
+        "symbol": symbol,
     }
 
 
@@ -203,21 +207,25 @@ def _selection_detail(
 
 def _fail(
     detail: str,
-    symbol: Any,
+    symbol: str,
     frequency: Any,
     period: Any,
     extended_hours: Any,
     extended: Any,
     **extra: Any,
 ) -> dict:
-    """Emit the failure event and return the validation envelope."""
+    """Emit the failure event and return the validation envelope.
+
+    *symbol* is the already-normalized request symbol, which both the
+    audit event and the envelope carry (FR-008/US1-AC3: the error names
+    the offending symbol).
+    """
     auth_event(
         FAILURE_EVENT,
         "validation",
-        detail=f"{detail} "
-        + _selection_detail(symbol, frequency, period, extended_hours, extended),
+        detail=f"{detail} " + _selection_detail(symbol, frequency, period, extended_hours, extended),
     )
-    return _validation_error(detail, **extra)
+    return _validation_error(detail, symbol, **extra)
 
 
 # =============================================================================
@@ -478,7 +486,7 @@ def get_price_history(
     normalized = (symbol or "").strip().upper()
     if not normalized:
         return _fail(
-            "malformed_symbol", symbol, frequency, period, extended_hours, extended
+            "malformed_symbol", normalized, frequency, period, extended_hours, extended
         )
 
     classified = _classify(normalized)
@@ -490,19 +498,24 @@ def get_price_history(
         if _OPTION_RE.match(normalized):
             return _fail(
                 "unsupported_symbol_kind",
-                symbol,
+                normalized,
                 frequency,
                 period,
                 extended_hours,
                 extended,
             )
         return _fail(
-            "malformed_symbol", symbol, frequency, period, extended_hours, extended
+            "malformed_symbol",
+            normalized,
+            frequency,
+            period,
+            extended_hours,
+            extended,
         )
     if classified[0] == "option":
         return _fail(
             "unsupported_symbol_kind",
-            symbol,
+            normalized,
             frequency,
             period,
             extended_hours,
@@ -512,18 +525,19 @@ def get_price_history(
     if frequency not in PRESET_TABLE:
         return _fail(
             "unsupported_frequency",
-            symbol,
+            normalized,
             frequency,
             period,
             extended_hours,
             extended,
+            valid_frequencies=list(PRESET_TABLE),
         )
 
     presets = PRESET_TABLE[frequency]
     if period not in presets:
         return _fail(
             "unsupported_period",
-            symbol,
+            normalized,
             frequency,
             period,
             extended_hours,
@@ -534,7 +548,7 @@ def get_price_history(
     if extended_hours and frequency not in INTRADAY_FREQUENCIES:
         return _fail(
             "extended_hours_not_applicable",
-            symbol,
+            normalized,
             frequency,
             period,
             extended_hours,
@@ -566,19 +580,19 @@ def get_price_history(
                 "reauth",
                 detail="reauth_needed "
                 + _selection_detail(
-                    symbol, frequency, period, extended_hours, extended
+                    normalized, frequency, period, extended_hours, extended
                 ),
             )
-            return _reauth_needed()
+            return _reauth_needed(normalized)
         auth_event(
             FAILURE_EVENT,
             "provider_unreachable",
             detail="provider_unreachable "
             + _selection_detail(
-                symbol, frequency, period, extended_hours, extended
+                normalized, frequency, period, extended_hours, extended
             ),
         )
-        return _provider_unreachable()
+        return _provider_unreachable(normalized)
 
     if not isinstance(payload, dict):
         payload = {}
@@ -593,10 +607,10 @@ def get_price_history(
             "error",
             detail="history_unavailable "
             + _selection_detail(
-                symbol, frequency, period, extended_hours, extended
+                normalized, frequency, period, extended_hours, extended
             ),
         )
-        return _history_unavailable()
+        return _history_unavailable(normalized)
 
     # ------------------------------------------------------------------
     # 5. Frequency-specific derivation + in-progress marking (D6)

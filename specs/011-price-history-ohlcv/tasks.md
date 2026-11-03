@@ -405,3 +405,34 @@ Task: "Budget tests in tests/performance/test_price_history_budgets.py"
 - Stop at any checkpoint to validate the story independently
 - Avoid: implementing before its RED test exists; skipping the baseline
   gate; docs changes in a later commit than code (Commit Discipline)
+
+---
+
+## Phase 7: Convergence
+
+Appended by `/speckit.converge` (2026-11-03) after the Phase 1–6
+implementation (commit e3da0a1, suite 1558 passed / 0 skipped).  Three
+partial gaps remain; each task follows TDD (RED first).
+
+- [X] T031 Add the requested `symbol` to every structured error envelope
+  (`validation_error`, `history_unavailable`, `provider_unreachable`,
+  `reauth_needed`) in `src/schwab_mcp/price_history.py` so the error names
+  the offending symbol, not only the audit events; RED-first tests in
+  `tests/unit/test_price_history_validation.py` /
+  `tests/integration/test_price_history.py` /
+  `tests/unit/test_no_secrets_in_output.py`; document the field in
+  `docs/tools.md` per FR-008 / US1-AC3 (partial)
+- [X] T032 State the allowed values in the frequency validation error: add
+  the declared frequency set (e.g. `valid_frequencies`) to the
+  `unsupported_frequency` envelope in `src/schwab_mcp/price_history.py`
+  (mirroring `valid_presets` on `unsupported_period`); RED-first test in
+  `tests/unit/test_price_history_validation.py`; mirror in
+  `docs/tools.md` per US2-AC2 (partial)
+- [X] T033 Align the remaining documentation with the implemented
+  envelopes and measured budgets: `specs/011-price-history-ohlcv/quickstart.md`
+  still states the superseded research-D5 arithmetic (≤ ~550 / ≤ ~5,200
+  tokens, 19–22 per candle) and `specs/011-price-history-ohlcv/contracts/mcp-tools.md`
+  §3 still says "`detail` names the valid presets" while the
+  implementation delivers a `valid_presets` envelope field (also missing
+  from `docs/tools.md`) — update all three per Constitution commit
+  discipline / SC-002 (partial)

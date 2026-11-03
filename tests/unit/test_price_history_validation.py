@@ -437,3 +437,72 @@ class TestInputTypeError:
 
         with pytest.raises(ToolError):
             get_price_history_tool(_client(), 42)
+
+# =============================================================================
+# T031 (convergence) — error envelopes name the symbol (FR-008, US1-AC3)
+# =============================================================================
+
+
+class TestErrorEnvelopesNameSymbol:
+    """Every structured error envelope carries the requested (normalized)
+    ``symbol``: FR-008 ("a structured error naming the symbol and the
+    reason") and US1-AC3 ("a structured error naming the offending
+    symbol").  Audit events already log it; the tool response must too."""
+
+    @pytest.mark.parametrize(
+        "symbol,call_kwargs,expected_detail,expected_symbol",
+        [
+            (fx.OPTION_SYMBOL, {}, "unsupported_symbol_kind", "AAPL 261127C350"),
+            ("BAD SYMBOL", {}, "malformed_symbol", "BAD SYMBOL"),
+            ("", {}, "malformed_symbol", ""),
+            (None, {}, "malformed_symbol", ""),
+            (" spy ", {"frequency": "13m"}, "unsupported_frequency", "SPY"),
+            ("SPY", {"period": "10y"}, "unsupported_period", "SPY"),
+            ("SPY", {"extended_hours": True}, "extended_hours_not_applicable", "SPY"),
+        ],
+        ids=[
+            "option-kind",
+            "malformed",
+            "missing-empty",
+            "missing-none",
+            "bad-frequency",
+            "bad-period",
+            "extended-hours",
+        ],
+    )
+    def test_validation_error_names_the_symbol(
+        self, symbol, call_kwargs, expected_detail, expected_symbol
+    ) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        client = _client()
+        result = get_price_history(client, symbol, **call_kwargs)
+
+        assert result["outcome"] == "validation_error"
+        assert result["detail"] == expected_detail
+        assert result["symbol"] == expected_symbol, (
+            "the error envelope must name the requested symbol (FR-008)"
+        )
+        assert client.call_count == 0
+
+
+class TestFrequencyErrorNamesAllowedValues:
+    """US2-AC2: validation errors state the limit AND the allowed values
+    before any fetch.  ``unsupported_period`` already carries
+    ``valid_presets`` (FR-018); ``unsupported_frequency`` carries the
+    declared frequency set the same way."""
+
+    DECLARED_FREQUENCIES = ["5m", "15m", "30m", "1h", "daily", "weekly"]
+
+    def test_unsupported_frequency_names_the_declared_set(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        client = _client()
+        result = get_price_history(client, fx.SYMBOL, frequency="13m")
+
+        assert result["outcome"] == "validation_error"
+        assert result["detail"] == "unsupported_frequency"
+        assert sorted(result["valid_frequencies"]) == sorted(
+            self.DECLARED_FREQUENCIES
+        ), "US2-AC2: the error must state the allowed values"
+        assert client.call_count == 0

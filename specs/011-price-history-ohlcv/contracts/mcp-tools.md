@@ -101,13 +101,18 @@ invocation returns a structured error and the `candles` array is absent.
 |---|---|---|---|
 | `validation_error` | `malformed_symbol` | symbol missing or matches no grammar | no |
 | `validation_error` | `unsupported_symbol_kind` | option-contract symbol | no |
-| `validation_error` | `unsupported_frequency` | frequency outside the declared set | no |
-| `validation_error` | `unsupported_period` | period not in the frequency's preset table; `detail` names the valid presets | no |
+| `validation_error` | `unsupported_frequency` | frequency outside the declared set; carries `valid_frequencies` | no |
+| `validation_error` | `unsupported_period` | period not in the frequency's preset table; carries `valid_presets` | no |
 | `validation_error` | `extended_hours_not_applicable` | `extended_hours=true` with `daily`/`weekly` | no |
 | `history_unavailable` | `source_returned_no_candles` | source returned an empty candle list for a valid request (e.g., unlisted or delisted instrument) | no (re-request is valid) |
 | `provider_unreachable` | transport/timeout description | source unreachable, 5xx/408/429, malformed body | **yes** |
 | `reauth_needed` | re-authorization required | provider 401/403 | no (user action) |
 
+- Every error envelope carries the requested (normalized) `symbol`
+  (FR-008, US1-AC3); `unsupported_frequency` states the declared set in
+  `valid_frequencies`, and `unsupported_period` states the frequency's
+  presets in `valid_presets` — the limit and the allowed values before
+  any fetch (US2-AC2).
 - The response envelope (outcome/detail/retryability semantics) is the one
   shared by `get_open_positions`, `get_transaction_history`,
   `get_option_chain`, and `get_quotes` (FR-009, C-02).

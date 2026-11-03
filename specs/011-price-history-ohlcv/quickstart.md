@@ -29,8 +29,8 @@ Expected:
   `true` at most on the last)
 - `candle_count` matches `len(candles)`; `window.first`/`window.last` match
   the first/last `t`
-- The whole response stays within the ≤ ~550-token budget (verified
-  automatically by `tests/performance/test_price_history_budgets.py`)
+- The whole response stays within the ≤ ~650-token budget (measured 588;
+  verified automatically by `tests/performance/test_price_history_budgets.py`)
 
 ## S2 — Bounded selection for a different horizon (spec US2)
 
@@ -110,6 +110,8 @@ Expected:
 `tests/performance/test_price_history_budgets.py` asserts, against the
 recorded fixture payloads (`tests/unit/fixtures/price_history_payloads.py`):
 
-- Default response ≤ ~550 tokens; worst-case preset (260 candles) ≤ ~5,200
-  tokens; per-candle baseline ≈ 19–22 tokens (research D5)
+- Default response ≤ ~650 tokens (measured 588); worst-case preset
+  (260 candles) ≤ ~6,500 tokens (measured ~6.3k); per-candle baseline
+  ≈ 23–24 tokens (measured; research D5's 19–22 arithmetic predated the
+  `in_progress` field carried by every curated candle)
 - Latency ≤ 5 s p95 with a fake client

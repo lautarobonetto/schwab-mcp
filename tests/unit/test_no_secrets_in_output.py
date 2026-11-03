@@ -1460,3 +1460,14 @@ class TestPriceHistoryToolNoSecrets:
         assert "price_history_query_failure" in stderr
         for secret in SECRET_MATERIAL:
             assert secret not in stderr, f"Secret {secret!r} leaked into events"
+
+    def test_error_envelopes_name_the_symbol_with_no_secrets(self) -> None:
+        """The FR-008 `symbol` field on error envelopes carries only the
+        requested ticker — never credential material."""
+        from schwab_mcp.price_history import get_price_history
+
+        self._register()
+        result = get_price_history(self._client(status=500), "SPY")
+        assert result["outcome"] == "provider_unreachable"
+        assert result["symbol"] == "SPY"
+        self._assert_clean(result, "provider_unreachable JSON with symbol")

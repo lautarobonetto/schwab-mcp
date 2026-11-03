@@ -907,14 +907,19 @@ delivered.
 |-----------|----------|---------|-------------|
 | `validation_error` | `malformed_symbol` | symbol missing or matches no grammar | `false` |
 | `validation_error` | `unsupported_symbol_kind` | option-contract symbol | `false` |
-| `validation_error` | `unsupported_frequency` | frequency outside the declared set | `false` |
-| `validation_error` | `unsupported_period` | period not in the frequency's preset table; `detail` names the valid presets | `false` |
+| `validation_error` | `unsupported_frequency` | frequency outside the declared set; carries `valid_frequencies` | `false` |
+| `validation_error` | `unsupported_period` | period not in the frequency's preset table; carries `valid_presets` | `false` |
 | `validation_error` | `extended_hours_not_applicable` | `extended_hours=true` with `daily`/`weekly` | `false` |
 | `history_unavailable` | `source_returned_no_candles` | source returned an empty candle list for a valid request (e.g., unlisted or delisted instrument) | `false` (re-request is valid) |
 | `provider_unreachable` | transport/timeout description | source unreachable, 5xx/408/429, malformed body | `true` |
 | `reauth_needed` | re-authorization required | provider 401/403 | `false` (user action) |
 
-Validation failures happen **before any upcall** (FR-007). The response
+Validation failures happen **before any upcall** (FR-007).  Every error
+envelope also names the requested (normalized) `symbol` (FR-008,
+US1-AC3), `unsupported_frequency` states the declared set
+(`valid_frequencies`), and `unsupported_period` states the frequency's
+presets (`valid_presets`) — the limit and the allowed values before any
+data is fetched (US2-AC2).  The response
 envelope (outcome/detail/retryability semantics) is the one shared by
 `get_open_positions`, `get_transaction_history`, `get_option_chain`
 and `get_quotes`.

@@ -623,3 +623,50 @@ class TestExtendedMode:
         assert result["retryable"] is True
         assert "candles" not in result
         assert "provider" not in result
+
+# =============================================================================
+# T031 (convergence) — provider-failure envelopes name the symbol (FR-008)
+# =============================================================================
+
+
+class TestErrorEnvelopesNameSymbol:
+    """Every structured error envelope of a provider failure carries the
+    requested ``symbol`` (FR-008: "naming the symbol and the reason")."""
+
+    @pytest.mark.parametrize(
+        "status,expected_outcome",
+        [(500, "provider_unreachable"), (401, "reauth_needed")],
+        ids=["provider-unreachable", "reauth-needed"],
+    )
+    def test_status_failure_names_the_symbol(self, status, expected_outcome) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        client = FakePriceHistoryClient(payload=fx.DAILY_PAYLOAD, status=status)
+        result = get_price_history(client, fx.SYMBOL)
+
+        assert result["outcome"] == expected_outcome
+        assert result["symbol"] == fx.SYMBOL, (
+            "the error envelope must name the requested symbol (FR-008)"
+        )
+
+    def test_network_error_names_the_symbol(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        client = FakePriceHistoryClient(error=ConnectionError("network down"))
+        result = get_price_history(client, fx.SYMBOL)
+
+        assert result["outcome"] == "provider_unreachable"
+        assert result["symbol"] == fx.SYMBOL
+
+    def test_history_unavailable_names_the_symbol(self) -> None:
+        from schwab_mcp.price_history import get_price_history
+
+        client = FakePriceHistoryClient(payload=fx.EMPTY_PAYLOAD)
+        result = get_price_history(client, fx.NO_HISTORY_SYMBOL)
+
+        assert result["outcome"] == "history_unavailable"
+        assert result["symbol"] == fx.NO_HISTORY_SYMBOL, (
+            "the structured error must name the symbol the source cannot "
+            "provide price history for (FR-008)"
+        )
+        assert "candles" not in result
