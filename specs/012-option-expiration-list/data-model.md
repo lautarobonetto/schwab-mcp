@@ -57,7 +57,7 @@ selection are out of scope (FR-006).
 |-------|------|-----------|
 | `expiration_date` | string | provider `expirationDate`, YYYY-MM-DD, passed through unmodified |
 | `dte` | int | calendar days from **today** to `expiration_date`, computed locally (008 DTE definition; provider `daysToExpiration` is NOT used — R4) |
-| `settlement_type` | string \| null | provider `settlementType` passed through (e.g. `"C"` close-settled, `"P"`/`"A"` PM/AM index settlement); explicit `null` when the provider omits it — never inferred |
+| `settlement_type` | string \| null | provider `settlementType` passed through — non-exhaustive observed set: `"C"` close-settled (equities), `"P"` PM index settlement, `"A"`/`"B"` AM (open) index settlement (bug `settlement-type-a`, live 2026-11-03); explicit `null` when the provider omits it — never inferred, unknown letters pass through verbatim |
 
 Identity rule: entries are unique by `(expiration_date, settlement_type)`
 pair as returned by the provider. Same-date entries MUST NOT be merged or

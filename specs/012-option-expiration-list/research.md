@@ -30,7 +30,8 @@ heavyweight payloads).
 **Decision**: map defensively. Treat the payload as
 `{"status": …, "errorCode": …, "expirations": [ {…}, … ]}` and read from
 each entry: `expirationDate` (YYYY-MM-DD string), `daysToExpiration` (int),
-`settlementType` (provider string, e.g. `"C"`/`"P"`/`"A"`). Any missing
+`settlementType` (provider string; observed `"C"`/`"P"`/`"A"`/`"B"` —
+non-exhaustive, letters pass through verbatim). Any missing
 field yields explicit `null` in the curated output — values are never
 invented (008's FR-007 pattern). Unknown/extra provider fields surface only
 via `extended=true`.

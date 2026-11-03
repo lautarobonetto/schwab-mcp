@@ -75,6 +75,14 @@ class TestCuratedFieldMapping:
         result = build_expiration_result(payload, _query(), TODAY)
         assert result["expirations"][0]["settlement_type"] == "A"
 
+    def test_settlement_type_b_passes_through_unmodified(self) -> None:
+        """Observed live provider value (bug ``settlement-type-a``): a
+        letter beyond the documented ``C``/``P``/``A`` set passes through
+        verbatim — never dropped, never rewritten."""
+        payload = build_expiration_chain_payload([("2026-11-20", 17, "B")])
+        result = build_expiration_result(payload, _query(), TODAY)
+        assert result["expirations"][0]["settlement_type"] == "B"
+
     def test_dte_is_calendar_days_from_today_not_provider_value(self) -> None:
         """The provider day count (here deliberately 999) is ignored (R4)."""
         payload = build_expiration_chain_payload([("2026-11-13", 999, "C")])

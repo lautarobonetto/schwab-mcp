@@ -43,6 +43,7 @@ import itertools
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
@@ -131,6 +132,37 @@ class FakeSchwabdevClient:
 # ---------------------------------------------------------------------------
 
 
+class _FakeArgModel:
+    """Stand-in for the SDK's per-tool Pydantic argument model.
+
+    Records the ``extra`` configuration and rebuild calls so tests can
+    assert the strict-argument hardening (bug ``option-chain-dte-filter``)
+    was applied at registration time.
+    """
+
+    def __init__(self) -> None:
+        self.model_config: dict[str, Any] = {}
+        self.rebuild_calls: list[bool] = []
+
+    def model_rebuild(self, force: bool = False) -> None:
+        """Mirror ``pydantic.BaseModel.model_rebuild`` (records the call)."""
+        self.rebuild_calls.append(force)
+
+
+class _FakeTool:
+    """Stand-in for the SDK's registered ``Tool`` object.
+
+    Exposes the attributes ``schwab_mcp.server.register_tool`` touches:
+    ``fn_metadata.arg_model`` and ``parameters``.
+    """
+
+    def __init__(self, fn: Any, name: str) -> None:
+        self.fn = fn
+        self.name = name
+        self.fn_metadata = SimpleNamespace(arg_model=_FakeArgModel())
+        self.parameters: dict[str, Any] = {"properties": {}}
+
+
 class FakeMCPServer:
     """Stub for ``mcp.server.MCPServer`` (the name used in server.py).
 
@@ -144,6 +176,7 @@ class FakeMCPServer:
         _record("MCPServer.__init__", name)
         self.name = name
         self._tools: list[Any] = []
+        self._tool_manager = SimpleNamespace(_tools={})
         FakeMCPServer._instances.append(self)
 
     async def run_stdio_async(self) -> None:
@@ -151,9 +184,11 @@ class FakeMCPServer:
         _record("MCPServer.run_stdio_async")
 
     def add_tool(self, fn: Any, name: str = "", description: str = "") -> None:
-        """Register a tool (stub — records the call)."""
+        """Register a tool (records the call and exposes the SDK surface
+        that ``register_tool`` hardens)."""
         _record("MCPServer.add_tool", name)
         self._tools.append(name)
+        self._tool_manager._tools[name] = _FakeTool(fn, name)
 
     def list_tools(self) -> list[Any]:
         """Return the list of registered tools."""

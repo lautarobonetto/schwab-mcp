@@ -6,6 +6,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.6] - 2026-11-03
+
+### Fixed
+
+- **The `get_option_expiration_chain` settlement-type documentation now
+  covers every observed provider value** (bug `settlement-type-a`,
+  2026-11-03): a live `$SPX` expiration chain returns `settlement_type`
+  `B` on the near-term standard monthly expirations (2026-11-20 …
+  2027-03-19) in addition to `A` (farther monthlies) and `P` (weeklies)
+  — `B` was absent from the documented value set in `docs/tools.md` and
+  the spec-012 data-model/research/quickstart. `settlement_type` stays a
+  verbatim provider pass-through by design (no normalization); the docs
+  now mark the observed set (`C`, `P`, `A`, `B`) as **non-exhaustive**
+  and instruct consumers never to branch on a closed enum. `A`/`B` both
+  denote AM (open) index settlement per the observed date patterns (the
+  letter split is not documented by Schwab). Pinned by a new unit test
+  asserting a `B` value passes through unmodified.
+- **Unknown tool arguments are now rejected with a loud validation error
+  instead of being silently ignored** (bug `option-chain-dte-filter`,
+  2026-11-03): the MCP SDK validates tool arguments against a Pydantic
+  model built with the default `extra='ignore'` behaviour, so a
+  misspelled or hallucinated argument — e.g. `expiration_date` passed to
+  `get_option_chain`, which has no such parameter — was silently dropped
+  and the tool answered a *different* question with `outcome: ok` (the
+  reported case fetched the chain at the default 60-DTE ceiling and
+  returned `ok` with the requested 73-DTE expiration simply absent,
+  indistinguishable from "no such expiration"). All six registered tools
+  now go through the shared `server.register_tool` hardening: the SDK's
+  per-tool argument model is rebuilt with `extra='forbid'` (server-side
+  rejection naming the offending argument) and the advertised input
+  schema sets `additionalProperties: false` (conforming clients reject
+  the call before it is sent). Known arguments are unchanged and a
+  missing required argument still errors as before. Tool registration
+  was extracted into `server._register_tools` so the hardening is pinned
+  by unit tests at the real registration path. `docs/tools.md` documents
+  the strict-argument behavior.
+
 ## [0.9.5] - 2026-11-03
 
 ### Fixed

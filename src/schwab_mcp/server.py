@@ -13,6 +13,7 @@ import sys
 from typing import Any
 
 from mcp.server import MCPServer
+from pydantic import ConfigDict
 
 from schwab_mcp.config import Config, load_config
 from schwab_mcp.errors import (
@@ -44,6 +45,40 @@ def _build_serve_guard_hook() -> Any:
         )
 
     return guard_hook
+
+
+def register_tool(mcp: MCPServer, fn: Any, *, name: str, description: str) -> None:
+    """Register *fn* as an MCP tool that rejects unknown arguments.
+
+    Bug option-chain-dte-filter (2026-11-03): the MCP SDK validates tool
+    arguments against a Pydantic model built with the default
+    ``extra='ignore'`` behaviour, so a misspelled or hallucinated
+    argument — e.g. ``expiration_date`` passed to ``get_option_chain``,
+    which has no such parameter — was silently dropped and the tool
+    answered a *different* question with ``outcome="ok"``.  Two touch
+    points make the rejection loud:
+
+    - server-side: the SDK's per-tool argument model is rebuilt with
+      ``extra='forbid'`` so validation rejects unknown keys with a tool
+      error naming the offending argument;
+    - schema-side: the advertised input schema sets
+      ``additionalProperties: false`` so conforming clients reject the
+      call before it is sent.
+
+    The SDK exposes no public switch for either setting; the mutation
+    covers the SDK's own registration artifacts and is pinned by
+    ``tests/unit/test_tool_arg_strictness.py``.
+    """
+    mcp.add_tool(fn, name=name, description=description)
+    # The tool manager keeps registered tools by name; no public accessor
+    # returns the full Tool object with its argument model.
+    tool = mcp._tool_manager._tools[name]
+    arg_model = tool.fn_metadata.arg_model
+    # Pydantic v2 only honours a post-hoc model_config change after a
+    # forced rebuild of the validation schema.
+    arg_model.model_config = ConfigDict(extra="forbid")
+    arg_model.model_rebuild(force=True)
+    tool.parameters["additionalProperties"] = False
 
 
 def run_serve() -> None:
@@ -143,7 +178,29 @@ def run_serve() -> None:
     # 5. Register tools and connect MCPServer stdio transport
     # ------------------------------------------------------------------
     mcp = MCPServer("schwab-mcp")
+    _register_tools(mcp, client)
 
+    # Run the stdio transport — this call blocks until the server exits.
+    try:
+        asyncio.run(mcp.run_stdio_async())
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        # A tool-level failure (renewal after ready) is surfaced to the
+        # client as an error; the process does not self-restart the
+        # browser flow.
+        raise
+
+
+def _register_tools(mcp: MCPServer, client: Any) -> None:
+    """Register every agent-facing MCP tool on *mcp*.
+
+    Extracted from ``run_serve`` (bug option-chain-dte-filter) so tool
+    registration — and the strict unknown-argument hardening applied by
+    :func:`register_tool` — is unit-testable without a live session.
+    Every registration MUST go through :func:`register_tool`; a plain
+    ``mcp.add_tool`` call would silently ignore unknown arguments.
+    """
     # Register the get_open_positions tool (003-list-open-positions).
     # The client is bound via a closure so the MCP input schema only
     # exposes the ``extended`` parameter.
@@ -154,7 +211,7 @@ def run_serve() -> None:
 
     _get_open_positions_wrapper.__name__ = "get_open_positions"
     _get_open_positions_wrapper.__qualname__ = "get_open_positions"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_open_positions_wrapper,
         name="get_open_positions",
         description=(
@@ -187,7 +244,7 @@ def run_serve() -> None:
 
     _get_transaction_history_wrapper.__name__ = "get_transaction_history"
     _get_transaction_history_wrapper.__qualname__ = "get_transaction_history"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_transaction_history_wrapper,
         name="get_transaction_history",
         description=(
@@ -222,7 +279,7 @@ def run_serve() -> None:
 
     _get_option_chain_wrapper.__name__ = "get_option_chain"
     _get_option_chain_wrapper.__qualname__ = "get_option_chain"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_option_chain_wrapper,
         name="get_option_chain",
         description=(
@@ -245,7 +302,7 @@ def run_serve() -> None:
 
     _get_quotes_wrapper.__name__ = "get_quotes"
     _get_quotes_wrapper.__qualname__ = "get_quotes"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_quotes_wrapper,
         name="get_quotes",
         description=(
@@ -278,7 +335,7 @@ def run_serve() -> None:
 
     _get_price_history_wrapper.__name__ = "get_price_history"
     _get_price_history_wrapper.__qualname__ = "get_price_history"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_price_history_wrapper,
         name="get_price_history",
         description=(
@@ -311,7 +368,7 @@ def run_serve() -> None:
 
     _get_option_expiration_chain_wrapper.__name__ = "get_option_expiration_chain"
     _get_option_expiration_chain_wrapper.__qualname__ = "get_option_expiration_chain"
-    mcp.add_tool(
+    register_tool(mcp,
         _get_option_expiration_chain_wrapper,
         name="get_option_expiration_chain",
         description=(
@@ -322,17 +379,6 @@ def run_serve() -> None:
             "use extended=true for full provider passthrough."
         ),
     )
-
-    # Run the stdio transport — this call blocks until the server exits.
-    try:
-        asyncio.run(mcp.run_stdio_async())
-    except KeyboardInterrupt:
-        pass
-    except Exception:
-        # A tool-level failure (renewal after ready) is surfaced to the
-        # client as an error; the process does not self-restart the
-        # browser flow.
-        raise
 
 
 if __name__ == "__main__":

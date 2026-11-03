@@ -68,7 +68,8 @@ Window variants:
 ```
 
 → same-date entries appear as separate rows distinguished by
-`settlement_type` (AM/PM), never merged (clarification Q2 option B).
+`settlement_type` (AM/PM — AM-settled entries may be labeled `A` or
+`B`), never merged (clarification Q2 option B).
 
 Failure shapes (contracts/mcp-tools.md §3–§4): a nonsense symbol returns
 the structured `no_options_listed` outcome (or the provider's mapped

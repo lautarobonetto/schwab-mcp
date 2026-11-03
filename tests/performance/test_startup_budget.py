@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -54,15 +55,38 @@ class FakeSchwabdevClient:
 # ---------------------------------------------------------------------------
 
 
+class _FakeArgModel:
+    """Stand-in for the SDK's per-tool Pydantic argument model."""
+
+    def __init__(self) -> None:
+        self.model_config: dict[str, Any] = {}
+
+    def model_rebuild(self, force: bool = False) -> None:
+        """Mirror ``pydantic.BaseModel.model_rebuild`` (no-op)."""
+        return
+
+
+class _FakeTool:
+    """Stand-in for the SDK's registered ``Tool`` object (registers the
+    attributes ``schwab_mcp.server.register_tool`` touches)."""
+
+    def __init__(self, fn: Any, name: str) -> None:
+        self.fn = fn
+        self.name = name
+        self.fn_metadata = SimpleNamespace(arg_model=_FakeArgModel())
+        self.parameters: dict[str, Any] = {"properties": {}}
+
+
 class FakeMCPServer:
     """Non-blocking stand-in for ``mcp.server.MCPServer``."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        self._tool_manager = SimpleNamespace(_tools={})
 
     def add_tool(self, fn: Any, name: str = "", description: str = "") -> None:
-        """Register a tool (stub — no-op for performance test)."""
-        pass
+        """Register a tool (stub — records the SDK surface register_tool
+        hardens)."""
+        self._tool_manager._tools[name] = _FakeTool(fn, name)
 
     async def run_stdio_async(self) -> None:
         """No-op; returns immediately instead of blocking on stdio."""

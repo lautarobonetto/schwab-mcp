@@ -55,6 +55,14 @@ behind the SDK's opaque `Error executing tool <name>` wrapper — bug
 (`transient_failure` / `provider_unreachable` / `reauth_needed`
 outcomes) instead of tool errors.
 
+**Strict tool arguments.** Every registered tool rejects unknown
+arguments: the tool input schema sets `additionalProperties: false`, and
+an argument name that is not part of the documented schema (e.g.
+`expiration_date` on `get_option_chain`, which has no such parameter)
+fails the call with a validation error naming the offending argument —
+it is never silently ignored (bug `option-chain-dte-filter`). Pass only
+the documented parameters; a missing required argument errors as before.
+
 ---
 
 ## `get_open_positions` (first MCP tool)
@@ -1050,10 +1058,15 @@ Exactly one result object per invocation:
   date).
 - `dte` is calendar days from today — the same definition as
   `get_option_chain`. The provider's own day count is not reused.
-- `settlement_type` passes through verbatim (`C` close-settled,
-  `P`/`A` PM/AM index settlement); explicit `null` when the provider omits
-  it. Values are never invented; entries are never silently dropped
-  (missing fields surface as explicit `null`).
+- `settlement_type` passes through verbatim; explicit `null` when the
+  provider omits it. Values are never invented; entries are never
+  silently dropped (missing fields surface as explicit `null`).
+  **Observed values — non-exhaustive; never branch on a closed enum:**
+  `C` close-settled (equities), `P` PM index settlement, `A` and `B`
+  AM (open) index settlement. On SPX, `A`/`B` both appear on standard
+  monthly expirations — the provider labels near-term monthlies `B` and
+  farther monthlies `A` (live observation 2026-11-03; the letter split
+  is not documented by Schwab). An unknown letter surfaces verbatim.
 - `expiration_count` equals `len(expirations)` (present on `ok` and
   `no_expirations_in_range`).
 
@@ -1094,7 +1107,9 @@ parameter and the constraint:
    (`dte_max`, `delta_target`, `max_strikes`) for the chosen expiration.
 4. Same-date duplicate entries (index underlyings, e.g. SPX AM/PM
    settlement) are intentional: pick the entry whose `settlement_type`
-   matches your analysis.
+   matches your analysis. AM-settled entries may carry `settlement_type`
+   `A` or `B` — treat both as AM (open) settlement and never reject or
+   reinterpret an unknown letter.
 5. `extended=true` is for debugging/schema discovery only — payloads are
    larger and provider fields are unstable.
 
