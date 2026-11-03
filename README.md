@@ -31,7 +31,7 @@ marks belong to their respective owners.
 
 ## Tools
 
-The MCP server (`schwab-mcp serve`) exposes **four read-only tools**:
+The MCP server (`schwab-mcp serve`) exposes **five read-only tools**:
 
 | Tool | What it does |
 |------|--------------|
@@ -39,6 +39,7 @@ The MCP server (`schwab-mcp serve`) exposes **four read-only tools**:
 | `get_transaction_history` | Movements of all linked accounts in a date range, with an optional instrument filter and pagination. |
 | `get_option_chain` | Full option chain of an underlying in one call, with strike, delta, and DTE filters, including the Greeks. |
 | `get_quotes` | Current quotes for 1..20 symbols (equities, ETFs, indexes, option contracts) in one call: last, bid/ask, volume, net change, freshness, last-trade time. |
+| `get_price_history` | OHLCV candles for one symbol at 5m/15m/30m/1h/daily/weekly with named period presets (default: daily, 1 month; at most 260 candles per call), extended-hours opt-in for intraday, and an in-progress marker on the forming candle. |
 
 Every tool returns a structured JSON result with an explicit `outcome`
 (`ok`, `transient_failure`, `reauth_required`, …), so an agent can act
@@ -73,11 +74,12 @@ or reach out and tell us what you would like to see next.
 ### What you cannot do
 
 - **No write operations**: no order placement, modification, or
-  cancellation — the tools only read positions, history, quotes, and
-  chains.
-- **No streaming or historical market data**: quotes are point-in-time
-  snapshots, not streaming feeds, and there is no price-history/chart
-  endpoint — no fundamentals, earnings calendars, or dividend dates
+  cancellation — the tools only read positions, history, quotes, chains,
+  and candles.
+- **No streaming market data and no fundamentals**: quotes are
+  point-in-time snapshots, not streaming feeds; there are no
+  fundamentals, earnings calendars, or dividend dates (an external FMP
+  MCP covers those).
   either. For those needs (earnings
   dates, ex-dividends, financial statements, ratios) we recommend
   complementing this MCP with the [FMP](https://site.financialmodelingprep.com/)

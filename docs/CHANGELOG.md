@@ -45,8 +45,26 @@ one symbol per invocation, with named period presets under a global
   module `src/schwab_mcp/price_history.py`; audit events
   `price_history_query_start` / `price_history_query_success` /
   `price_history_query_failure` (no credentials in any output).
+  Live-captured fixtures pinned the provider's stamping conventions
+  (research D8): intraday candles at period start, daily candles at
+  05:00 UTC, weekly candles at the week's opening Monday — weekly
+  labels are relabelled forward to the closing session (Friday) so
+  FR-019 holds. Validated live (quickstart S1–S6 against the real API).
   Docs: tool section in `docs/tools.md`; contract and data model in
   `specs/011-price-history-ohlcv/`.
+
+### Fixed
+
+- **OAuth authorization with trailing-slash callbacks**: the
+  compatibility shim for `schwabdev`'s callback validation restored the
+  exact registered URL only *after* client initialization, but
+  `schwabdev` runs its whole interactive flow *inside* initialization —
+  the printed authorize URL and the token exchange used the
+  slash-stripped spelling and could never match the portal
+  registration (Schwab compares `redirect_uri` character for
+  character). The shim now restores the exact value before the in-init
+  flow, so `schwab-mcp auth` completes when the portal-registered
+  callback is `https://127.0.0.1/`.
 
 ## [0.7.1] - 2026-11-02
 
@@ -775,6 +793,7 @@ Feature 001 — **Schwab OAuth access layer** (spec:
 - Test suite (unit/integration/performance) with TDD gates.
 
 [0.8.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.2...v0.6.3

@@ -5,7 +5,7 @@ Complete reference of the surface consumable by an AI agent
 the output, with exact semantics so the agent can decide without
 human intervention.
 
-**Document version**: 0.7.0 (see [CHANGELOG](./CHANGELOG.md)).
+**Document version**: 0.8.0 (see [CHANGELOG](./CHANGELOG.md)).
 
 ## How this MCP is consumed
 
@@ -1189,4 +1189,14 @@ Interpretation:
   [specs/008-extract-option-chain/data-model.md](../specs/008-extract-option-chain/data-model.md)
 - Option chain validation guide:
   [specs/008-extract-option-chain/quickstart.md](../specs/008-extract-option-chain/quickstart.md)
+- MCP tool contract for ``get_quotes``:
+  [specs/010-real-time-quotes/contracts/mcp-tools.md](../specs/010-real-time-quotes/contracts/mcp-tools.md)
+- Quotes data model:
+  [specs/010-real-time-quotes/data-model.md](../specs/010-real-time-quotes/data-model.md)
+- MCP tool contract for ``get_price_history``:
+  [specs/011-price-history-ohlcv/contracts/mcp-tools.md](../specs/011-price-history-ohlcv/contracts/mcp-tools.md)
+- Price history data model:
+  [specs/011-price-history-ohlcv/data-model.md](../specs/011-price-history-ohlcv/data-model.md)
+- Price history validation guide:
+  [specs/011-price-history-ohlcv/quickstart.md](../specs/011-price-history-ohlcv/quickstart.md)
 - [Usage guide](./usage.md) · [Installation guide](./installation.md)
