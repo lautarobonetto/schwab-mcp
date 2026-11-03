@@ -34,9 +34,11 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import sqlite3
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 import pytest
@@ -858,6 +860,240 @@ class TestNetworkErrorDuringRefresh:
             main(["serve"])
 
         stderr_text = "\n".join(captured_stderr)
+        _assert_no_traceback(stderr_text)
+        _assert_no_secrets(stderr_text)
+
+
+# ===================================================================
+# 8. HTTP 401/403 Response during startup validation → reauth (exit 4)
+#    Bug renew-phantom-success: schwabdev client methods return
+#    requests.Response objects and an HTTP 401 does NOT raise, so the
+#    proactive linked_accounts() validation must classify the status
+#    explicitly.  "Did not raise" must never count as success.
+# ===================================================================
+
+
+class TestUnauthorizedResponseDuringStartupValidation:
+    """A 401/403 ``Response`` from the proactive ``linked_accounts()``
+    validation must classify as ``reauth_required`` (exit 4) and must NOT
+    emit ``renewal_success``."""
+
+    @staticmethod
+    def _make_unauthorized_client(status_code: int) -> Any:
+        """Return a client whose ``linked_accounts`` returns a 401/403-like
+        Response object (never raises)."""
+
+        class UnauthorizedClient:
+            call_count: int = 0
+
+            def linked_accounts(self) -> Any:
+                UnauthorizedClient.call_count += 1
+                return SimpleNamespace(status_code=status_code, ok=False)
+
+        UnauthorizedClient.call_count = 0
+        return UnauthorizedClient
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_serve_unauthorized_response_exits_4(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, status_code: int
+    ) -> None:
+        """401/403 Response on startup validation → exit 4, ``renewal_failure``
+        with ``reauth_required``, and NO ``renewal_success`` event."""
+        store_path = _make_token_db(tmp_path / "tokens.db")
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+
+        UnauthorizedClient = self._make_unauthorized_client(status_code)
+        monkeypatch.setattr(
+            "schwabdev.Client",
+            lambda *a, **kw: UnauthorizedClient(),
+        )
+
+        captured_stderr: list[str] = []
+        monkeypatch.setattr(
+            "builtins.print", _tracking_print(captured_stderr, file=sys.stderr)
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["serve"])
+
+        assert exc_info.value.code == 4, (
+            f"Expected exit code 4 (reauthorization required) for an HTTP "
+            f"{status_code} startup validation, got {exc_info.value.code}"
+        )
+        stderr_text = "\n".join(captured_stderr)
+        assert "auth_event=renewal_failure" in stderr_text, (
+            "A rejected startup validation must emit renewal_failure, "
+            f"got:\n{stderr_text}"
+        )
+        assert "outcome=reauth_required" in stderr_text
+        assert "auth_event=renewal_success" not in stderr_text, (
+            "A 401/403 validation must NEVER emit renewal_success "
+            "(bug renew-phantom-success)"
+        )
+        _assert_no_traceback(stderr_text)
+        _assert_no_secrets(stderr_text)
+
+    def test_serve_unauthorized_response_not_retried(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A deterministic 401 must not be retried as if it were
+        transient: exactly one ``linked_accounts()`` call, then exit 4."""
+        store_path = _make_token_db(tmp_path / "tokens.db")
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+
+        UnauthorizedClient = self._make_unauthorized_client(401)
+        monkeypatch.setattr(
+            "schwabdev.Client",
+            lambda *a, **kw: UnauthorizedClient(),
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["serve"])
+
+        assert exc_info.value.code == 4
+        assert UnauthorizedClient.call_count == 1, (
+            f"A 401 response is deterministic and must not be retried; "
+            f"got {UnauthorizedClient.call_count} calls"
+        )
+
+
+# ===================================================================
+# 9. Structurally valid store with unparseable timestamps → corrupted
+#    Bug store-unparseable-timestamps: a store whose *_token_issued
+#    values are not ISO-parseable (e.g. numeric epoch TEXT, observed
+#    live 2026-11-03) must classify at the peek — renew exit 3
+#    (store_corrupted), serve exit 5, auth quarantine — never a raw
+#    library exception (exit 1) or a misleading config error (exit 2).
+# ===================================================================
+
+
+def _corrupt_store_timestamps(store_path: Path) -> None:
+    """Set both issued timestamps to numeric epoch TEXT inside an
+    otherwise-valid schwabdev store (the live-observed corruption)."""
+    con = sqlite3.connect(str(store_path))
+    try:
+        con.execute(
+            "UPDATE schwabdev SET access_token_issued = '1793726428', "
+            "refresh_token_issued = '1793726428'"
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
+class TestUnparseableTimestampStore:
+    """A loadable-schema store with unparseable timestamps is corrupted
+    (FR-009): classification happens at the peek, before client
+    construction."""
+
+    def test_renew_exits_3_store_corrupted(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """`renew` with epoch-text timestamps → exit 3 with
+        `detail: store_corrupted`, never exit 1 with a raw isoformat
+        error."""
+        store_path = _make_token_db(tmp_path / "tokens.db")
+        _corrupt_store_timestamps(store_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+
+        captured_stdout: list[str] = []
+        captured_stderr: list[str] = []
+
+        def _capture_print(*args: Any, **kwargs: Any) -> None:
+            dest = kwargs.get("file", sys.stdout)
+            text = " ".join(str(a) for a in args)
+            if dest is sys.stderr:
+                captured_stderr.append(text)
+            else:
+                captured_stdout.append(text)
+
+        monkeypatch.setattr("builtins.print", _capture_print)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["renew"])
+
+        assert exc_info.value.code == 3, (
+            f"Expected exit 3 (reauth_required/store_corrupted) for "
+            f"unparseable timestamps, got {exc_info.value.code}"
+        )
+        assert len(captured_stdout) == 1, (
+            f"Expected exactly one JSON line on stdout, got {captured_stdout}"
+        )
+        payload = json.loads(captured_stdout[0])
+        assert payload["outcome"] == "reauth_required"
+        assert payload["detail"] == "store_corrupted"
+        stderr_text = "\n".join(captured_stderr)
+        assert "Invalid isoformat" not in stderr_text, (
+            "The raw library parse error must never surface"
+        )
+        assert "Unexpected error" not in stderr_text
+        _assert_no_traceback(stderr_text)
+        _assert_no_secrets(stderr_text)
+
+    def test_serve_exits_5(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """`serve` with epoch-text timestamps → exit 5
+        (TokenStoreCorruptedError), never exit 2 with the misleading
+        "Fix the values in your environment" config message."""
+        store_path = _make_token_db(tmp_path / "tokens.db")
+        _corrupt_store_timestamps(store_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+        monkeypatch.setattr("schwabdev.Client", FakeSchwabdevClient)
+
+        captured_stderr: list[str] = []
+        monkeypatch.setattr(
+            "builtins.print", _tracking_print(captured_stderr, file=sys.stderr)
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["serve"])
+
+        assert exc_info.value.code == 5, (
+            f"Expected exit 5 (TokenStoreCorruptedError) for unparseable "
+            f"timestamps, got {exc_info.value.code}"
+        )
+        stderr_text = "\n".join(captured_stderr)
+        assert "Fix the values in your environment" not in stderr_text, (
+            "A store corruption must not be misdiagnosed as a config error"
+        )
+        _assert_no_traceback(stderr_text)
+        _assert_no_secrets(stderr_text)
+
+    def test_auth_quarantines_and_reaches_flow(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """`auth` with epoch-text timestamps → quarantined (preserved for
+        forensics, FR-009) and the fresh authorization flow is reached —
+        same contract as the non-SQLite corruption (auth-corrupt-store-
+        blocked)."""
+        store_path = _make_token_db(tmp_path / "tokens.db")
+        _corrupt_store_timestamps(store_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+
+        captured_stderr: list[str] = []
+        monkeypatch.setattr(
+            "builtins.print", _tracking_print(captured_stderr, file=sys.stderr)
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 3, (
+            f"Expected exit 3 (flow ran, no fresh tokens) for a "
+            f"timestamp-corrupted store, got {exc_info.value.code}"
+        )
+        quarantined = list(tmp_path.glob("tokens.db.corrupt.*"))
+        assert quarantined, "Corrupted store must be quarantined, not fatal"
+        stderr_text = "\n".join(captured_stderr)
+        assert "auth_event=auth_start" in stderr_text
+        assert "quarantined" in stderr_text
         _assert_no_traceback(stderr_text)
         _assert_no_secrets(stderr_text)
 

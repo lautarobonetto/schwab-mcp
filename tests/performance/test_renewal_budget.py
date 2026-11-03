@@ -19,6 +19,7 @@ class TestRenewalBudget:
         # Create a valid but expired token store so renewal is triggered
         import sqlite3
         import time as _time
+        from datetime import datetime, timezone
 
         now = _time.time()
         db = tmp_path / "tokens.db"
@@ -26,8 +27,8 @@ class TestRenewalBudget:
         con.execute(
             "CREATE TABLE IF NOT EXISTS schwabdev ("
             "  expires_in INT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
@@ -38,7 +39,18 @@ class TestRenewalBudget:
         con.execute("DELETE FROM schwabdev")
         con.execute(
             "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (30, now - 7200, now - 3600, "tok", "tok", "tok", "Bearer", "scope"),
+            (
+                30,
+                # Issued timestamps as ISO-8601 TEXT (loader contract — bug
+                # store-unparseable-timestamps).
+                datetime.fromtimestamp(now - 7200, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(now - 3600, tz=timezone.utc).isoformat(),
+                "tok",
+                "tok",
+                "tok",
+                "Bearer",
+                "scope",
+            ),
         )
         con.commit()
         con.close()
@@ -59,6 +71,7 @@ class TestRenewalBudget:
         """A successful renewal (no retries) completes in < 1 s."""
         import sqlite3
         import time as _time
+        from datetime import datetime, timezone
 
         now = _time.time()
         db = tmp_path / "tokens.db"
@@ -66,8 +79,8 @@ class TestRenewalBudget:
         con.execute(
             "CREATE TABLE IF NOT EXISTS schwabdev ("
             "  expires_in INT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
@@ -78,7 +91,18 @@ class TestRenewalBudget:
         con.execute("DELETE FROM schwabdev")
         con.execute(
             "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (30, now - 7200, now - 3600, "tok", "tok", "tok", "Bearer", "scope"),
+            (
+                30,
+                # Issued timestamps as ISO-8601 TEXT (loader contract — bug
+                # store-unparseable-timestamps).
+                datetime.fromtimestamp(now - 7200, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(now - 3600, tz=timezone.utc).isoformat(),
+                "tok",
+                "tok",
+                "tok",
+                "Bearer",
+                "scope",
+            ),
         )
         con.commit()
         con.close()

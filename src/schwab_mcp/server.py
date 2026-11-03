@@ -22,6 +22,7 @@ from schwab_mcp.errors import (
     TokenStoreCorruptedError,
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
+from schwab_mcp.provider import response_json
 from schwab_mcp.schwabdev_compat import install_trailing_slash_callback_support
 from schwab_mcp.tokens import peek_store_status, retry_call
 
@@ -116,10 +117,23 @@ def run_serve() -> None:
     #    known (contracts/events.md: it marks a *succeeded* refresh/
     #    validation — never before the outcome, and never for auxiliary
     #    transitions like loading the store or reaching ready state).
+    #
+    #    Bug renew-phantom-success: schwabdev returns requests.Response
+    #    objects and an HTTP 401 does NOT raise, so the response must be
+    #    classified explicitly through the shared ``provider.response_json``
+    #    unwrapper before the call can count as a successful validation.
     # ------------------------------------------------------------------
     auth_event("renew_start", "initiated", detail="margin_trigger")
     try:
-        retry_call(client.linked_accounts, retries=1)
+        response = retry_call(client.linked_accounts, retries=1)
+        response_json(response)
+    except ReauthorizationRequiredError:
+        auth_event(
+            "renewal_failure",
+            "reauth_required",
+            detail="run: schwab-mcp auth",
+        )
+        raise
     except ConnectivityError:
         auth_event(
             "renewal_failure",

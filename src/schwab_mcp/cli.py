@@ -197,7 +197,22 @@ def run_auth() -> None:
         enforce_permissions(config.token_db)
 
         print("Authorization successful. Schwab API access is configured.")
-        auth_event("auth_success", "ok", "token set stored")
+        # Bug renew-phantom-success (Issue 2): Schwab allows only ONE active
+        # token set per app key + user.  Completing this authorization
+        # revokes every token set previously issued to other installations
+        # sharing the same app key — make that visible instead of leaving
+        # the operator to discover it later as a mysterious invalid_grant.
+        print(
+            "Note: any other installation using this app key (another "
+            "machine, server, or integration) has now had its token set "
+            "revoked by Schwab.",
+            file=sys.stderr,
+        )
+        auth_event(
+            "auth_success", "ok",
+            "token set stored; other installations sharing this app key "
+            "are now revoked",
+        )
 
 
 def run_auth_status() -> None:

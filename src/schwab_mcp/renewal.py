@@ -20,6 +20,7 @@ _VALID_DETAILS = frozenset(
         "still_valid",
         "provider_unreachable",
         "refresh_rejected",
+        "renewal_unverified",
         "reauth_needed",
         "store_absent",
         "store_corrupted",
@@ -104,8 +105,13 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from schwab_mcp.errors import ReauthorizationRequiredError
+from schwab_mcp.errors import (
+    ConnectivityError,
+    ReauthorizationRequiredError,
+)
 from schwab_mcp.log import auth_event
+from schwab_mcp.provider import response_json
+from schwab_mcp.tokens import issued_to_epoch as _tokens_issued_to_epoch
 
 # Per-store-path locks for single-flight coordination within this process
 # (complements schwabdev's internal SQLite-level coordination).
@@ -137,22 +143,44 @@ def _make_renewed_outcome(store_path: Optional[str]) -> RenewalOutcome:
     )
 
 
-def _tie_breaker_probe(client: object) -> RenewalOutcome:
+def _tie_breaker_probe(client: object,
+                       store_path: Optional[str] = None) -> RenewalOutcome:
     """Probe the provider to distinguish between transient failure and reauth.
 
     Called when ``update_tokens()`` returns ``False`` (ambiguous result).
     A successful ``linked_accounts()`` call means another process already
-    renewed (the library's concurrency coordination won).  A failure
-    indicates the refresh credential is permanently unusable.
+    renewed (the library's concurrency coordination won).  A rejected
+    response indicates the refresh credential is permanently unusable.
+
+    Bug renew-phantom-success: schwabdev client methods return
+    ``requests.Response`` objects and an HTTP 401 does **not** raise, so the
+    response status must be classified explicitly.  The shared
+    ``provider.response_json`` unwrapper is reused (Constitution II): it
+    raises ``ReauthorizationRequiredError`` on 401/403 and
+    ``ConnectivityError`` on 5xx/408/429/malformed bodies, while dict/list
+    test doubles pass through unchanged.
+
+    The success branch is additionally verified against the store (Issue 3
+    consistency): a ``renewed`` outcome must correspond to a store write,
+    so the store must actually hold a fresh access token.
     """
     try:
-        client.linked_accounts()
-        # Another process already renewed — our view of the store is stale
+        response_json(client.linked_accounts())
+    except ReauthorizationRequiredError:
         return RenewalOutcome(
-            outcome="renewed",
+            outcome="reauth_required",
             expires_in_seconds=None,
             retryable=False,
-            detail="access_renewed",
+            detail="refresh_rejected",
+        )
+    except ConnectivityError:
+        # Provider unreachable / malformed body — not evidence of a dead
+        # refresh credential; classified as retryable instead.
+        return RenewalOutcome(
+            outcome="transient_failure",
+            expires_in_seconds=None,
+            retryable=True,
+            detail="provider_unreachable",
         )
     except Exception:
         return RenewalOutcome(
@@ -161,6 +189,20 @@ def _tie_breaker_probe(client: object) -> RenewalOutcome:
             retryable=False,
             detail="refresh_rejected",
         )
+
+    # Probe succeeded (2xx).  Before claiming a renewal, confirm the store
+    # actually holds a fresh access token — a 2xx probe with a stale or
+    # unreadable store cannot be a verified renewal (nothing was written).
+    if store_path is not None:
+        remaining = _seconds_from_store(store_path)
+        if remaining is None or remaining <= ACCESS_MARGIN:
+            return RenewalOutcome(
+                outcome="reauth_required",
+                expires_in_seconds=None,
+                retryable=False,
+                detail="renewal_unverified",
+            )
+    return _make_renewed_outcome(store_path)
 
 
 def _acquire_store_lock(store_path: Optional[str]) -> bool:
@@ -289,9 +331,12 @@ def _do_renew(client: object, store_path: Optional[str],
             auth_event("renewal_success", "ok", detail="access token renewed")
             return outcome
         # ``result`` is ``False`` — ambiguous; probe to disambiguate.
-        probe_outcome = _tie_breaker_probe(client)
+        probe_outcome = _tie_breaker_probe(client, store_path)
         if probe_outcome.outcome == "renewed":
             auth_event("renewal_success", "ok", detail="access token renewed")
+        elif probe_outcome.outcome == "transient_failure":
+            auth_event("renewal_failure", "connectivity",
+                       detail="retries exhausted")
         else:
             auth_event("renewal_failure", "reauth_required",
                        detail="run: schwab-mcp auth")
@@ -389,17 +434,10 @@ def _issued_to_epoch(value: object) -> Optional[float]:
     ``2026-10-19T22:00:27.004577+00:00``); numeric epoch seconds are
     accepted for compatibility.  Returns ``None`` when the value is
     missing or unparseable (treated as a corrupted store by the caller).
+
+    Single source of truth (Constitution II): the parse logic lives in
+    ``tokens.issued_to_epoch`` / ``tokens.parse_issued_datetime`` — the
+    same definition ``peek_store_status`` uses for its (stricter)
+    corrupted-store classification.
     """
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value)
-        except ValueError:
-            return None
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.timestamp()
-    return None
+    return _tokens_issued_to_epoch(value, strict=False)

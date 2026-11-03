@@ -14,9 +14,29 @@ from __future__ import annotations
 
 import json
 import threading
+from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import pytest
+
+
+class _FakeResponse:
+    """Minimal ``requests.Response`` stand-in carrying only the status.
+
+    Mirrors the real schwabdev shape (bug renew-phantom-success): client
+    methods return ``Response`` objects and a non-2xx status never raises.
+    """
+
+    def __init__(self, status_code: int, payload: Optional[dict[str, Any]] = None) -> None:
+        self.status_code = status_code
+        self.ok = status_code < 400
+        self._payload = payload
+        self.content = b"" if payload is None else json.dumps(payload).encode()
+
+    def json(self) -> dict[str, Any]:
+        if self._payload is None:
+            raise ValueError("no body")
+        return self._payload
 
 
 # =============================================================================
@@ -423,6 +443,37 @@ class TestStoreLifetimeReader:
         result = read_store_lifetime(db)
         assert result is None
 
+    def test_returns_none_for_unparseable_epoch_text_timestamps(
+        self, tmp_path
+    ) -> None:
+        """Bug store-unparseable-timestamps: numeric epoch TEXT (observed
+        live: access_token_issued = '1793726428') is not ISO-parseable →
+        ``None``, never a raw ``ValueError``."""
+        import sqlite3
+
+        from schwab_mcp.renewal import read_store_lifetime
+
+        db = tmp_path / "epoch-text.db"
+        con = sqlite3.connect(str(db))
+        try:
+            con.execute(
+                "CREATE TABLE schwabdev ("
+                "  expires_in INT, access_token_issued TEXT,"
+                "  refresh_token_issued TEXT, access_token TEXT,"
+                "  refresh_token TEXT, id_token TEXT,"
+                "  token_type TEXT, scope TEXT)"
+            )
+            con.execute(
+                "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (1800, "1793726428", "1793726428", "a", "r", "i", "Bearer", "scope"),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        result = read_store_lifetime(db)
+        assert result is None
+
     def test_access_remaining_seconds_computed_correctly(self, tmp_path) -> None:
         """Access remaining = expires_in - (now - access_token_issued)."""
         from schwab_mcp.renewal import read_store_lifetime
@@ -588,14 +639,15 @@ class TestRenew:
         """
         import sqlite3
         import time
+        from datetime import datetime, timezone
 
         now = time.time()
         con = sqlite3.connect(str(path))
         con.execute(
             "CREATE TABLE IF NOT EXISTS schwabdev ("
             "  expires_in INT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
@@ -608,8 +660,11 @@ class TestRenew:
             "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 expires_in,
-                now - access_age,
-                now - refresh_age,
+                # Real schwabdev 4.0.0 writes issued timestamps as ISO-8601
+                # TEXT; numeric epochs are unloadable by the loader (bug
+                # store-unparseable-timestamps).
+                datetime.fromtimestamp(now - access_age, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(now - refresh_age, tz=timezone.utc).isoformat(),
                 "access_tok",
                 "refresh_tok",
                 "id_tok",
@@ -697,10 +752,19 @@ class TestRenew:
         from schwab_mcp.renewal import RenewalOutcome, renew
 
         db = tmp_path / "schwabdev.db"
+        # Access token about to expire (10 s remaining → below 61 s margin)
         self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
 
         client = MagicMock()
-        client.update_tokens.return_value = False
+
+        def _other_process_renews() -> bool:
+            """Simulate the concurrent renewal: the other process writes a
+            fresh token set to the store, then this client reports False
+            (it lost the coordination race)."""
+            self._seed_store(db, expires_in=1800, access_age=100, refresh_age=3600)
+            return False
+
+        client.update_tokens.side_effect = _other_process_renews
         client.linked_accounts.return_value = {"accounts": []}
 
         result = renew(client, str(db))
@@ -709,6 +773,76 @@ class TestRenew:
         assert result.outcome == "renewed"
         assert result.detail == "access_renewed"
         assert result.retryable is False
+        # The renewed lifetime must come from the freshly written store
+        # (a ``renewed`` outcome always corresponds to a store write —
+        # bug renew-phantom-success, Issue 3).
+        assert result.expires_in_seconds is not None
+        assert result.expires_in_seconds > 61
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_probe_unauthorized_response_maps_to_reauth_required(
+        self, tmp_path, status_code: int
+    ) -> None:
+        """Bug renew-phantom-success: the probe receives an HTTP 401/403
+        ``Response`` (schwabdev never raises on HTTP errors) →
+        ``reauth_required``, never a phantom ``renewed``."""
+        from schwab_mcp.renewal import renew
+
+        db = tmp_path / "schwabdev.db"
+        self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
+
+        client = MagicMock()
+        client.update_tokens.return_value = False
+        client.linked_accounts.return_value = _FakeResponse(status_code)
+
+        result = renew(client, str(db))
+
+        assert result.outcome == "reauth_required"
+        assert result.detail == "refresh_rejected"
+        assert result.retryable is False
+
+    @pytest.mark.parametrize("status_code", [500, 503])
+    def test_probe_server_error_maps_to_transient_failure(
+        self, tmp_path, status_code: int
+    ) -> None:
+        """A 5xx probe response is a provider outage, not a dead refresh
+        token → ``transient_failure`` (retryable), not ``reauth_required``."""
+        from schwab_mcp.renewal import renew
+
+        db = tmp_path / "schwabdev.db"
+        self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
+
+        client = MagicMock()
+        client.update_tokens.return_value = False
+        client.linked_accounts.return_value = _FakeResponse(status_code)
+
+        result = renew(client, str(db))
+
+        assert result.outcome == "transient_failure"
+        assert result.detail == "provider_unreachable"
+        assert result.retryable is True
+
+    def test_probe_success_with_stale_store_is_reauth_required(
+        self, tmp_path
+    ) -> None:
+        """Bug renew-phantom-success (Issue 3): the probe succeeds (2xx) but
+        the store was never written → NOT ``renewed``.  A ``renewed`` outcome
+        must always correspond to a store write."""
+        from schwab_mcp.renewal import renew
+
+        db = tmp_path / "schwabdev.db"
+        # Access token about to expire (10 s remaining → below 61 s margin)
+        self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
+
+        client = MagicMock()
+        client.update_tokens.return_value = False
+        client.linked_accounts.return_value = {"accounts": []}
+
+        result = renew(client, str(db))
+
+        assert result.outcome == "reauth_required"
+        assert result.detail == "renewal_unverified"
+        assert result.expires_in_seconds is None
 
     def test_single_flight_sharing(self, tmp_path) -> None:
         """Concurrent callers to ``renew()`` result in exactly one renewal (FR-005).

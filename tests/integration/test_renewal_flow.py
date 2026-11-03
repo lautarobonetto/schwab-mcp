@@ -55,6 +55,7 @@ def _make_expired_token_db(path: Path) -> Path:
     """
     import sqlite3
     import time
+    from datetime import datetime, timezone
 
     now = time.time()
     con = sqlite3.connect(str(path))
@@ -64,8 +65,8 @@ def _make_expired_token_db(path: Path) -> Path:
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  expires_in INTEGER,"
             "  token_type TEXT,"
             "  scope TEXT"
@@ -73,14 +74,16 @@ def _make_expired_token_db(path: Path) -> Path:
         )
         # Access token issued 2 hours ago (6000+ s) with 1800 s lifetime → expired
         # Refresh token issued 1 hour ago → still valid (7-day lifetime)
+        # Issued timestamps are ISO-8601 TEXT (the loader contract — bug
+        # store-unparseable-timestamps).
         con.execute(
             "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 "expired-access-token",
                 "valid-refresh-token",
                 "expired-id-token",
-                now - 7200,          # 2 hours ago
-                now - 3600,          # 1 hour ago
+                datetime.fromtimestamp(now - 7200, tz=timezone.utc).isoformat(),
+                datetime.fromtimestamp(now - 3600, tz=timezone.utc).isoformat(),
                 1800,
                 "Bearer",
                 "readonly",

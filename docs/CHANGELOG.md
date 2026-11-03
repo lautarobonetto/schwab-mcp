@@ -6,6 +6,47 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.2] - 2026-11-03
+
+### Fixed
+
+- **`renew`/`serve` no longer report phantom `renewal_success` when the
+  refresh token is revoked server-side** (bug `renew-phantom-success`,
+  2026-11-03): the tie-breaker probe and the `serve` startup validation
+  treated any non-raising `linked_accounts()` call as success, but
+  schwabdev client methods return `requests.Response` objects and an
+  HTTP 401 does not raise — so a revoked token set was classified as
+  `renewed` (exit 0) with nothing written to the store. Both paths now
+  classify the response status through the shared
+  `provider.response_json` unwrapper (401/403 → `reauth_required`,
+  5xx/408/429 → `transient_failure`). A probe-derived `renewed` outcome
+  is additionally verified against the store: a fresh store read is
+  required, otherwise the result is `reauth_required` with the new
+  `renewal_unverified` detail.
+- **`renew`/`serve` classify stores with unparseable timestamps as
+  `store_corrupted` instead of crashing** (bug
+  `store-unparseable-timestamps`, 2026-11-03): a structurally valid
+  SQLite store whose `access_token_issued`/`refresh_token_issued` values
+  are not ISO-8601 text (e.g. numeric epoch values, observed live during
+  manual testing) passed the peek and crashed inside schwabdev's client
+  construction — `renew` exited 1 with a raw `Invalid isoformat string`
+  error and `serve` exited 2 with the misleading "Fix the values in your
+  environment" config message. `peek_store_status` now validates the
+  loader contract (issued timestamps must be ISO-parseable text), so
+  `renew` exits 3 with `detail: store_corrupted`, `serve` exits 5
+  (`TokenStoreCorruptedError`), `auth` quarantines the store and
+  proceeds, and `auth-status` reports `reauth_required` — all through
+  the existing corrupted-store paths.
+
+### Changed
+
+- `auth` now warns on stderr (and in the `auth_success` event detail)
+  that completing an authorization revokes the token sets of every
+  other installation sharing the same app key (Schwab allows only one
+  active token set per app key + user); `docs/usage.md` documents the
+  one-token-set rule and the store-lifetime-only limitation of
+  `auth-status`.
+
 ## [0.9.1] - 2026-11-03
 
 ### Fixed

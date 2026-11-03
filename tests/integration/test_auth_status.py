@@ -53,17 +53,21 @@ def _make_token_db(
 ) -> Path:
     """Create a valid schwabdev SQLite token store at *path*.
 
-    Uses **REAL** timestamps (Unix epoch seconds) for the issued-at columns
-    so that ``read_store_lifetime()`` can compute remaining lifetimes
-    correctly.
+    Issued-at columns are written as ISO-8601 UTC TEXT (the loader
+    contract — bug store-unparseable-timestamps) so that
+    ``read_store_lifetime()`` computes remaining lifetimes correctly.
     """
     import sqlite3
+    from datetime import datetime, timezone
 
     now = time.time()
     if access_issued is None:
         access_issued = now
     if refresh_issued is None:
         refresh_issued = now
+
+    access_issued = datetime.fromtimestamp(access_issued, tz=timezone.utc).isoformat()
+    refresh_issued = datetime.fromtimestamp(refresh_issued, tz=timezone.utc).isoformat()
 
     con = sqlite3.connect(str(path))
     try:
@@ -72,8 +76,8 @@ def _make_token_db(
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  expires_in INTEGER,"
             "  token_type TEXT,"
             "  scope TEXT"

@@ -25,6 +25,42 @@ from schwab_mcp.errors import ConcurrentAuthError
 from schwab_mcp.tokens import AuthLock, enforce_permissions, peek_store
 
 
+def _make_full_schema_store(
+    path: Path,
+    *,
+    access_issued: object = "2026-11-03T00:00:00+00:00",
+    refresh_issued: object = "2026-11-03T00:00:00+00:00",
+    expires_in: object = 1800,
+) -> None:
+    """Create a store with the real schwabdev schema and configurable
+    issued-timestamp values (defaults: loadable ISO-8601 text)."""
+    con = sqlite3.connect(str(path))
+    try:
+        con.execute(
+            "CREATE TABLE schwabdev ("
+            "  access_token TEXT,"
+            "  refresh_token TEXT,"
+            "  id_token TEXT,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
+            "  expires_in INTEGER,"
+            "  token_type TEXT,"
+            "  scope TEXT"
+            ")"
+        )
+        con.execute(
+            "INSERT INTO schwabdev VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "a", "r", "i",
+                access_issued, refresh_issued, expires_in,
+                "Bearer", "scope",
+            ),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+
 # ---------------------------------------------------------------------------
 # peek_store
 # ---------------------------------------------------------------------------
@@ -67,6 +103,90 @@ class TestPeekStore:
 
         result = peek_store(path)
         assert result, f"Expected present-marker for valid store, got {result!r}"
+
+
+# ---------------------------------------------------------------------------
+# peek_store_status
+# ---------------------------------------------------------------------------
+
+
+class TestPeekStoreStatus:
+    """peek_store_status(path) → "absent" | "present" | "corrupted".
+
+    Bug store-unparseable-timestamps: the "present" classification requires
+    the row to be *loadable* by the only real consumer (schwabdev parses
+    ``*_token_issued`` as ISO-8601 text during ``Client.__init__``), not
+    merely structurally valid.
+    """
+
+    def test_absent_for_missing_file(self, tmp_path: Path) -> None:
+        from schwab_mcp.tokens import peek_store_status
+
+        assert peek_store_status(tmp_path / "missing.db") == "absent"
+
+    def test_corrupted_for_non_sqlite_content(self, tmp_path: Path) -> None:
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "corrupted.db"
+        path.write_bytes(b"not a database")
+        assert peek_store_status(path) == "corrupted"
+
+    def test_present_for_loadable_iso_timestamps(self, tmp_path: Path) -> None:
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "valid.db"
+        _make_full_schema_store(path)
+        assert peek_store_status(path) == "present"
+
+    def test_corrupted_for_numeric_epoch_text(self, tmp_path: Path) -> None:
+        """Numeric epoch TEXT (observed live 2026-11-03: '1793726428') is
+        unloadable by schwabdev's ``_parse_dt`` → corrupted, so the CLI
+        classifies instead of crashing inside client construction."""
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "epoch-text.db"
+        _make_full_schema_store(path, access_issued="1793726428")
+        assert peek_store_status(path) == "corrupted"
+
+    def test_corrupted_for_numeric_epoch_real(self, tmp_path: Path) -> None:
+        """A REAL-typed epoch value is equally unloadable
+        (``fromisoformat`` rejects non-str) → corrupted."""
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "epoch-real.db"
+        _make_full_schema_store(path, access_issued=1793726428.0)
+        assert peek_store_status(path) == "corrupted"
+
+    def test_corrupted_for_null_timestamp(self, tmp_path: Path) -> None:
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "null-issued.db"
+        _make_full_schema_store(path, refresh_issued=None)
+        assert peek_store_status(path) == "corrupted"
+
+    def test_present_for_null_expires_in(self, tmp_path: Path) -> None:
+        """``expires_in`` is not consumed by the loader at load time
+        (schwabdev reads it with a ``get(..., 1800)`` default when
+        writing) — NULL must NOT classify as corrupted."""
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "null-expires.db"
+        _make_full_schema_store(path, expires_in=None)
+        assert peek_store_status(path) == "present"
+
+    def test_corrupted_for_missing_timestamp_columns(self, tmp_path: Path) -> None:
+        """A schema without the issued columns cannot be loaded → corrupted."""
+        from schwab_mcp.tokens import peek_store_status
+
+        path = tmp_path / "minimal-schema.db"
+        con = sqlite3.connect(str(path))
+        try:
+            con.execute("CREATE TABLE schwabdev (access_token TEXT, refresh_token TEXT)")
+            con.execute("INSERT INTO schwabdev VALUES ('a', 'r')")
+            con.commit()
+        finally:
+            con.close()
+        assert peek_store_status(path) == "corrupted"
 
 
 # ---------------------------------------------------------------------------

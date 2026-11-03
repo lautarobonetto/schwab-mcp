@@ -37,7 +37,7 @@ Output guarantees (FR-004, SC-005):
 | `renewed` | `access_renewed` |
 | `not_needed` | `still_valid` |
 | `transient_failure` | `provider_unreachable` |
-| `reauth_required` | `refresh_rejected`, `store_absent`, `store_corrupted` |
+| `reauth_required` | `refresh_rejected`, `renewal_unverified`, `store_absent`, `store_corrupted` |
 | `valid` (status only) | — |
 
 ## `schwab-mcp renew`
@@ -55,6 +55,10 @@ usage: schwab-mcp renew [-h]
 1. Loads and validates configuration (fail fast; no network before it).
 2. Peeks the token store: `absent`/`corrupted` → `reauth_required`
    result (details `store_absent`/`store_corrupted`); no renewal attempt.
+   *Corrupted* includes structurally valid SQLite files whose
+   `*_token_issued` values are not ISO-parseable text (the loader
+   contract; bug `store-unparseable-timestamps`) — classification happens
+   at the peek, before any client construction.
 3. Reads remaining validity from the store; if above the renewal margin,
    returns `not_needed` (`still_valid`) **without any network call** and
    without invalidating valid credentials (FR-002 AC2).

@@ -32,12 +32,28 @@ def _make_corrupt_store(path: Path, content: str = "not a database") -> str:
 
 
 def _make_valid_store(path: Path) -> None:
+    """Create a store the real loader can load: full schwabdev schema with
+    ISO-8601 issued timestamps (the loader contract — bug
+    store-unparseable-timestamps)."""
     con = sqlite3.connect(str(path))
     try:
         con.execute(
-            "CREATE TABLE schwabdev (access_token TEXT, refresh_token TEXT)"
+            "CREATE TABLE schwabdev ("
+            "  access_token TEXT,"
+            "  refresh_token TEXT,"
+            "  id_token TEXT,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
+            "  expires_in INTEGER,"
+            "  token_type TEXT,"
+            "  scope TEXT"
+            ")"
         )
-        con.execute("INSERT INTO schwabdev VALUES ('a', 'r')")
+        con.execute(
+            "INSERT INTO schwabdev VALUES "
+            "('a', 'r', 'i', '2026-11-03T00:00:00+00:00', "
+            "'2026-11-03T00:00:00+00:00', 1800, 'Bearer', 'scope')"
+        )
         con.commit()
     finally:
         con.close()

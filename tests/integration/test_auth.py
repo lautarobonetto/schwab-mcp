@@ -544,6 +544,44 @@ class TestSuccessfulAuth:
             "Expected 'outcome=ok' alongside auth_success event"
         )
 
+    def test_auth_success_warns_other_installations_revoked(
+        self, monkeypatch, tmp_path
+    ):
+        """Bug renew-phantom-success (Issue 2): after a successful
+        authorization, stderr must state that other installations sharing
+        the same app key had their token sets revoked (Schwab allows only
+        one active token set per app key + user)."""
+        captured_stderr: list[str] = []
+
+        def tracking_print(*args, **kwargs):
+            file = kwargs.get("file", sys.stdout)
+            text = " ".join(str(a) for a in args)
+            if file is sys.stderr:
+                captured_stderr.append(text)
+
+        monkeypatch.setattr("builtins.print", tracking_print)
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        _no_browser(monkeypatch)
+
+        with pytest.raises(SystemExit):
+            main(["auth"])
+
+        stderr_text = "\n".join(captured_stderr)
+        assert "app key" in stderr_text and "revoked" in stderr_text, (
+            "Expected a stderr warning that other installations sharing "
+            "this app key are now revoked, got:\n{stderr_text}"
+        )
+        # The auth_success event detail carries the same warning so agents
+        # reading the audit log see it too.
+        success_events = [
+            line for line in captured_stderr if "auth_event=auth_success" in line
+        ]
+        assert success_events, f"auth_success event missing:\n{stderr_text}"
+        assert "other installations" in success_events[0]
+
     def test_output_contains_code_or_exchange_reference(
         self, monkeypatch, tmp_path
     ):

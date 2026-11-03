@@ -8,6 +8,7 @@ import logging
 import os
 import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
@@ -15,6 +16,52 @@ from schwab_mcp.errors import ConcurrentAuthError, ConnectivityError
 
 _logger = logging.getLogger(__name__)
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+def parse_issued_datetime(value: object) -> Optional[datetime]:
+    """Strictly parse a stored ``*_token_issued`` value as ISO-8601 text.
+
+    This is the **loader contract**: the only real consumer of the store
+    (schwabdev's ``Tokens._parse_dt`` during ``Client.__init__``) requires
+    the value to be ISO-8601 text and parses it unguarded.  Naive values
+    are treated as UTC, mirroring the library.
+
+    Bug store-unparseable-timestamps: numeric epochs (whether REAL or
+    numeric TEXT) are **not** accepted here — the real client cannot load
+    such a row, so a store holding them must be classified corrupted at
+    the peek instead of crashing inside client construction.
+
+    Returns the parsed timezone-aware datetime, or ``None`` when the value
+    is not ISO-parseable text.
+    """
+    if isinstance(value, bool) or not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def issued_to_epoch(value: object, *, strict: bool = False) -> Optional[float]:
+    """Convert a stored ``*_token_issued`` value to epoch seconds.
+
+    With ``strict=False`` (the lenient lifetime-reader criterion) numeric
+    epoch values are accepted for backward compatibility.  With
+    ``strict=True`` only ISO-parseable text is accepted (the loader
+    contract — see :func:`parse_issued_datetime`).
+
+    Returns ``None`` when the value does not satisfy the requested
+    criterion.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if not strict and isinstance(value, (int, float)):
+        return float(value)
+    parsed = parse_issued_datetime(value)
+    return parsed.timestamp() if parsed is not None else None
 
 
 def peek_store(path: str | os.PathLike) -> bool:
@@ -57,12 +104,24 @@ def peek_store_status(path: str | os.PathLike) -> str:
     Returns
     -------
     ``"present"``
-        The store is a valid SQLite file with a **schwabdev** table row.
+        The store is a valid SQLite file with a **schwabdev** table row
+        whose ``*_token_issued`` values are ISO-parseable text (the
+        loader contract — the row can actually be loaded by schwabdev).
     ``"absent"``
         The file does not exist or is empty (treat as absent).
     ``"corrupted"``
-        The file exists but is not a valid SQLite database or lacks
-        the expected schema (FR-009 — no crash).
+        The file exists but is not a valid SQLite database, lacks the
+        expected schema, or holds a row the loader cannot parse
+        (FR-009 — no crash).
+
+    Bug store-unparseable-timestamps: structural validity alone is not
+    enough.  schwabdev parses ``access_token_issued`` /
+    ``refresh_token_issued`` as ISO-8601 text during ``Client.__init__``
+    and raises an unclassifiable error otherwise, so a row with
+    non-ISO-parseable timestamps is classified corrupted here — *before*
+    any client construction — and every CLI flow recovers through the
+    existing corrupted-store paths (renew exit 3, serve exit 5, auth
+    quarantine).
     """
     try:
         st = os.stat(path)
@@ -81,13 +140,25 @@ def peek_store_status(path: str | os.PathLike) -> str:
 
     try:
         row = con.execute(
-            "SELECT 1 FROM schwabdev LIMIT 1"
+            "SELECT expires_in, access_token_issued, refresh_token_issued "
+            "FROM schwabdev LIMIT 1"
         ).fetchone()
-        return "present" if row is not None else "absent"
     except sqlite3.Error:
+        # Missing/mismatched schema — the loader could not read the row.
         return "corrupted"
     finally:
         con.close()
+
+    if row is None:
+        return "absent"
+
+    _expires_in, access_issued, refresh_issued = row
+    if (
+        parse_issued_datetime(access_issued) is None
+        or parse_issued_datetime(refresh_issued) is None
+    ):
+        return "corrupted"
+    return "present"
 
 
 def _backup_timestamp() -> str:

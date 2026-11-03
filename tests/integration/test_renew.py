@@ -81,6 +81,14 @@ def _make_token_db(
     if refresh_issued is None:
         refresh_issued = now
 
+    from datetime import datetime, timezone
+
+    # Issued timestamps are written as ISO-8601 UTC TEXT — the loader
+    # contract (bug store-unparseable-timestamps): numeric epochs are
+    # unloadable by schwabdev and would classify the store as corrupted.
+    access_issued = datetime.fromtimestamp(access_issued, tz=timezone.utc).isoformat()
+    refresh_issued = datetime.fromtimestamp(refresh_issued, tz=timezone.utc).isoformat()
+
     con = sqlite3.connect(str(path))
     try:
         con.execute(
@@ -88,8 +96,8 @@ def _make_token_db(
             "  access_token TEXT,"
             "  refresh_token TEXT,"
             "  id_token TEXT,"
-            "  access_token_issued REAL,"
-            "  refresh_token_issued REAL,"
+            "  access_token_issued TEXT,"
+            "  refresh_token_issued TEXT,"
             "  expires_in INTEGER,"
             "  token_type TEXT,"
             "  scope TEXT"

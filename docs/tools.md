@@ -1148,7 +1148,12 @@ uv run schwab-mcp renew
 
 1. Loads and validates the configuration — fails **before** any network.
 2. Inspects the token store: absent or corrupted →
-   `reauth_required` result without attempting renewal.
+   `reauth_required` result without attempting renewal. *Corrupted*
+   covers both structural damage (not a SQLite DB, missing schema) and
+   rows the provider client cannot load — e.g. `*_token_issued` values
+   that are not ISO-8601 text (bug `store-unparseable-timestamps`,
+   2026-11-03): classification happens at this peek, so the raw library
+   parse error never surfaces.
 3. Reads the remaining validity from the store; if it is above the
    margin → `not_needed` **without calling the API** and without
    invalidating anything.
@@ -1170,7 +1175,7 @@ uv run schwab-mcp renew
 | `outcome` | closed enum | `renewed` · `not_needed` · `transient_failure` · `reauth_required` |
 | `expires_in_seconds` | int ≥ 0 or `null` | New lifetime of the access token; `null` except in `renewed` |
 | `retryable` | bool | `true` **only** when `outcome == "transient_failure"` |
-| `detail` | closed enum | `access_renewed` · `still_valid` · `provider_unreachable` · `refresh_rejected` · `reauth_needed` · `store_absent` · `store_corrupted` |
+| `detail` | closed enum | `access_renewed` · `still_valid` · `provider_unreachable` · `refresh_rejected` · `renewal_unverified` · `reauth_needed` · `store_absent` · `store_corrupted` |
 
 ### Exit codes
 
@@ -1194,12 +1199,15 @@ uv run schwab-mcp renew
 - **`transient_failure`** (`detail: provider_unreachable`, `retryable:
   true`): network or provider unavailable after exhausting the 2
   retries. Valid tokens remain intact. Retry later.
-- **`reauth_required`** (`detail: refresh_rejected` / `reauth_needed` /
-  `store_absent` / `store_corrupted`): automatic renewal is
+- **`reauth_required`** (`detail: refresh_rejected` / `renewal_unverified` /
+  `reauth_needed` / `store_absent` / `store_corrupted`): automatic renewal is
   **impossible**. The agent must NOT keep retrying: it must notify
   the owner to run `schwab-mcp auth` (the only step that requires a
   human, by provider constraint). The state persists until
-  reauthorization.
+  reauthorization. `renewal_unverified` means the provider accepted a
+  probe call but the store does not hold a fresh token set — the renewal
+  could not be verified and must not be trusted (bug
+  `renew-phantom-success`).
 
 ### Events on stderr (audit)
 

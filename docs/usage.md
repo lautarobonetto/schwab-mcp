@@ -118,6 +118,14 @@ process: the MCP client launches `serve` with its own environment.
 uv run schwab-mcp auth
 ```
 
+- **One active token set per app key**: completing an authorization
+  revokes every token set previously issued for the same app key —
+  including token sets held by other machines, servers, or integrations
+  sharing these credentials. Concurrent installations of schwab-mcp
+  with the same app key will therefore revoke each other's tokens
+  (often within minutes of re-authorization). Use a separate Schwab
+  app (app key) per installation.
+
 `auth` **always performs a full re-authorization**: it never reuses the
 credentials already in the store (a revoked refresh token is
 indistinguishable from a valid one locally). During the flow the
@@ -125,6 +133,12 @@ previous token set is held in a sibling `tokens.db.bak.<UTC timestamp>`
 backup: if the new authorization does not complete, it is restored
 byte-identically and the current tokens remain intact; when it
 succeeds, the backup is discarded.
+
+> Note: `auth-status` (and `auth`/`renew` health signals derived from
+> the store) read **store lifetimes only** — they cannot detect a
+> server-side revocation. A green `auth-status` with `reauth_required`
+> failures on real API calls is the signature of an out-of-band
+> re-authorization (see the one-token-set rule above).
 
 ## Renewal commands
 
