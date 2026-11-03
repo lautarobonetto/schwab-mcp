@@ -8,6 +8,7 @@ import logging
 import os
 import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
 from schwab_mcp.errors import ConcurrentAuthError, ConnectivityError
@@ -87,6 +88,64 @@ def peek_store_status(path: str | os.PathLike) -> str:
         return "corrupted"
     finally:
         con.close()
+
+
+def _backup_timestamp() -> str:
+    """UTC timestamp component for backup file names (patchable in tests)."""
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+
+def backup_token_store(path: str | os.PathLike) -> Optional[Path]:
+    """Move a *present* token store aside to a timestamped sibling backup.
+
+    Bug auth-false-success: ``auth`` must never trust the rows already in
+    the store (a refresh token revoked server-side is indistinguishable
+    from a fresh one to :func:`peek_store`).  Renaming the store away
+    forces the client's empty-store authorization flow; the caller keeps
+    *backup* around and either restores it on failure
+    (:func:`restore_token_store`) or discards it on success
+    (:func:`discard_token_store_backup`).
+
+    Returns the backup :class:`~pathlib.Path`, or ``None`` when the store
+    is absent, empty, or corrupted (never touches those files).
+    """
+    if peek_store_status(path) != "present":
+        return None
+    src = Path(path)
+    stamp = _backup_timestamp()
+    backup = src.with_name(f"{src.name}.bak.{stamp}")
+    counter = 1
+    while backup.exists():  # never overwrite an existing backup
+        backup = src.with_name(f"{src.name}.bak.{stamp}-{counter}")
+        counter += 1
+    os.rename(src, backup)
+    # The backup holds live tokens — owner read/write only (FR-003).
+    os.chmod(backup, 0o600)
+    return backup
+
+
+def restore_token_store(
+    backup_path: str | os.PathLike | None, store_path: str | os.PathLike
+) -> None:
+    """Restore *backup_path* over *store_path* (failure path, FR-010).
+
+    ``os.replace`` is atomic and preserves the backup's ``0o600`` mode.
+    A ``None`` or already-consumed backup is a no-op.
+    """
+    if backup_path is None:
+        return
+    backup = Path(backup_path)
+    if not backup.exists():
+        return
+    os.replace(backup, store_path)
+
+
+def discard_token_store_backup(backup_path: str | os.PathLike | None) -> None:
+    """Remove the backup after a successful fresh authorization."""
+    if backup_path is None:
+        return
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(backup_path)
 
 
 def enforce_permissions(path: str | os.PathLike) -> None:

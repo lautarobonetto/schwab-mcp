@@ -110,14 +110,20 @@ process: the MCP client launches `serve` with its own environment.
 
 - **Access token**: ~30 minutes. Renews itself, with no intervention
   (`renewal_success` / `renewal_failure` events on stderr).
-- **Refresh token**: ~7 days. Once expired, you must re-authorize:
+- **Refresh token**: ~7 days. Once expired — or revoked server-side,
+  which reports `invalid_grant` — you must re-authorize:
 
 ```sh
 uv run schwab-mcp auth
 ```
 
-A failed re-auth attempt does not touch the existing token set: if the
-new authorization does not complete, the current tokens remain intact.
+`auth` **always performs a full re-authorization**: it never reuses the
+credentials already in the store (a revoked refresh token is
+indistinguishable from a valid one locally). During the flow the
+previous token set is held in a sibling `tokens.db.bak.<UTC timestamp>`
+backup: if the new authorization does not complete, it is restored
+byte-identically and the current tokens remain intact; when it
+succeeds, the backup is discarded.
 
 ## Renewal commands
 

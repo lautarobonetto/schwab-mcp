@@ -24,16 +24,26 @@ usage: schwab-mcp auth [-h]
 2. Acquires an exclusive, non-blocking advisory auth lock
    (`~/.schwab-mcp/auth.lock`); if busy, exits `6` with the
    concurrent-authorization message (FR-011).
-3. Prints the authorization URL, opens the system browser at the Schwab
-   login page, and prompts the owner to paste the final redirect URL from
-   the address bar. If the browser cannot be opened, it prints the URL and
-   continues with the paste prompt (no hang: the prompt is always reachable).
+3. **Always** prints the authorization URL and opens the system browser
+   at the Schwab login page, and prompts the owner to paste the final
+   redirect URL from the address bar — including when a token store
+   already exists (a store with a revoked refresh token is
+   indistinguishable from a valid one locally, so `auth` never trusts
+   the stored rows; bug `auth-false-success`). If the browser cannot be
+   opened, it prints the URL and continues with the paste prompt (no
+   hang: the prompt is always reachable).
 4. Exchanges the pasted redirect URL/code via schwabdev; on success the
    token set is written to the configured token DB (chmod 600) and the
    command prints a success confirmation (no secrets) and exits `0`.
+   Success requires evidence of a fresh write during this run (the
+   hook ran, or the store content changed) — never merely the presence
+   of pre-existing rows.
 5. On cancel/failure, exits nonzero with the mapped FR-007 message.
    An existing valid token set is not modified until a new authorization
-   completes successfully (FR-010).
+   completes successfully (FR-010): during the flow the previous store
+   is moved to a sibling `tokens.db.bak.<UTC timestamp>` backup
+   (chmod 600) and is restored byte-identically on any failure or
+   cancellation; the backup is discarded on success.
 
 ### Exit codes
 

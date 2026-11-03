@@ -1156,6 +1156,13 @@ must not try to run it**: it requires a human login at Schwab by
 provider constraint. When a command returns
 `reauth_required`, the agent's correct action is to notify the owner.
 
+`auth` always performs a full re-authorization — even with an existing
+token store — because a revoked refresh token is indistinguishable from
+a valid one locally. The previous store is preserved: moved to a
+sibling `tokens.db.bak.<UTC timestamp>` backup during the flow,
+restored byte-identically if the authorization fails or is cancelled,
+discarded on success.
+
 ---
 
 ## Decision playbook for the agent

@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Fixed
+
+- **`auth` no longer reports success on dead tokens** (bug
+  `auth-false-success`, 2026-11-03): with an existing store whose
+  refresh token was revoked server-side (`invalid_grant`),
+  `schwab-mcp auth` previously skipped the browser flow entirely —
+  schwabdev's init-time silent refresh failed, the stale rows survived,
+  and the CLI printed "Authorization successful" on unusable
+  credentials. `auth` now always performs a full re-authorization: the
+  existing store is moved to a `tokens.db.bak.<UTC timestamp>` sibling
+  backup (chmod 600) before the client is constructed, restored
+  byte-identically on any failure or cancellation (FR-010), and
+  discarded on success. Success additionally requires evidence of a
+  fresh write during the run (hook ran or store content changed),
+  never merely the presence of pre-existing rows. This repairs the
+  recovery loop `renew` → `reauth_required` → "run: schwab-mcp auth".
+
 ## [0.8.0] - 2026-11-02
 
 Fifth MCP tool `get_price_history` (feature 011): OHLCV candles for
@@ -818,6 +837,7 @@ Feature 001 — **Schwab OAuth access layer** (spec:
 - Test suite (unit/integration/performance) with TDD gates.
 
 [0.8.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.1...v0.8.0
+[Unreleased]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.0...HEAD
 [0.7.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4

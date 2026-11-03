@@ -7,6 +7,7 @@ import sys
 import webbrowser
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
+from pathlib import Path
 
 import schwabdev  # Module-level import so monkeypatch can patch schwabdev.Client
 
@@ -20,7 +21,15 @@ from schwab_mcp.errors import (
 from schwab_mcp.log import auth_event, install_redaction_filter
 from schwab_mcp.renewal import AuthHealth, RenewalOutcome, read_store_lifetime, renew as _renew
 from schwab_mcp.schwabdev_compat import install_trailing_slash_callback_support
-from schwab_mcp.tokens import AuthLock, enforce_permissions, peek_store, peek_store_status
+from schwab_mcp.tokens import (
+    AuthLock,
+    backup_token_store,
+    discard_token_store_backup,
+    enforce_permissions,
+    peek_store,
+    peek_store_status,
+    restore_token_store,
+)
 
 
 def _build_auth_url(app_key: str, callback_url: str) -> str:
@@ -32,6 +41,17 @@ def _build_auth_url(app_key: str, callback_url: str) -> str:
         f"?client_id={urllib.parse.quote(app_key)}"
         f"&redirect_uri={urllib.parse.quote(callback_url)}"
     )
+
+
+def _read_store_bytes(path: str) -> bytes | None:
+    """Raw store bytes, or ``None`` when the store does not exist.
+
+    Used as fresh-write evidence by the success gate in :func:`run_auth`.
+    """
+    try:
+        return Path(path).read_bytes()
+    except OSError:
+        return None
 
 
 def _prompt_for_paste() -> str:
@@ -81,57 +101,82 @@ def run_auth() -> None:
     with AuthLock(lock_path):
         auth_event("auth_start", "initiated", "browser flow requested")
 
-        # The hook runs exactly once per attempt.  schwabdev's Client
-        # constructor invokes call_on_auth itself whenever the token store
-        # is empty (v4 auto-start); a client that did NOT invoke it (inert
-        # stubs) gets one manual invocation below.  Counting invocations
-        # is what prevents the double URL-print/prompt.
-        hook_calls = 0
-        last_paste = ""
+        # Bug auth-false-success: ``auth`` is a deliberate re-authorization
+        # and must never trust the rows already in the store — a refresh
+        # token revoked server-side looks identical to a fresh one to
+        # ``peek_store``, and schwabdev's init-time silent refresh then
+        # fails (invalid_grant) without ever reaching the hook.  Move the
+        # store aside so the client performs a REAL authorization-code
+        # flow through ``call_on_auth``; restore the previous store
+        # untouched if this run does not complete (FR-010).
+        pre_bytes = _read_store_bytes(config.token_db)
+        backup_path = backup_token_store(config.token_db)
+        try:
+            # The hook runs exactly once per attempt.  schwabdev's Client
+            # constructor invokes call_on_auth itself whenever the token store
+            # is empty (v4 auto-start); a client that did NOT invoke it (inert
+            # stubs) gets one manual invocation below.  Counting invocations
+            # is what prevents the double URL-print/prompt.
+            hook_calls = 0
+            last_paste = ""
 
-        def counted_hook(auth_url: str) -> str:
-            nonlocal hook_calls, last_paste
-            hook_calls += 1
-            last_paste = auth_hook(auth_url)
-            return last_paste
+            def counted_hook(auth_url: str) -> str:
+                nonlocal hook_calls, last_paste
+                hook_calls += 1
+                last_paste = auth_hook(auth_url)
+                return last_paste
 
-        # schwabdev's Client constructor invokes call_on_auth when the
-        # token store is empty, performing the code exchange and writing
-        # tokens before returning.
-        # The callback URL may legitimately end in '/' (portal-required,
-        # literal redirect_uri comparison) — relax schwabdev's check.
-        install_trailing_slash_callback_support()
-        schwabdev.Client(
-            config.app_key,
-            config.app_secret,
-            config.callback_url,
-            tokens_db=config.token_db,
-            call_on_auth=counted_hook,
-            open_browser_for_auth=False,
-        )
+            # schwabdev's Client constructor invokes call_on_auth when the
+            # token store is empty, performing the code exchange and writing
+            # tokens before returning.
+            # The callback URL may legitimately end in '/' (portal-required,
+            # literal redirect_uri comparison) — relax schwabdev's check.
+            install_trailing_slash_callback_support()
+            schwabdev.Client(
+                config.app_key,
+                config.app_secret,
+                config.callback_url,
+                tokens_db=config.token_db,
+                call_on_auth=counted_hook,
+                open_browser_for_auth=False,
+            )
 
-        # If the client never ran the interactive flow (e.g. inert test
-        # stubs) and the store is still empty, invoke the hook manually so
-        # the URL is printed and the user is prompted.
-        if not peek_store(config.token_db) and hook_calls == 0:
-            auth_url = _build_auth_url(config.app_key, config.callback_url)
-            counted_hook(auth_url)
+            # If the client never ran the interactive flow (e.g. inert test
+            # stubs) and the store is still empty, invoke the hook manually so
+            # the URL is printed and the user is prompted.
+            if not peek_store(config.token_db) and hook_calls == 0:
+                auth_url = _build_auth_url(config.app_key, config.callback_url)
+                counted_hook(auth_url)
 
-        # Success is determined by the STORE, never by the pasted string
-        # or by TTY state (FR-002, US1/AC1): schwabdev writes the token
-        # set only after a successful code exchange.
-        if not peek_store(config.token_db):
-            if last_paste:
-                auth_event(
-                    "auth_failure", "failed",
-                    "check the pasted redirect URL; run: schwab-mcp auth to retry",
-                )
-            else:
-                auth_event(
-                    "auth_failure", "cancelled",
-                    "run: schwab-mcp auth to retry",
-                )
-            raise AuthorizationCancelledError()
+            # Success requires a usable store AND evidence of a fresh write
+            # during THIS run: the hook ran, or the store content differs
+            # from the pre-run bytes.  Unchanged rows that merely survived
+            # the run are never a success (auth-false-success).
+            fresh_write = (
+                hook_calls > 0
+                or _read_store_bytes(config.token_db) != pre_bytes
+            )
+            if not peek_store(config.token_db) or not fresh_write:
+                if last_paste:
+                    auth_event(
+                        "auth_failure", "failed",
+                        "check the pasted redirect URL; run: schwab-mcp auth to retry",
+                    )
+                else:
+                    auth_event(
+                        "auth_failure", "cancelled",
+                        "run: schwab-mcp auth to retry",
+                    )
+                raise AuthorizationCancelledError()
+        except BaseException:
+            # Any failure/cancel path restores the previous store
+            # byte-identically (FR-010) — a cancelled auth must not destroy
+            # possibly-valid credentials.
+            restore_token_store(backup_path, config.token_db)
+            raise
+
+        # Fresh token set stored: the pre-flow backup is now obsolete.
+        discard_token_store_backup(backup_path)
 
         # Enforce restrictive permissions on the freshly stored token set.
         enforce_permissions(config.token_db)

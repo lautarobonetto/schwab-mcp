@@ -1040,19 +1040,29 @@ class TestReauthFlow:
     the new auth completes (FR-010)."""
 
     def test_reauth_on_existing_store_succeeds(self, monkeypatch, tmp_path):
-        """Running ``auth`` again with an existing valid store succeeds."""
+        """Running ``auth`` again with an existing valid store succeeds —
+        via a fresh authorization flow (bug auth-false-success: never by
+        silently trusting the rows already in the store)."""
         token_db = tmp_path / "tokens.db"
         _make_token_db(token_db)
         monkeypatch.setenv("SCHWAB_TOKEN_DB", str(token_db))
         monkeypatch.setattr(
             "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
         )
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        FakeSchwabdevClient._instances.clear()
 
         with pytest.raises(SystemExit) as exc_info:
             main(["auth"])
 
         assert exc_info.value.code == 0, (
             f"Expected exit 0 on re-auth, got {exc_info.value.code}"
+        )
+        assert FakeSchwabdevClient._instances[0].hook_invocations >= 1, (
+            "Re-auth must run the fresh authorization flow (hook invoked)"
+        )
+        assert peek_store(str(token_db)), (
+            "A fresh token set must be stored after re-auth"
         )
 
     def test_existing_store_survives_until_new_auth_completes(
@@ -1075,4 +1085,133 @@ class TestReauthFlow:
 
         assert token_db.read_bytes() == original_content, (
             "FR-010: Existing valid store must survive failed re-auth"
+        )
+
+
+# ===================================================================
+# 8. Stale store → auth performs a REAL fresh flow (bug auth-false-success)
+#    A store whose refresh token was revoked server-side (invalid_grant)
+#    looks identical to a fresh one to ``peek_store``.  Before the fix,
+#    ``auth`` on such a store never ran the browser flow and reported
+#    "Authorization successful" on dead credentials.
+# ===================================================================
+
+
+class TestStaleStoreReauthorization:
+    """``auth`` with a pre-existing store must always run a fresh
+    authorization flow (hook invoked), never silently succeed on the
+    stale rows, and preserve the previous store on failure."""
+
+    def _precreate_store(self, tmp_path: Path) -> Path:
+        token_db = tmp_path / "tokens.db"
+        _make_token_db(token_db)
+        return token_db
+
+    def test_stale_store_runs_fresh_flow_not_silent_success(
+        self, monkeypatch, tmp_path
+    ):
+        """Bug auth-false-success: ``auth`` on a stale store must invoke
+        the ``call_on_auth`` hook (fresh authorization-code flow), not
+        succeed silently on the rows already present."""
+        token_db = self._precreate_store(tmp_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(token_db))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 0, (
+            f"Expected exit 0 on re-auth over a stale store, got "
+            f"{exc_info.value.code}"
+        )
+        assert FakeSchwabdevClient._instances, (
+            "Expected the schwabdev client to be constructed"
+        )
+        client = FakeSchwabdevClient._instances[0]
+        assert client.hook_invocations >= 1, (
+            "auth must run a fresh authorization flow over an existing "
+            "store (hook invoked); succeeding without the hook is the "
+            "auth-false-success bug (dead tokens reported as valid)"
+        )
+
+    def test_stale_store_with_inert_client_never_reports_success(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """If the client never completes a fresh exchange, ``auth`` must
+        NOT print the success confirmation nor exit 0."""
+        token_db = self._precreate_store(tmp_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(token_db))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        # No paste stub: input() fails/EOF under pytest → inert-ish flow
+        # that never writes tokens.
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code != 0, (
+            "auth must not report success when no fresh token set was "
+            "stored during this run"
+        )
+        out = capsys.readouterr().out
+        assert "Authorization successful" not in out, (
+            "Success confirmation printed without a fresh token write"
+        )
+
+    def test_cancelled_reauth_restores_store_and_leaves_no_backup(
+        self, monkeypatch, tmp_path
+    ):
+        """FR-010 + bug auth-false-success: a cancelled re-auth restores
+        the previous store byte-identically and leaves no ``.bak`` file
+        behind; it must not report success either."""
+        token_db = self._precreate_store(tmp_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(token_db))
+        original_content = token_db.read_bytes()
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, "")  # owner declines at the paste prompt
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 3, (
+            f"Expected exit 3 for cancelled auth, got {exc_info.value.code}"
+        )
+        assert token_db.exists(), "Store must exist after cancelled re-auth"
+        assert token_db.read_bytes() == original_content, (
+            "FR-010: the previous store must be restored byte-identically "
+            "when the fresh flow is cancelled"
+        )
+        backups = list(tmp_path.glob("tokens.db.bak*"))
+        assert backups == [], (
+            f"No backup files may remain after auth finishes: {backups}"
+        )
+
+    def test_successful_reauth_leaves_no_backup(self, monkeypatch, tmp_path):
+        """A successful fresh flow replaces the store and discards the
+        pre-flow backup."""
+        token_db = self._precreate_store(tmp_path)
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(token_db))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 0
+        assert token_db.exists() and peek_store(str(token_db))
+        backups = list(tmp_path.glob("tokens.db.bak*"))
+        assert backups == [], (
+            f"Backup must be discarded on success: {backups}"
         )
