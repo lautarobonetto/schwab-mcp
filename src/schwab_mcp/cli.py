@@ -28,6 +28,7 @@ from schwab_mcp.tokens import (
     enforce_permissions,
     peek_store,
     peek_store_status,
+    quarantine_corrupt_store,
     restore_token_store,
 )
 
@@ -89,17 +90,31 @@ def run_auth() -> None:
     """Execute the ``auth`` subcommand."""
     config = load_config()
 
-    # FR-009: A corrupted store must be detected BEFORE the schwabdev
-    # client is constructed — the real client's ``CREATE TABLE`` raises a
-    # raw ``sqlite3.DatabaseError`` on a non-SQLite store file.
-    if peek_store_status(config.token_db) == "corrupted":
-        raise TokenStoreCorruptedError(
-            detail="Store treated as absent; run `schwab-mcp auth`"
-        )
-
     lock_path = config.token_db
     with AuthLock(lock_path):
-        auth_event("auth_start", "initiated", "browser flow requested")
+        # Bug auth-corrupt-store-blocked: a corrupted store must not block
+        # re-authorization.  The old guard raised TokenStoreCorruptedError
+        # (exit 5) with a message telling the user to re-run ``auth`` — the
+        # same command that kept failing.  Quarantine the unusable file
+        # (FR-009: treated as absent, preserved for forensics) and let the
+        # fresh flow below proceed.  Quarantine happens inside the lock so
+        # concurrent runs cannot race on the rename.
+        quarantined: Path | None = None
+        if peek_store_status(config.token_db) == "corrupted":
+            try:
+                quarantined = quarantine_corrupt_store(config.token_db)
+            except OSError:
+                # Unmovable store (permissions): keep the old clean exit
+                # instead of a raw traceback.
+                raise TokenStoreCorruptedError(
+                    detail="Store could not be quarantined; fix permissions and re-run"
+                ) from None
+        auth_event(
+            "auth_start", "initiated",
+            f"corrupt store quarantined: {quarantined.name}"
+            if quarantined
+            else "browser flow requested",
+        )
 
         # Bug auth-false-success: ``auth`` is a deliberate re-authorization
         # and must never trust the rows already in the store — a refresh

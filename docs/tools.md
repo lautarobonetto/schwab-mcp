@@ -1161,7 +1161,10 @@ token store — because a revoked refresh token is indistinguishable from
 a valid one locally. The previous store is preserved: moved to a
 sibling `tokens.db.bak.<UTC timestamp>` backup during the flow,
 restored byte-identically if the authorization fails or is cancelled,
-discarded on success.
+discarded on success. A **corrupted** store (unreadable, or shadowed by
+a hot SQLite journal) is quarantined — `tokens.db.corrupt.<UTC
+timestamp>`, kept for forensics — and the fresh flow proceeds; `auth`
+is never blocked by a dead store.
 
 ---
 

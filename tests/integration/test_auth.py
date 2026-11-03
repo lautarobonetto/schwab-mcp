@@ -1215,3 +1215,73 @@ class TestStaleStoreReauthorization:
         assert backups == [], (
             f"Backup must be discarded on success: {backups}"
         )
+
+
+# ===================================================================
+# 9. Corrupted store → quarantine, then fresh flow (bug auth-corrupt-store-blocked)
+#    The old guard exited 5 with a self-referential message ("run
+#    schwab-mcp auth" → same failure), permanently blocking recovery.
+# ===================================================================
+
+
+class TestCorruptStoreRecovery:
+    """``auth`` with a corrupted store quarantines the unusable file and
+    completes a real fresh authorization flow."""
+
+    def test_corrupt_store_quarantined_then_fresh_flow_succeeds(
+        self, monkeypatch, tmp_path
+    ):
+        """Corrupt file → quarantined (content preserved, 0600), fresh
+        flow runs, fresh tokens stored, exit 0, no leftover quarantine
+        blocking anything."""
+        store_path = tmp_path / "tokens.db"
+        store_path.write_text("not a database")
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 0, (
+            f"Expected exit 0 (auth recovered over a corrupted store), "
+            f"got {exc_info.value.code}"
+        )
+        quarantined = list(tmp_path.glob("tokens.db.corrupt.*"))
+        assert quarantined and quarantined[0].read_text() == "not a database", (
+            "The corrupt file must be preserved under *.corrupt.*"
+        )
+        assert store_path.exists() and peek_store(str(store_path)), (
+            "A fresh token set must be stored after recovery"
+        )
+        client = FakeSchwabdevClient._instances[0]
+        assert client.hook_invocations >= 1, (
+            "Recovery must run the real authorization flow"
+        )
+
+    def test_corrupt_store_cancelled_keeps_quarantine(
+        self, monkeypatch, tmp_path
+    ):
+        """Cancelled flow over a quarantined corrupt store → exit 3, the
+        quarantine remains, no tokens.db resurrects garbage."""
+        store_path = tmp_path / "tokens.db"
+        store_path.write_text("not a database")
+        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
+        monkeypatch.setattr(
+            "schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient
+        )
+        _paste(monkeypatch, "")  # owner declines at the paste prompt
+        FakeSchwabdevClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code == 3
+        quarantined = list(tmp_path.glob("tokens.db.corrupt.*"))
+        assert quarantined, "Quarantine must survive a cancelled flow"
+        assert not store_path.exists(), (
+            "No garbage may be restored to the store path"
+        )

@@ -44,6 +44,14 @@ usage: schwab-mcp auth [-h]
    is moved to a sibling `tokens.db.bak.<UTC timestamp>` backup
    (chmod 600) and is restored byte-identically on any failure or
    cancellation; the backup is discarded on success.
+6. A **corrupted** store (unreadable, missing the expected table, or
+   shadowed by a hot SQLite journal) never blocks re-authorization:
+   `auth` quarantines it — renamed to a sibling
+   `tokens.db.corrupt.<UTC timestamp>` (chmod 600, content preserved,
+   stray `-journal`/`-wal`/`-shm` sidecars removed) — emits `auth_start`
+   with detail `corrupt store quarantined: <file>` and proceeds with the
+   fresh flow (bug `auth-corrupt-store-blocked`). Exit `5` remains only
+   for the corner where the file cannot even be renamed (permissions).
 
 ### Exit codes
 

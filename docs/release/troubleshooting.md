@@ -17,6 +17,7 @@ expected outcome.
 | AI client connects but a tool returns an authentication error | Tokens expired and could not be renewed | Run `schwab-mcp auth-status`; if `"state": "reauth_required"`, re-run `schwab-mcp auth` once. |
 | After an upgrade, tools fail or the old version still runs | Old environment still active, or upgrade run from the wrong folder | `deactivate`, then `source <new-package-folder>/.venv/bin/activate` and check `schwab-mcp --help`. Your tokens are preserved (`~/.schwab-mcp/tokens.db`). |
 | `another auth already running` | A previous auth is still open | Close the other terminal and retry. |
+| `Store treated as absent; run schwab-mcp auth` repeats | The token store is corrupt (e.g. an interrupted flow left a hot SQLite journal) | From v0.8.2, `schwab-mcp auth` quarantines the file automatically (`tokens.db.corrupt.<timestamp>`, kept for forensics) and re-authorizes normally. Older versions: move the files aside by hand (`mv ~/.schwab-mcp/tokens.db{,-journal,-wal,-shm}`), then re-run `schwab-mcp auth`. |
 
 ## Diagnostic commands
 

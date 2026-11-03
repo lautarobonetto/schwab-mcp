@@ -121,6 +121,9 @@ def backup_token_store(path: str | os.PathLike) -> Optional[Path]:
     os.rename(src, backup)
     # The backup holds live tokens — owner read/write only (FR-003).
     os.chmod(backup, 0o600)
+    # Sidecars at the original name belong to the moved inode; drop them
+    # so they cannot shadow the fresh DB written at that path next.
+    _drop_sidecars(src)
     return backup
 
 
@@ -138,6 +141,10 @@ def restore_token_store(
     if not backup.exists():
         return
     os.replace(backup, store_path)
+    # Sidecars at the store path belong to the replaced (partial/foreign)
+    # DB — drop them so the restored store is never shadowed by a hot
+    # journal (bug auth-corrupt-store-blocked).
+    _drop_sidecars(Path(store_path))
 
 
 def discard_token_store_backup(backup_path: str | os.PathLike | None) -> None:
@@ -146,6 +153,58 @@ def discard_token_store_backup(backup_path: str | os.PathLike | None) -> None:
         return
     with contextlib.suppress(FileNotFoundError):
         os.unlink(backup_path)
+
+
+_SQLITE_SIDECAR_SUFFIXES = ("-journal", "-wal", "-shm")
+
+
+def _sidecar_paths(store: Path) -> list[Path]:
+    """SQLite sidecar files (hot journal / WAL) belonging to *store*."""
+    return [
+        store.with_name(f"{store.name}{suffix}")
+        for suffix in _SQLITE_SIDECAR_SUFFIXES
+    ]
+
+
+def _drop_sidecars(store: Path) -> None:
+    """Remove stray sidecars at *store*'s name (bug auth-corrupt-store-blocked).
+
+    Sidecars belong to a specific database inode.  After the store file is
+    renamed or replaced, any sidecar left at the original name is foreign
+    — a hot journal that makes SQLite refuse to read whatever file now
+    lives at that path (read-only mode cannot recover it)."""
+    for sidecar in _sidecar_paths(store):
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(sidecar)
+
+
+def quarantine_corrupt_store(path: str | os.PathLike) -> Optional[Path]:
+    """Move a *corrupted* store (and its stray sidecars) aside for forensics.
+
+    Bug auth-corrupt-store-blocked: a corrupted store used to make
+    ``auth`` exit 5 with a message telling the user to re-run ``auth`` —
+    the same command that kept failing.  Quarantining honors FR-009
+    ("treated as absent") without destroying evidence: the file is
+    renamed to ``<name>.corrupt.<UTC timestamp>`` with owner-only
+    permissions (it may contain token fragments) and any
+    ``-journal``/``-wal``/``-shm`` sidecars are removed.
+
+    Returns the quarantine :class:`~pathlib.Path`, or ``None`` when the
+    store is not in the corrupted state (present/absent are untouched).
+    """
+    if peek_store_status(path) != "corrupted":
+        return None
+    src = Path(path)
+    stamp = _backup_timestamp()
+    target = src.with_name(f"{src.name}.corrupt.{stamp}")
+    counter = 1
+    while target.exists():  # never overwrite an existing quarantine
+        target = src.with_name(f"{src.name}.corrupt.{stamp}-{counter}")
+        counter += 1
+    os.rename(src, target)
+    os.chmod(target, 0o600)
+    _drop_sidecars(src)
+    return target
 
 
 def enforce_permissions(path: str | os.PathLike) -> None:

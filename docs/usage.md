@@ -23,7 +23,8 @@ The flow is **paste-the-redirect-URL**: the server never opens inbound
 sockets; the browser redirect is captured by hand.
 
 1. The CLI validates the configuration and acquires the authorization
-   lock.
+   lock (a **corrupted** store is quarantined first — moved to
+   `tokens.db.corrupt.<timestamp>` — so it never blocks the flow).
 2. It prints the **full authorization URL** (it includes the client_id —
    public by OAuth design) and opens the browser.
 3. Log in to Schwab with your **brokerage** credentials (not the
@@ -185,7 +186,7 @@ specific code. None of them hang or show tracebacks.
 | Invalid configuration values | 2 | Fix the values in the env |
 | Authorization canceled | 3 | Re-run `schwab-mcp auth` |
 | Re-authorization required | 4 | Run `schwab-mcp auth` to renew tokens |
-| Corrupt token store | 5 | Run `schwab-mcp auth` (the store is treated as missing) |
+| Corrupt token store | 5 | `auth` quarantines the corrupt file (`tokens.db.corrupt.<ts>`, kept for forensics) and re-authorizes normally; exit 5 only if the file cannot even be renamed (fix permissions) |
 | Concurrent authorization | 6 | Another authorization is already running; wait for it |
 | Connectivity failure | 7 | Check the network and retry; the store is untouched |
 
@@ -199,6 +200,7 @@ specific code. None of them hang or show tracebacks.
 | The CLI uses values you already changed in the env | The shell keeps stale variables | `set -a; source ~/.schwab-mcp/env; set +a` and verify with `echo` |
 | `invalid_client` in the exchange | App key and app secret from different apps | Copy **both** from the same app in the portal |
 | Review that never finishes | `Approved - Pending` state | Wait for `Ready for Use` in the portal; if it persists, `traderapi@schwab.com` |
+| `Store treated as absent; run schwab-mcp auth` repeated | The store is corrupt (e.g. an interrupted flow left a hot SQLite journal) | From v0.8.2, `auth` quarantines it automatically and proceeds. Older versions: `mv ~/.schwab-mcp/tokens.db{,-journal,-wal,-shm}` aside by hand, then re-run |
 
 ## Security
 

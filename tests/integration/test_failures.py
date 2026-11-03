@@ -519,22 +519,26 @@ class TestServeCorruptedStore:
 
 
 # ===================================================================
-# 5b. Auth with corrupted store → TokenStoreCorruptedError (exit 5)
-#     FR-009 applies to BOTH commands: "never crashes with a raw
-#     traceback".  ``run_auth`` must peek the store BEFORE constructing
-#     the schwabdev client (whose CREATE TABLE raises
-#     ``sqlite3.DatabaseError: file is not a database`` on corruption).
+# 5b. Auth with corrupted store → quarantine, then fresh flow
+#     (bug auth-corrupt-store-blocked: the old fail-fast guard made
+#     ``auth`` a dead-end loop — exit 5 with a message telling the user
+#     to re-run the same failing command).  FR-009 still holds: no raw
+#     sqlite3.DatabaseError traceback, the corrupt file is preserved
+#     (moved aside, never deleted), and the flow is reached.
 # ===================================================================
 
 
 class TestAuthCorruptedStore:
     """When the token store file exists but contains unparseable content,
-    ``auth`` must exit with code 5 and leave the store file in place —
-    a raw ``sqlite3.DatabaseError`` traceback must never surface (FR-009)."""
+    ``auth`` must quarantine it (rename aside, never delete) and proceed
+    with the fresh authorization flow instead of exiting 5."""
 
-    def test_auth_corrupted_store_exits_5(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """Corrupted token store (not a SQLite DB) → ``auth`` exits 5,
-        not a raw traceback (FR-009)."""
+    def test_auth_corrupted_store_quarantines_and_reaches_flow(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Corrupted store (not a SQLite DB) → quarantined, flow reached
+        (URL printed, paste prompt), exit 3 with the inert client —
+        never exit 5, never a raw traceback (FR-009)."""
         store_path = tmp_path / "tokens.db"
         store_path.write_text("not a database")
         monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
@@ -546,20 +550,24 @@ class TestAuthCorruptedStore:
         with pytest.raises(SystemExit) as exc_info:
             main(["auth"])
 
-        assert exc_info.value.code == 5, (
-            f"Expected exit code 5 for corrupted store in auth (TokenStoreCorruptedError), "
-            f"got {exc_info.value.code}. "
-            "A raw sqlite3.DatabaseError traceback (exit 1 / uncaught) violates FR-009."
+        assert exc_info.value.code == 3, (
+            f"Expected exit 3 (flow ran, no fresh tokens) for corrupted "
+            f"store, got {exc_info.value.code}. Exit 5 is the dead-end "
+            "guard removed by auth-corrupt-store-blocked."
         )
+        quarantined = list(tmp_path.glob("tokens.db.corrupt.*"))
+        assert quarantined, "Corrupt store must be quarantined, not fatal"
+        assert not store_path.exists(), "corrupt file must be moved aside"
         stderr_text = "\n".join(captured_stderr)
-        assert "Store treated as absent" in stderr_text or "run schwab-mcp auth" in stderr_text, (
-            f"Corrupted-store message expected in stderr, got:\n{stderr_text}"
-        )
+        assert "auth_event=auth_start" in stderr_text
         _assert_no_traceback(stderr_text)
         _assert_no_secrets(stderr_text)
 
-    def test_auth_corrupted_store_not_deleted(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """FR-009: A corrupted store must NOT be deleted or modified by ``auth``."""
+    def test_auth_corrupted_store_content_preserved(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """FR-009: A corrupted store is preserved (renamed aside), never
+        deleted or modified — forensics stay possible."""
         store_path = tmp_path / "tokens.db"
         corrupted_content = "not a database"
         store_path.write_text(corrupted_content)
@@ -569,35 +577,14 @@ class TestAuthCorruptedStore:
         with pytest.raises(SystemExit):
             main(["auth"])
 
-        assert store_path.exists(), (
-            "FR-009: Corrupted store must NOT be deleted by auth"
-        )
-        assert store_path.read_text() == corrupted_content, (
+        quarantined = list(tmp_path.glob("tokens.db.corrupt.*"))
+        assert quarantined, "Corrupt store must be quarantined"
+        assert quarantined[0].read_text() == corrupted_content, (
             "FR-009: Corrupted store content must NOT be modified by auth"
         )
 
-    def test_auth_corrupted_store_no_browser_no_prompt(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """FR-009: With a corrupted store, ``auth`` fails fast BEFORE the
-        browser flow — no browser opens, no paste prompt is reachable."""
-        store_path = tmp_path / "tokens.db"
-        store_path.write_text("not a database")
-        monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
-        monkeypatch.setattr("schwab_mcp.cli.schwabdev.Client", FakeSchwabdevClient)
-        opened: list[str] = []
-        monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url))
-
-        with pytest.raises(SystemExit) as exc_info:
-            main(["auth"])
-
-        assert exc_info.value.code == 5, (
-            f"Expected exit code 5 for corrupted store in auth, got {exc_info.value.code}"
-        )
-        assert not opened, (
-            "Browser must NOT open when the token store is corrupted (fail fast, FR-009)"
-        )
-
     def test_auth_corrupted_store_bounded(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """Corrupted store → auth exits quickly (no hang)."""
+        """Corrupted store → auth completes quickly (no hang)."""
         import time
 
         store_path = tmp_path / "tokens.db"
@@ -611,7 +598,7 @@ class TestAuthCorruptedStore:
         elapsed = time.monotonic() - start
 
         assert elapsed < 5.0, (
-            f"Auth should exit quickly on corrupted store, took {elapsed:.2f}s"
+            f"Auth should complete quickly on corrupted store, took {elapsed:.2f}s"
         )
 
 

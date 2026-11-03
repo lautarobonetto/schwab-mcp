@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Fixed
+
+- **Corrupt store no longer blocks `auth` in a dead-end loop** (bug
+  `auth-corrupt-store-blocked`, 2026-11-03): a corrupted token store
+  (unreadable, missing the expected table, or shadowed by a hot SQLite
+  journal left by an interrupted flow) made `schwab-mcp auth` exit 5
+  with "Store treated as absent; run schwab-mcp auth" — a message that
+  circularly pointed back at the failing command, permanently blocking
+  recovery. `auth` now quarantines the unusable file (renamed to
+  `tokens.db.corrupt.<UTC timestamp>`, chmod 600, content preserved for
+  forensics, stray `-journal`/`-wal`/`-shm` sidecars removed), emits
+  `auth_start` with detail `corrupt store quarantined: <file>`, and
+  proceeds with the fresh authorization flow. Exit 5 remains only when
+  the file cannot even be renamed. Backup/restore also drops stray
+  SQLite sidecars so a restored store is never shadowed by a foreign
+  hot journal. `serve` keeps its fail-fast exit 5.
+
 ## [0.8.1] - 2026-11-03
 
 ### Fixed
@@ -838,6 +857,7 @@ Feature 001 — **Schwab OAuth access layer** (spec:
 
 [0.8.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.1...v0.8.0
 [0.8.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.0...v0.8.1
+[Unreleased]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.8.1...HEAD
 [0.7.1]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.4...v0.7.0
 [0.6.4]: https://github.com/lautarobonetto/schwab-mcp/compare/v0.6.3...v0.6.4
