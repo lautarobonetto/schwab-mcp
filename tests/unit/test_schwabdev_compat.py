@@ -91,3 +91,69 @@ def test_shim_fails_loudly_if_internals_change(
 
     with pytest.raises(RuntimeError, match="schwabdev internals changed"):
         _build_tokens(tmp_path, "https://127.0.0.1/")
+
+
+# =============================================================================
+# Regression: bug callback-trailing-slash (in-init flow used the stripped URL)
+# =============================================================================
+
+
+def test_init_time_authorize_url_carries_exact_callback(
+    tmp_path, original_tokens_init
+):
+    """schwabdev builds the authorize URL INSIDE ``Tokens.__init__``
+    (empty or expired store -> ``update_tokens`` runs during init), so
+    the URL handed to ``call_for_auth`` must already carry the EXACT
+    configured callback — not the slash-stripped validation spelling.
+    The shim's post-init restore is too late for that flow."""
+    install_trailing_slash_callback_support()
+    captured: dict[str, str] = {}
+
+    def hook(auth_url: str) -> str:
+        captured["url"] = auth_url
+        return ""  # no paste: end the flow deterministically
+
+    schwabdev.tokens.Tokens(
+        _KEY,
+        _SECRET,
+        "https://127.0.0.1/",
+        tokens_db=str(tmp_path / "tokens.db"),
+        call_for_auth=hook,
+    )
+
+    assert captured["url"] == (
+        "https://api.schwabapi.com/v1/oauth/authorize"
+        f"?client_id={_KEY}&redirect_uri=https://127.0.0.1/"
+    ), "the init-time authorize URL must carry the portal-registered "
+    "trailing slash (bug callback-trailing-slash)"
+
+
+def test_init_time_exchange_uses_exact_callback(
+    tmp_path, original_tokens_init, monkeypatch
+):
+    """The token exchange inside init sends ``redirect_uri`` from
+    ``self._callback_url`` — it must be the EXACT configured value, not
+    the stripped spelling (Schwab compares character for character)."""
+    install_trailing_slash_callback_support()
+    captured: dict[str, str] = {}
+
+    def fake_exchange(self, url_or_code):
+        captured["redirect_uri"] = self._callback_url
+        return None  # no network
+
+    monkeypatch.setattr(
+        schwabdev.tokens.Tokens, "_exchange_auth_code", fake_exchange
+    )
+
+    schwabdev.tokens.Tokens(
+        _KEY,
+        _SECRET,
+        "https://127.0.0.1/",
+        tokens_db=str(tmp_path / "tokens.db"),
+        call_for_auth=lambda auth_url: "https://127.0.0.1/?code=abc",
+    )
+
+    assert captured["redirect_uri"] == "https://127.0.0.1/", (
+        "the init-time exchange must use the exact portal-registered "
+        "redirect_uri (bug callback-trailing-slash)"
+    )
