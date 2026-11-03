@@ -35,6 +35,26 @@ Cross-cutting guarantees of **all** agent-facing commands:
 - **Bounded time**: no command hangs; budgets per command.
 - **Concurrency-safe**: lock-based coordination; they corrupt nothing.
 
+### Tool error surface (MCP boundary)
+
+When a tool fails with an auth-taxonomy error, the surfaced MCP error is
+a standard tool error (`isError: true`) whose text carries a
+classification prefix, so clients can distinguish the remediation class:
+
+| Prefix | Meaning | Agent action |
+|--------|---------|--------------|
+| `provider_unreachable:` | Transient connectivity failure (`ConnectivityError`); stored tokens were not modified | Retry with backoff |
+| `reauth_needed:` | Tokens expired beyond recovery (`ReauthorizationRequiredError`) | Do not retry the tool; run the `renew` playbook / notify the owner |
+| (no prefix) | Validation / bad request (`ValueError`, `TypeError`, `ChainDataError`, `InstrumentNotFoundError`) | Fix the parameters; the message names the violated constraint |
+
+Applies to `get_option_chain`, `get_option_expiration_chain` and
+`get_transaction_history` (their taxonomy errors used to be swallowed
+behind the SDK's opaque `Error executing tool <name>` wrapper — bug
+`domain-errors-swallowed`). `get_open_positions`, `get_quotes` and
+`get_price_history` surface these states as structured result envelopes
+(`transient_failure` / `provider_unreachable` / `reauth_needed`
+outcomes) instead of tool errors.
+
 ---
 
 ## `get_open_positions` (first MCP tool)

@@ -6,10 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
-## [0.9.4] - 2026-11-03
+## [0.9.5] - 2026-11-03
 
 ### Fixed
 
+- **Auth-taxonomy errors now surface to MCP clients with an actionable,
+  classified message** (bug `domain-errors-swallowed`, 2026-11-03): when a
+  tool raised `ConnectivityError` or `ReauthorizationRequiredError`
+  (e.g. the `$SPX` timeout case), the MCP SDK wrapped it into the opaque
+  `UnexpectedToolError("Error executing tool <name>")` and the client saw
+  only `isError: true` with that text — the actionable message reached
+  stderr only. The affected tool wrappers (`get_option_chain`,
+  `get_option_expiration_chain`, `get_transaction_history`) now convert
+  the auth taxonomy into a `ToolError` via the new shared
+  `schwab_mcp.tool_errors.raise_classified_tool_error` helper, with a
+  client-visible classification prefix: `provider_unreachable:` for
+  `ConnectivityError` (retryable) and `reauth_needed:` for
+  `ReauthorizationRequiredError` (run `schwab-mcp auth`), so clients can
+  distinguish retryable from auth-required from bad request. The
+  original exception is preserved as `__cause__`. Validation errors were
+  already surfaced this way and are unchanged; `get_open_positions`,
+  `get_quotes` and `get_price_history` already returned structured
+  envelopes for these states and are unchanged.
 - **`delta_target` with negative values (put targets, e.g. `-0.35`) no
   longer produces wrong strike windows or spurious re-fetches** (bug
   `delta-target-sign-bracketing`, 2026-11-03): the bracketing check and

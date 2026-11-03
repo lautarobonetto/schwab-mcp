@@ -865,12 +865,16 @@ def get_option_chain_tool(
 ) -> dict:
     """MCP tool wrapper around :func:`get_option_chain`.
 
-    Converts validation errors (``ValueError``/``TypeError``) and
-    :class:`ChainDataError` into the MCP SDK's ``ToolError`` so that the
-    actionable message — not a generic wrapper — reaches the agent
-    (pattern: ``transactions.get_transaction_history_tool``).
+    Converts validation errors (``ValueError``/``TypeError``),
+    :class:`ChainDataError` and the auth-taxonomy errors
+    (:class:`ConnectivityError`, :class:`ReauthorizationRequiredError`) into
+    the MCP SDK's ``ToolError`` so that the actionable message — not the
+    SDK's generic ``UnexpectedToolError`` wrapper — reaches the agent
+    (bug domain-errors-swallowed; helper:
+    ``tool_errors.raise_classified_tool_error``).
     """
-    from mcp.server.mcpserver.exceptions import ToolError
+    from schwab_mcp.errors import AuthError
+    from schwab_mcp.tool_errors import raise_classified_tool_error
 
     try:
         return get_option_chain(
@@ -882,8 +886,8 @@ def get_option_chain_tool(
             dte_max=dte_max,
             extended=extended,
         )
-    except (ChainDataError, ValueError, TypeError) as exc:
-        raise ToolError(str(exc)) from exc
+    except (AuthError, ChainDataError, ValueError, TypeError) as exc:
+        raise_classified_tool_error(exc)
 
 
 # =============================================================================
@@ -1119,11 +1123,15 @@ def get_option_expiration_chain_tool(
 ) -> dict:
     """MCP tool wrapper around :func:`get_option_expiration_chain`.
 
-    Converts validation errors (``ValueError``/``TypeError``) into the MCP
-    SDK's ``ToolError`` so that the actionable message — not a generic
-    wrapper — reaches the agent (pattern: ``get_option_chain_tool``).
+    Converts validation errors (``ValueError``/``TypeError``) and the
+    auth-taxonomy errors (:class:`ConnectivityError`,
+    :class:`ReauthorizationRequiredError`) into the MCP SDK's ``ToolError``
+    so that the actionable message — not a generic wrapper — reaches the
+    agent (bug domain-errors-swallowed; pattern:
+    ``get_option_chain_tool``).
     """
-    from mcp.server.mcpserver.exceptions import ToolError
+    from schwab_mcp.errors import AuthError
+    from schwab_mcp.tool_errors import raise_classified_tool_error
 
     try:
         return get_option_expiration_chain(
@@ -1132,5 +1140,5 @@ def get_option_expiration_chain_tool(
             dte_max=dte_max,
             extended=extended,
         )
-    except (ValueError, TypeError) as exc:
-        raise ToolError(str(exc)) from exc
+    except (AuthError, ValueError, TypeError) as exc:
+        raise_classified_tool_error(exc)

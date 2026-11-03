@@ -1287,12 +1287,15 @@ def get_transaction_history_tool(
 ) -> TransactionsResult:
     """MCP tool wrapper around ``get_transaction_history``.
 
-    Converts validation errors (``ValueError``/``TypeError``) and
-    ``InstrumentNotFoundError`` into the MCP SDK's ``ToolError`` so that the
-    actionable message — not the SDK's generic wrapper text — reaches the
-    agent (FR-009d, SC-005, contracts/mcp-tools.md "Validation errors").
+    Converts validation errors (``ValueError``/``TypeError``),
+    ``InstrumentNotFoundError`` and the auth-taxonomy errors
+    (:class:`ConnectivityError`, :class:`ReauthorizationRequiredError`) into
+    the MCP SDK's ``ToolError`` so that the actionable message — not the
+    SDK's generic wrapper text — reaches the agent (FR-009d, SC-005,
+    bug domain-errors-swallowed; contracts/mcp-tools.md "Validation errors").
     """
-    from mcp.server.mcpserver.exceptions import ToolError
+    from schwab_mcp.errors import AuthError
+    from schwab_mcp.tool_errors import raise_classified_tool_error
 
     try:
         return get_transaction_history(
@@ -1303,5 +1306,5 @@ def get_transaction_history_tool(
             offset=offset,
             symbol=symbol,
         )
-    except (InstrumentNotFoundError, ValueError, TypeError) as exc:
-        raise ToolError(str(exc)) from exc
+    except (AuthError, InstrumentNotFoundError, ValueError, TypeError) as exc:
+        raise_classified_tool_error(exc)
