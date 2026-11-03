@@ -339,6 +339,102 @@ def chain_expiry_date(days_ahead: int, today=None) -> str:
 
 
 # =============================================================================
+# Option expiration-chain fixtures (feature 012 — provider key names pinned
+# in tests/unit/fixtures/expiration_chain_payloads.py)
+# =============================================================================
+
+
+def build_expiration_chain_payload(
+    entries,
+    **overrides,
+) -> dict:
+    """Build a provider ``option_expiration_chain`` payload (feature 012).
+
+    Provider shape (live capture 2026-11-03, data-model.md §2)::
+
+        {"status": null, "expirationList": [...]}
+
+    Each entry carries the provider fields pinned in
+    ``tests/unit/fixtures/expiration_chain_payloads.py`` (T002/T019 live
+    capture): the expiration date under ``expirationDate`` (``YYYY-MM-DD``
+    string), the provider day count under ``daysToExpiration`` (int — the
+    curated ``dte`` deliberately ignores it and is computed locally,
+    research R4), and the settlement kind under ``settlementType``
+    (provider string; live ``"P"`` for AAPL equity options — pm-settled).
+    The list key is ``expirationList`` (confirmed live; the evidence-pinned
+    candidate ``expirations`` was wrong) and the wrapper carries
+    ``status: null`` with no ``errorCode`` key.  Exact field names confirmed
+    against the live endpoint on 2026-11-03.
+
+    *entries* is an iterable of ``(expiration_date, days_to_expiration,
+    settlement_type)`` tuples in provider order; a tuple element passed as
+    ``None`` omits that provider field entirely (missing-field simulations —
+    values are never invented).  *overrides* replaces any top-level payload
+    key (e.g. ``status="failure"``).
+    """
+    expirations: list[dict] = []
+    for expiration_date, days_to_expiration, settlement_type in entries:
+        entry: dict = {}
+        if expiration_date is not None:
+            entry["expirationDate"] = expiration_date
+        if days_to_expiration is not None:
+            entry["daysToExpiration"] = days_to_expiration
+        if settlement_type is not None:
+            entry["settlementType"] = settlement_type
+        expirations.append(entry)
+    payload = {
+        "status": None,
+        "expirationList": expirations,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class FakeExpirationClient:
+    """Provider double for ``get_option_expiration_chain`` (feature 012).
+
+    Mirrors :class:`FakeChainClient` (tests/integration/test_options_chain.py)
+    and :class:`FakePriceHistoryClient`: serves *payload* from
+    ``option_expiration_chain(symbol)``, wrapped in a real
+    ``requests.Response`` via :func:`build_response` (the SDK does not
+    pre-parse JSON bodies).  *status* simulates a provider HTTP status
+    (e.g. 400 = the live "no options listed" shape); *error* raises instead
+    of answering (network-failure simulations); *delay* simulates network
+    latency.  Every upcall is recorded so tests can assert call counts and
+    arguments (fail-before-upcall and one-call-per-request, SC-004).
+    """
+
+    def __init__(
+        self,
+        payload: dict | None = None,
+        status: int = 200,
+        error: BaseException | None = None,
+        delay: float = 0.0,
+    ) -> None:
+        self._payload = payload if payload is not None else {}
+        self._status = status
+        self._error = error
+        self._delay = delay
+        self.expiration_chain_calls: list[dict] = []
+
+    @property
+    def call_count(self) -> int:
+        """Total provider upcalls recorded."""
+        return len(self.expiration_chain_calls)
+
+    def option_expiration_chain(self, symbol: str):
+        """Fake ``/marketdata/v1/expirationchain`` call — records and answers."""
+        self.expiration_chain_calls.append({"symbol": symbol})
+        if self._delay:
+            import time
+
+            time.sleep(self._delay)
+        if self._error is not None:
+            raise self._error
+        return build_response(self._payload, status=self._status)
+
+
+# =============================================================================
 # Release-packaging test infrastructure (feature 009)
 # =============================================================================
 

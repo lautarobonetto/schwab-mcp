@@ -6,8 +6,14 @@ fetch through the shared unwrapping/retry plumbing, curated mapping of the
 strike/DTE/delta-window selection, and the ok / no_options_listed /
 no_expirations_in_range result states.
 
+Also implements the ``get_option_expiration_chain`` domain (feature 012):
+the cheap expiration-chain listing of one underlying (expiration date, DTE,
+settlement type) with the same DTE-ceiling semantics.
+
 Design sources: specs/008-extract-option-chain/{spec.md,data-model.md,
-research.md,contracts/mcp-tools.md}.
+research.md,contracts/mcp-tools.md};
+specs/012-option-expiration-list/{spec.md,data-model.md,research.md,
+contracts/mcp-tools.md}.
 """
 
 from __future__ import annotations
@@ -818,4 +824,254 @@ def get_option_chain_tool(
             extended=extended,
         )
     except (ChainDataError, ValueError, TypeError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+# =============================================================================
+# Option expiration list (feature 012: get_option_expiration_chain)
+# =============================================================================
+
+
+def _fetch_expiration_chain(client: Any, query: OptionChainQuery) -> dict:
+    """Fetch the raw provider expiration-chain payload for *query*.
+
+    Validates first (no upcall before validation — FR-008 semantics), then
+    calls ``client.option_expiration_chain(symbol)`` through
+    ``tokens.retry_call`` + ``provider.response_json`` (shared unwrapping
+    and error taxonomy, research R3).  The SDK endpoint takes no filter
+    parameters (research R1), so the DTE ceiling is applied client-side
+    after fetch.  HTTP 400 after validation is the live "no options
+    listed" shape (research R6, the 008 finding of 2026-10-24) and maps to
+    ``{}``.  Provider failures surface as ``ConnectivityError`` (with the
+    taxonomy class as ``__cause__``), ``ReauthorizationRequiredError`` or
+    ``ValueError`` per the shared mapping.
+    """
+    query.validate()
+
+    response = retry_call(client.option_expiration_chain, 0, query.symbol)
+
+    # See fetch_option_chain: post-validation a 400 can only mean the
+    # symbol has no listed options — a structured no-data state, not a
+    # transport error.
+    if getattr(response, "status_code", None) == 400:
+        return {}
+
+    return retry_call(response_json, 0, response=response)
+
+
+def _expiration_entry(entry: dict, today: date) -> dict:
+    """Map one provider expiration entry to the curated shape (data-model §2).
+
+    ``expiration_date`` (provider ``expirationDate``) and ``settlement_type``
+    (provider ``settlementType``) pass through unmodified; a missing field
+    yields an explicit ``None`` — values are never invented (research R6).
+    ``dte`` is calendar days from *today* computed locally: the provider's
+    ``daysToExpiration`` is deliberately ignored (research R4, one DTE
+    definition across both tools).  An unparseable date keeps the entry with
+    a null ``dte`` — entries are never silently dropped (research R6).
+    """
+    raw_date = entry.get("expirationDate")
+    dte: int | None = None
+    if isinstance(raw_date, str):
+        try:
+            dte = (date.fromisoformat(raw_date) - today).days
+        except ValueError:
+            dte = None
+    return {
+        "expiration_date": raw_date,
+        "dte": dte,
+        "settlement_type": entry.get("settlementType"),
+    }
+
+
+def _expiration_sort_key(item: tuple[int, dict]) -> tuple[int, int, int]:
+    """Ascending ``expiration_date`` with provider order for ties (§2).
+
+    Entries without a parseable date cannot be ordered against dated ones
+    and sort last, keeping provider order among themselves.
+    """
+    index, entry = item
+    raw = entry["expiration_date"]
+    parsed: date | None = None
+    if isinstance(raw, str):
+        try:
+            parsed = date.fromisoformat(raw)
+        except ValueError:
+            parsed = None
+    if parsed is None:
+        return (1, 0, index)
+    return (0, parsed.toordinal(), index)
+
+
+def _map_expiration_list(
+    payload: dict,
+    query: OptionChainQuery,
+    today: date,
+) -> list[dict]:
+    """Build the curated ``expirations`` list from the provider payload.
+
+    Every provider entry is mapped (never dropped), the
+    ``dte ≤ dte_max_effective`` ceiling is applied (an entry whose ``dte``
+    is unknown cannot be proven out of range and is kept), and the result
+    is sorted per :func:`_expiration_sort_key`.  Same-date entries are kept
+    as separate rows distinguished by ``settlement_type`` — the data-model
+    §2 identity rule forbids merging or deduplication.
+    """
+    entries = payload.get("expirationList")
+    if not isinstance(entries, list):
+        return []
+    mapped = [
+        _expiration_entry(entry, today) for entry in entries if isinstance(entry, dict)
+    ]
+    kept = [
+        entry
+        for entry in mapped
+        if entry["dte"] is None or entry["dte"] <= query.dte_max_effective
+    ]
+    return [entry for _index, entry in sorted(enumerate(kept), key=_expiration_sort_key)]
+
+
+def _expiration_filters_echo(query: OptionChainQuery) -> dict:
+    """Applied-ceiling echo (data-model §2): ``dte_max_requested``/``effective``."""
+    return {
+        "dte_max_requested": query.dte_max,
+        "dte_max_effective": query.dte_max_effective,
+    }
+
+
+def build_expiration_result(
+    payload: dict,
+    query: OptionChainQuery,
+    today: date | None = None,
+) -> dict:
+    """Map a raw provider expiration-chain payload to the result (pure).
+
+    States (data-model §3): ``ok`` (at least one expiration inside the
+    ceiling), ``no_expirations_in_range`` (expirations exist but the ceiling
+    excludes every one — retryable, the detail names the effective cap),
+    ``no_options_listed`` (absent/empty ``expirations``, including the live
+    HTTP-400 shape ``{}`` — the underlying has no listed options).
+    """
+    query.validate()
+    today = today if today is not None else date.today()
+    meta = _result_meta(query, payload)
+
+    if not payload.get("expirationList"):
+        return {
+            **meta,
+            "outcome": "no_options_listed",
+            "detail": "no_options_listed: the underlying has no listed options",
+            "retryable": False,
+            "expirations": [],
+        }
+
+    expirations = _map_expiration_list(payload, query, today)
+
+    if not expirations:
+        return {
+            **meta,
+            "outcome": "no_expirations_in_range",
+            "detail": (
+                "no_expirations_in_range: "
+                f"dte_max_effective={query.dte_max_effective} "
+                "excludes all expirations"
+            ),
+            "retryable": True,
+            "filters": _expiration_filters_echo(query),
+            "expirations": [],
+            "expiration_count": 0,
+        }
+
+    return {
+        **meta,
+        "outcome": "ok",
+        "detail": None,
+        "retryable": None,
+        "filters": _expiration_filters_echo(query),
+        "expirations": expirations,
+        "expiration_count": len(expirations),
+    }
+
+
+def get_option_expiration_chain(
+    client: Any,
+    symbol: str,
+    dte_max: int | None = None,
+    extended: bool = False,
+) -> dict:
+    """List the upcoming expirations of *symbol* in one cheap call.
+
+    Returns the curated expiration list (date, DTE in calendar days,
+    settlement type) inside the same DTE-ceiling semantics as
+    :func:`get_option_chain` (``dte_max`` ≥ 1 replaces the 60-day default
+    and is echoed as ``dte_max_effective``).  Exactly one provider
+    invocation per request (SC-004); no strikes, quotes, or greeks
+    (FR-006).  Validation runs before any upcall; ``extended=True`` adds
+    the raw provider payload under ``"provider"`` (pattern 003/006/008).
+    """
+    auth_event("expiration_chain_query_start", "initiated", detail="starting")
+
+    query = OptionChainQuery(symbol=symbol, dte_max=dte_max)
+    try:
+        query.validate()
+    except (ValueError, TypeError):
+        auth_event(
+            "expiration_chain_query_failure", "validation", detail="invalid_query"
+        )
+        raise
+
+    try:
+        payload = _fetch_expiration_chain(client, query)
+        result = build_expiration_result(payload, query)
+    except ReauthorizationRequiredError:
+        auth_event(
+            "expiration_chain_query_failure", "reauth", detail="reauth_needed"
+        )
+        raise
+    except ConnectivityError:
+        auth_event(
+            "expiration_chain_query_failure",
+            "transient",
+            detail="provider_unreachable",
+        )
+        raise
+    except ValueError:
+        auth_event(
+            "expiration_chain_query_failure", "error", detail="provider_error"
+        )
+        raise
+
+    if extended:
+        result["provider"] = payload
+
+    auth_event(
+        "expiration_chain_query_success",
+        result["outcome"],
+        detail=result["detail"],
+    )
+    return result
+
+
+def get_option_expiration_chain_tool(
+    client: Any,
+    symbol: str,
+    dte_max: int | None = None,
+    extended: bool = False,
+) -> dict:
+    """MCP tool wrapper around :func:`get_option_expiration_chain`.
+
+    Converts validation errors (``ValueError``/``TypeError``) into the MCP
+    SDK's ``ToolError`` so that the actionable message — not a generic
+    wrapper — reaches the agent (pattern: ``get_option_chain_tool``).
+    """
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    try:
+        return get_option_expiration_chain(
+            client,
+            symbol,
+            dte_max=dte_max,
+            extended=extended,
+        )
+    except (ValueError, TypeError) as exc:
         raise ToolError(str(exc)) from exc

@@ -13,12 +13,13 @@ The project exposes **two surfaces**, with different roles:
 
 | Surface | How it is invoked | State in this version |
 |------------|----------------|------------------------|
-| MCP server `serve` | MCP client connects over **stdio** | Active transport; **5 tools registered** (`get_open_positions`, `get_transaction_history`, `get_option_chain`, `get_quotes` and `get_price_history`) |
+| MCP server `serve` | MCP client connects over **stdio** | Active transport; **6 tools registered** (`get_open_positions`, `get_transaction_history`, `get_option_chain`, `get_quotes`, `get_price_history` and `get_option_expiration_chain`) |
 | One-shot CLI | The agent runs `schwab-mcp <command>` through the shell | **The agent's main surface** today |
 
 The tools ``get_open_positions``, ``get_transaction_history``,
-``get_option_chain``, ``get_quotes`` and ``get_price_history``
-(first, second, third, fourth and fifth MCP tools registered)
+``get_option_chain``, ``get_quotes``, ``get_price_history`` and
+``get_option_expiration_chain``
+(first, second, third, fourth, fifth and sixth MCP tools registered)
 are available through the ``serve`` server, complementing the
 one-shot commands described below.
 
@@ -984,6 +985,148 @@ outputs.
 
 ---
 
+## `get_option_expiration_chain` (sixth MCP tool)
+
+Sixth MCP tool registered by the `serve` server (feature
+`012-option-expiration-list`). Lists the upcoming option expirations of
+**one underlying** in a single cheap call: expiration date, DTE (calendar
+days) and settlement type — no strikes, quotes, or greeks. Read-only:
+places no orders and moves no money.
+
+### Invocation
+
+```json
+{"name": "get_option_expiration_chain", "arguments": {"symbol": "AAPL"}}
+```
+
+### Arguments (input schema)
+
+| Field | Type | Default | Semantics |
+|-------|------|---------|-----------|
+| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces; passed as-is to the provider. |
+| `dte_max` | int \| null | `null` | If present: ≥ 1 (calendar days) — replaces the 60-day default ceiling. **`null` does not mean "no ceiling"**: it applies the current 60-day ceiling (FR-005 semantics shared with `get_option_chain`). No hard upper limit: `365` is accepted. |
+| `extended` | bool | `false` | `false` (default): compact curated set. `true`: adds `provider` with the raw provider payload (003/006/008 pattern). |
+
+No other parameters are accepted: `max_strikes`, `option_type`, and
+`delta_target` are `get_option_chain` concerns and are rejected here.
+
+### Output schema (curated)
+
+Exactly one result object per invocation:
+
+```json
+{"symbol": "AAPL", "generated_at": "…", "outcome": "ok",
+ "detail": null, "retryable": null,
+ "filters": {"dte_max_requested": null, "dte_max_effective": 60},
+ "expirations": [{"expiration_date": "2026-11-06", "dte": 3,
+                  "settlement_type": "C"}],
+ "expiration_count": 1}
+```
+
+- `expirations` is ascending by `expiration_date`; same-date entries are
+  kept as separate rows distinguished by `settlement_type` — **never
+  merged** (index underlyings such as SPX carry AM/PM settlement on one
+  date).
+- `dte` is calendar days from today — the same definition as
+  `get_option_chain`. The provider's own day count is not reused.
+- `settlement_type` passes through verbatim (`C` close-settled,
+  `P`/`A` PM/AM index settlement); explicit `null` when the provider omits
+  it. Values are never invented; entries are never silently dropped
+  (missing fields surface as explicit `null`).
+- `expiration_count` equals `len(expirations)` (present on `ok` and
+  `no_expirations_in_range`).
+
+### Outcomes
+
+| `outcome` | When | `retryable` |
+|-----------|------|-------------|
+| `ok` | at least one expiration inside the ceiling | `null` |
+| `no_expirations_in_range` | expirations exist but all have `dte > dte_max_effective`; `detail` names the cap; `expirations: []` | `true` |
+| `no_options_listed` | the provider rejects the symbol (HTTP 400) — no listed options | `false` |
+
+Source failures surface through the shared standard mapping (below):
+`provider_error`, `unauthorized`, `transient_provider_failure`.
+
+### Validation errors (standard MCP tool error, no upcalls)
+
+All occur **before any upcall** with an actionable message naming the
+parameter and the constraint:
+
+| Condition | Expected message |
+|-----------|------------------|
+| `symbol` empty or whitespace only | Names `symbol` and the non-empty constraint |
+| `symbol` with internal spaces | Names `symbol` and the constraint |
+| `dte_max ≤ 0` | Names `dte_max` and `>= 1` |
+| `dte_max` non-integer (including `true`) | Names `dte_max` and the integer constraint |
+| unknown parameter (e.g. `max_strikes`) | Names the parameter |
+
+### Agent guidance (normative)
+
+1. `dte_max` is a ceiling, NOT a minimum — there is no `dte_min`. To find
+   expirations with **DTE ≥ N**, request the maximum window you accept and
+   filter client-side using `expirations[].dte`.
+2. `dte_max: null` applies the 60-day default (verifiable in
+   `filters.dte_max_effective`) — exactly like `get_option_chain`.
+3. Prefer this tool over `get_option_chain` whenever the question is
+   "which expirations exist?" — it costs hundreds of tokens instead of
+   thousands to ~110k. Follow up with a targeted `get_option_chain` query
+   (`dte_max`, `delta_target`, `max_strikes`) for the chosen expiration.
+4. Same-date duplicate entries (index underlyings, e.g. SPX AM/PM
+   settlement) are intentional: pick the entry whose `settlement_type`
+   matches your analysis.
+5. `extended=true` is for debugging/schema discovery only — payloads are
+   larger and provider fields are unstable.
+
+### Budgets (Principle V)
+
+| Budget | Target |
+|--------|--------|
+| Latency | ≤ 5 s p95 per invocation (one provider call) |
+| Curated default response (representative ~12-entry fixture) | ≤ 1,000 tokens (SC-001) |
+| Dense worst case (60 entries, index-style near-daily) | ≤ 1,100 tokens (recorded ceiling) |
+| Provider invocations | exactly 1 per request (SC-004, test-enforced) |
+
+Enforced by `tests/performance/test_option_expirations_budgets.py` (token
+estimator `len(json.dumps(..., separators=(",", ":"))) / 4`). The token
+budget is asserted on a **representative 12-entry fixture** (the shape of
+every real underlying) — the dense worst case has its own recorded ceiling.
+
+**Recorded growth justification** (Principle V): the dense 60-entry worst
+case measures ~1,008 tokens, 0.8% over the draft estimate of ≤ 1,000.
+The entry size was underestimated in the design phase (52 chars vs 63
+chars measured). SC-001's "< 1,000 tokens" holds for every real
+underlying; the dense worst case is a synthetic ceiling above any real
+shape. The full justification is recorded in
+[`specs/012-option-expiration-list/plan.md`](../specs/012-option-expiration-list/plan.md)
+(Complexity Tracking).
+
+### Audit events
+
+`expiration_chain_query_start` (initiated) →
+`expiration_chain_query_success` (`ok`, `no_options_listed`,
+`no_expirations_in_range`) or `expiration_chain_query_failure`
+(`validation`, `transient`, `reauth`, `error`), mirroring the
+`get_option_chain` event pattern. No credentials in events or outputs.
+
+### Guarantees
+
+- **Read-only**: market metadata only, no orders, no money movements.
+- **No secrets** in the output or in the audit events.
+- **No invented values**: missing provider fields surface as explicit
+  `null`; entries are never silently dropped.
+- **One provider call** per invocation; no pagination.
+
+### Reference
+
+- Full contract:
+  [`specs/012-option-expiration-list/contracts/mcp-tools.md`](../specs/012-option-expiration-list/contracts/mcp-tools.md)
+- Data model:
+  [`specs/012-option-expiration-list/data-model.md`](../specs/012-option-expiration-list/data-model.md)
+- Usage scenarios:
+  [`specs/012-option-expiration-list/quickstart.md`](../specs/012-option-expiration-list/quickstart.md)
+
+---
+
 ## `schwab-mcp renew`
 
 Explicit renewal of the access credential using the stored refresh
@@ -1221,4 +1364,10 @@ Interpretation:
   [specs/011-price-history-ohlcv/data-model.md](../specs/011-price-history-ohlcv/data-model.md)
 - Price history validation guide:
   [specs/011-price-history-ohlcv/quickstart.md](../specs/011-price-history-ohlcv/quickstart.md)
+- MCP tool contract for ``get_option_expiration_chain``:
+  [specs/012-option-expiration-list/contracts/mcp-tools.md](../specs/012-option-expiration-list/contracts/mcp-tools.md)
+- Option expiration list data model:
+  [specs/012-option-expiration-list/data-model.md](../specs/012-option-expiration-list/data-model.md)
+- Option expiration list validation guide:
+  [specs/012-option-expiration-list/quickstart.md](../specs/012-option-expiration-list/quickstart.md)
 - [Usage guide](./usage.md) · [Installation guide](./installation.md)

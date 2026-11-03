@@ -1471,3 +1471,113 @@ class TestPriceHistoryToolNoSecrets:
         assert result["outcome"] == "provider_unreachable"
         assert result["symbol"] == "SPY"
         self._assert_clean(result, "provider_unreachable JSON with symbol")
+
+
+# =============================================================================
+# get_option_expiration_chain tool (feature 012) — credential safety
+# =============================================================================
+
+
+class TestExpirationChainToolNoSecrets:
+    """Every outcome form of ``get_option_expiration_chain`` — and its audit
+    events — carry zero registered secrets and no account identifiers
+    (constitution Credential Safety).
+
+    Covers: ``ok`` curated, ``ok`` extended (raw provider channel),
+    ``no_expirations_in_range``, ``no_options_listed``, plus the real
+    ``expiration_chain_query_*`` event lines.
+    """
+
+    def _register(self) -> None:
+        clear_secrets()
+        for secret in SECRET_MATERIAL:
+            register_secret(secret)
+
+    def _client(self, **kwargs):
+        from tests.unit.helpers import (
+            FakeExpirationClient,
+            build_expiration_chain_payload,
+            chain_expiry_date,
+        )
+
+        kwargs.setdefault(
+            "payload",
+            build_expiration_chain_payload(
+                [(chain_expiry_date(7), 7, "C"), (chain_expiry_date(30), 30, "C")]
+            ),
+        )
+        return FakeExpirationClient(**kwargs)
+
+    def _assert_clean_text(self, text: str, where: str) -> None:
+        for secret in SECRET_MATERIAL:
+            assert secret not in text, f"Secret {secret!r} leaked into {where}"
+        for marker in ("accountnumber", "account_number", "account_hash"):
+            assert marker not in text.lower(), (
+                f"Account identifier {marker!r} leaked into {where}"
+            )
+
+    def _assert_clean(self, result: dict, where: str) -> None:
+        import json as _json
+
+        self._assert_clean_text(_json.dumps(result), where)
+
+    def test_ok_curated_has_no_secrets(self) -> None:
+        from schwab_mcp.options_chain import get_option_expiration_chain
+
+        self._register()
+        result = get_option_expiration_chain(self._client(), "TEST")
+        assert result["outcome"] == "ok"
+        self._assert_clean(result, "ok curated expiration-chain JSON")
+
+    def test_ok_extended_has_no_secrets(self) -> None:
+        """The raw provider channel (``provider``) is clean as well."""
+        from schwab_mcp.options_chain import get_option_expiration_chain
+
+        self._register()
+        client = self._client()
+        result = get_option_expiration_chain(client, "TEST", extended=True)
+        assert result["outcome"] == "ok"
+        assert "provider" in result
+        self._assert_clean(result, "ok extended expiration-chain JSON")
+        self._assert_clean_text(str(result["provider"]), "raw provider payload")
+
+    def test_no_expirations_in_range_has_no_secrets(self) -> None:
+        from tests.unit.helpers import (
+            build_expiration_chain_payload,
+            chain_expiry_date,
+        )
+
+        from schwab_mcp.options_chain import get_option_expiration_chain
+
+        self._register()
+        client = self._client(
+            payload=build_expiration_chain_payload(
+                [(chain_expiry_date(365), 365, "C")]
+            )
+        )
+        result = get_option_expiration_chain(client, "TEST")
+        assert result["outcome"] == "no_expirations_in_range"
+        self._assert_clean(result, "no_expirations_in_range JSON")
+
+    def test_no_options_listed_has_no_secrets(self) -> None:
+        from schwab_mcp.options_chain import get_option_expiration_chain
+
+        self._register()
+        client = self._client(payload={}, status=400)
+        result = get_option_expiration_chain(client, "ZZZZZZ")
+        assert result["outcome"] == "no_options_listed"
+        self._assert_clean(result, "no_options_listed JSON")
+
+    def test_audit_event_lines_have_no_secrets(self, capsys) -> None:
+        """Real ``expiration_chain_query_*`` lines on stderr carry zero
+        secrets (redaction as defense-in-depth)."""
+        from schwab_mcp.options_chain import get_option_expiration_chain
+
+        self._register()
+        with pytest.raises(ValueError):
+            get_option_expiration_chain(self._client(), "TEST", dte_max=0)
+
+        stderr = capsys.readouterr().err
+        assert "expiration_chain_query_start" in stderr
+        assert "expiration_chain_query_failure" in stderr
+        self._assert_clean_text(stderr, "expiration_chain_query_* events")

@@ -6,6 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.0] - 2026-11-03
+
+Sixth MCP tool `get_option_expiration_chain` (feature 012): the upcoming
+option expirations of one underlying — expiration date, DTE (calendar
+days), settlement type — in one cheap call, with the `get_option_chain`
+DTE-ceiling semantics (MINOR bump per SemVer).
+
+### Added
+
+- **`get_option_expiration_chain` tool (feature 012)**: sixth MCP tool
+  registered by `schwab-mcp serve` — the ordered list of upcoming option
+  expirations of **exactly one underlying** per invocation (expiration
+  date, DTE in calendar days, settlement type), curated-first with no
+  strikes, quotes, or greeks. `dte_max` behaves exactly like
+  `get_option_chain` (≥ 1 replaces the 60-day default ceiling, no hard
+  upper limit) and is echoed as `filters.dte_max_effective`;
+  `dte_max: null` applies the 60-day default, verifiable in the same
+  echo. Structured empty outcomes follow the shared envelope:
+  `no_expirations_in_range` (retryable; `detail` names the effective cap)
+  and `no_options_listed` (the live HTTP-400 shape for underlyings with no
+  listed options). Same-date entries (e.g. SPX AM/PM settlement) are kept
+  as separate rows distinguished by `settlement_type` — never merged —
+  and missing provider fields surface as explicit `null` (values are
+  never invented, entries never silently dropped). `extended=true` adds
+  the raw provider payload beside the curated list. Reuses the 008
+  validated query (`OptionChainQuery`), fetch plumbing, outcome envelope,
+  and ToolError pattern — no second surface; exactly one provider call
+  per invocation (SC-004). Budgets (Principle V): ≤ 1,000 tokens for the
+  curated default response, test-enforced on a dense 60-entry worst-case
+  fixture, and ≤ 5 s p95 latency. Audit events
+  `expiration_chain_query_start` / `expiration_chain_query_success` /
+  `expiration_chain_query_failure` (no credentials in any output). The
+  provider field-name fixture was first pinned from best-available
+  evidence (the token store needed `schwab-mcp auth`), then **confirmed
+  and corrected against the live endpoint on 2026-11-03** (T019): the
+  list key is `expirationList` (not `expirations`), `status` is `null`
+  with no `errorCode` key, and the curated field names
+  (`expirationDate`, `daysToExpiration`, `settlementType`) are
+  live-confirmed; `daysToExpiration` verified as calendar days. Docs: tool
+  section in `docs/tools.md`; contract and data model in
+  `specs/012-option-expiration-list/`.
+
 ## [0.8.2] - 2026-11-03
 
 ### Fixed

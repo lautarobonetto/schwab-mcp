@@ -31,7 +31,7 @@ marks belong to their respective owners.
 
 ## Tools
 
-The MCP server (`schwab-mcp serve`) exposes **five read-only tools**:
+The MCP server (`schwab-mcp serve`) exposes **six read-only tools**:
 
 | Tool | What it does |
 |------|--------------|
@@ -40,6 +40,7 @@ The MCP server (`schwab-mcp serve`) exposes **five read-only tools**:
 | `get_option_chain` | Full option chain of an underlying in one call, with strike, delta, and DTE filters, including the Greeks. |
 | `get_quotes` | Current quotes for 1..20 symbols (equities, ETFs, indexes, option contracts) in one call: last, bid/ask, volume, net change, freshness, last-trade time. |
 | `get_price_history` | OHLCV candles for one symbol at 5m/15m/30m/1h/daily/weekly with named period presets (default: daily, 1 month; at most 260 candles per call), extended-hours opt-in for intraday, and an in-progress marker on the forming candle. |
+| `get_option_expiration_chain` | The upcoming option expirations of one underlying in one cheap call: expiration date, DTE (calendar days), and settlement type — no strikes, quotes, or Greeks; DTE-ceiling semantics shared with `get_option_chain`. |
 
 Every tool returns a structured JSON result with an explicit `outcome`
 (`ok`, `transient_failure`, `reauth_required`, …), so an agent can act

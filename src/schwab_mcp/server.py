@@ -283,6 +283,37 @@ def run_serve() -> None:
         ),
     )
 
+    # Register the get_option_expiration_chain tool (012-option-expiration-list).
+    from schwab_mcp.options_chain import (
+        get_option_expiration_chain_tool as _get_option_expiration_chain,
+    )
+
+    def _get_option_expiration_chain_wrapper(
+        symbol: str,
+        dte_max: int | None = None,
+        extended: bool = False,
+    ) -> object:
+        return _get_option_expiration_chain(
+            client,
+            symbol=symbol,
+            dte_max=dte_max,
+            extended=extended,
+        )
+
+    _get_option_expiration_chain_wrapper.__name__ = "get_option_expiration_chain"
+    _get_option_expiration_chain_wrapper.__qualname__ = "get_option_expiration_chain"
+    mcp.add_tool(
+        _get_option_expiration_chain_wrapper,
+        name="get_option_expiration_chain",
+        description=(
+            "List the upcoming option expirations of ONE underlying in a "
+            "single cheap call: expiration date, DTE (calendar days) and "
+            "settlement type, inside the get_option_chain DTE ceiling "
+            "(dte_max >= 1, default 60). No strikes, quotes, or greeks; "
+            "use extended=true for full provider passthrough."
+        ),
+    )
+
     # Run the stdio transport — this call blocks until the server exits.
     try:
         asyncio.run(mcp.run_stdio_async())

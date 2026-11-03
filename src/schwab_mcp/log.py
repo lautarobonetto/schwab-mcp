@@ -24,6 +24,9 @@ ALLOWED_EVENTS = frozenset({
     "options_chain_query_start",
     "options_chain_query_success",
     "options_chain_query_failure",
+    "expiration_chain_query_start",
+    "expiration_chain_query_success",
+    "expiration_chain_query_failure",
     "quotes_query_start",
     "quotes_query_failure",
     "price_history_query_start",
@@ -51,6 +54,18 @@ _ALLOWED_OUTCOMES = {
         "no_expirations_in_range",
     },
     "options_chain_query_failure": {
+        "transient",
+        "reauth",
+        "validation",
+        "error",
+    },
+    "expiration_chain_query_start": {"initiated"},
+    "expiration_chain_query_success": {
+        "ok",
+        "no_options_listed",
+        "no_expirations_in_range",
+    },
+    "expiration_chain_query_failure": {
         "transient",
         "reauth",
         "validation",
