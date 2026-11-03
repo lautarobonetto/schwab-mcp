@@ -56,7 +56,7 @@ in 001/002 to validate access; no need to call it separately here.
 | `quantity` (signed) | `longQuantity - shortQuantity` |
 | `average_price` | `averagePrice` |
 | `market_value` | `marketValue` |
-| `unrealized_pl` | derived: `marketValue - (averagePrice × |quantity|) × sign(quantity)`; verified against `currentDayProfitLoss` when the provider provides it |
+| `unrealized_pl` | derived: `marketValue - (averagePrice × |quantity|) × sign(quantity)`; verified against `currentDayProfitLoss` when the provider provides it. **Corrected 2026-11-03** (bug `option-upl-multiplier`): the cost-basis term must include the contract multiplier — `marketValue - averagePrice × quantity × multiplier`, with `multiplier = 100` for `assetType == "OPTION"` and `1` otherwise. `marketValue` is already dollarized while `averagePrice` is the per-unit quote price; the original formula was only correct for equities and understated the term ×100 for every option position |
 | `price_timestamp` | see D4 |
 | `account_hash` | hash of the account holding the position (opaque, safe to display; never the raw account number) |
 | Options only: `underlying_symbol`, `put_call`, `strike_price`, `expiration_date` | `instrument.underlyingSymbol`, `instrument.putCall`, `instrument.strikePrice`, `instrument.expiration*` |

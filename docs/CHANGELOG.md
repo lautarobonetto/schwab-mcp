@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Fixed
+
+- **`get_open_positions` no longer ignores the option contract multiplier
+  in `unrealized_pl`** (bug `option-upl-multiplier`, 2026-11-03): the P/L
+  was computed as `marketValue - averagePrice × quantity`, but
+  `marketValue` is already dollarized (includes the ×100 contract
+  multiplier) while `averagePrice` is the per-unit quote price — the
+  cost-basis term was understated ×100 for every option position, wrong
+  on all options and able to flip the sign of winning short legs (live
+  evidence: XSP 805C short reported −$183.13 instead of +$200.34; SPX
+  7705P short reported −$21,093.76 instead of −$6,616.29). The formula is
+  now `marketValue - averagePrice × quantity × multiplier` with
+  `multiplier = 100` for `assetType == "OPTION"`, `1` otherwise; equities
+  are unchanged. Regression tests pin the live-observed SPX/XSP figures
+  (short leg, long leg, sign-flip case) at the mapping and
+  transform-payload levels.
+
 ## [0.9.0] - 2026-11-03
 
 Sixth MCP tool `get_option_expiration_chain` (feature 012): the upcoming

@@ -243,13 +243,19 @@ def _compute_unrealized_pl(
     market_value: float,
     average_price: float,
     quantity: float,
+    asset_type: str = "EQUITY",
 ) -> float:
-    """Compute unrealized P/L per research D3.
+    """Compute unrealized P/L per research D3 (bug option-upl-multiplier).
 
-    Formula: ``marketValue - (averagePrice × |quantity|) × sign(quantity)``
-    which simplifies to ``market_value - average_price * quantity``.
+    Formula: ``marketValue - (averagePrice × multiplier × |quantity|) × sign(quantity)``
+    which simplifies to ``market_value - average_price * quantity * multiplier``.
+
+    ``marketValue`` is already dollarized (includes the option contract
+    multiplier) while ``averagePrice`` is the per-unit quote price, so the
+    cost-basis term needs the multiplier: 100 for options, 1 otherwise.
     """
-    return market_value - average_price * quantity
+    multiplier = 100.0 if asset_type == "OPTION" else 1.0
+    return market_value - average_price * quantity * multiplier
 
 
 def utc_now_iso() -> str:
@@ -357,7 +363,9 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
                     "average_price_sum": average_price,
                     "count": 1,
                     "market_value": market_value,
-                    "unrealized_pl": _compute_unrealized_pl(market_value, average_price, quantity),
+                    "unrealized_pl": _compute_unrealized_pl(
+                        market_value, average_price, quantity, instrument_type_str,
+                    ),
                     "price_timestamp": retrieved_at,
                     "underlying_symbol": underlying_symbol,
                     "put_call": put_call_str,
@@ -389,6 +397,7 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
             "market_value": data["market_value"],
             "unrealized_pl": _compute_unrealized_pl(
                 data["market_value"], data["average_price"], data["quantity"],
+                data["instrument_type"],
             ),
             "price_timestamp": data["price_timestamp"],
         }
@@ -647,6 +656,7 @@ def _transform_provider_payload(
                     pos.get("marketValue", 0.0),
                     pos.get("averagePrice", 0.0),
                     pos.get("longQuantity", 0.0) - pos.get("shortQuantity", 0.0),
+                    instrument.get("assetType", "EQUITY"),
                 ),
             }
 

@@ -1057,6 +1057,161 @@ class TestMapProviderPositionsOptionExtended:
 
 
 # =============================================================================
+# Unrealized P/L contract-multiplier regression (bug option-upl-multiplier)
+# =============================================================================
+
+
+class TestUnrealizedPlOptionMultiplier:
+    """``unrealized_pl`` must include the option contract multiplier (×100).
+
+    Regression tests for bug ``option-upl-multiplier``: the cost-basis term
+    ``average_price × quantity`` was computed without the contract
+    multiplier while ``market_value`` is already dollarized, understating
+    the term ×100 for every option position (and flipping the sign of
+    winning short legs). Figures are the live-observed values from
+    2026-11-03 (account ``...5105``).
+    """
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _option_payload(positions: list[dict]) -> dict:
+        """Wrap flat option position dicts into a fake provider payload."""
+        return {
+            "accounts": [{"accountHash": "acc5105", "positions": positions}],
+            "retrieved_at": "2026-11-03T17:59:52+00:00",
+        }
+
+    # ------------------------------------------------------------------
+    # tests
+    # ------------------------------------------------------------------
+
+    def test_compute_unrealized_pl_option_vs_equity(self) -> None:
+        """Direct unit test: OPTION applies ×100, EQUITY applies ×1."""
+        from schwab_mcp.positions import _compute_unrealized_pl
+
+        # market 212.40 points, avg 146.2371, 1 short contract
+        assert _compute_unrealized_pl(-21240.0, 146.2371, -1.0, asset_type="OPTION") == pytest.approx(-6616.29)
+        # Same numbers with multiplier 1 would be -21093.7629 (the bug)
+        assert _compute_unrealized_pl(-21240.0, 146.2371, -1.0, asset_type="EQUITY") == pytest.approx(-21093.7629)
+
+    def test_unrealized_pl_option_short_leg(self) -> None:
+        """SPX 7705P short: (146.2371 − 212.40) × 1 × 100 = −6,616.29."""
+        from schwab_mcp.positions import map_provider_positions
+
+        payload = self._option_payload([
+            {
+                "symbol": "SPXW 261218P07705000",
+                "assetType": "OPTION",
+                "description": "SPX 12/18/2026 7705 P",
+                "longQuantity": 0.0,
+                "shortQuantity": 1.0,
+                "averagePrice": 146.2371,
+                "marketValue": -21240.00,
+                "underlyingSymbol": "$SPX",
+                "putCall": "PUT",
+                "strikePrice": 7705.0,
+                "expirationDate": "2026-12-18",
+            },
+        ])
+
+        result = map_provider_positions(payload)
+        assert len(result.positions) == 1
+        assert result.positions[0].unrealized_pl == pytest.approx(-6616.29)
+
+    def test_unrealized_pl_option_long_leg(self) -> None:
+        """SPX 7695P long: 20745 − 142.7129 × 1 × 100 = +6,473.71."""
+        from schwab_mcp.positions import map_provider_positions
+
+        payload = self._option_payload([
+            {
+                "symbol": "SPXW 261218P07695000",
+                "assetType": "OPTION",
+                "description": "SPX 12/18/2026 7695 P",
+                "longQuantity": 1.0,
+                "shortQuantity": 0.0,
+                "averagePrice": 142.7129,
+                "marketValue": 20745.00,
+                "underlyingSymbol": "$SPX",
+                "putCall": "PUT",
+                "strikePrice": 7695.0,
+                "expirationDate": "2026-12-18",
+            },
+        ])
+
+        result = map_provider_positions(payload)
+        assert len(result.positions) == 1
+        assert result.positions[0].unrealized_pl == pytest.approx(6473.71)
+
+    def test_unrealized_pl_option_short_sign_flip(self) -> None:
+        """XSP 805C short in profit: −187 − 3.8734 × (−1) × 100 = +200.34.
+
+        The buggy formula reported −183.13 (sign flipped) for this leg.
+        """
+        from schwab_mcp.positions import map_provider_positions
+
+        payload = self._option_payload([
+            {
+                "symbol": "XSP 261218C00805000",
+                "assetType": "OPTION",
+                "description": "XSP 12/18/2026 805 C",
+                "longQuantity": 0.0,
+                "shortQuantity": 1.0,
+                "averagePrice": 3.8734,
+                "marketValue": -187.00,
+                "underlyingSymbol": "XSP",
+                "putCall": "CALL",
+                "strikePrice": 805.0,
+                "expirationDate": "2026-12-18",
+            },
+        ])
+
+        result = map_provider_positions(payload)
+        assert len(result.positions) == 1
+        assert result.positions[0].unrealized_pl == pytest.approx(200.34)
+
+    def test_transform_payload_option_upl_multiplied(self) -> None:
+        """``_transform_provider_payload`` bakes the multiplier into ``unrealizedPL``.
+
+        The raw provider payload carries ``assetType`` inside the
+        ``instrument`` sub-object; the internal flat entry must already be
+        dollarized so downstream mapping stays multiplier-correct.
+        """
+        from schwab_mcp.positions import _transform_provider_payload
+
+        provider_payload = {
+            "accountDetails": [
+                {
+                    "accountNumber": "5105",
+                    "accountHash": "acc5105",
+                    "positions": [
+                        {
+                            "instrument": {
+                                "symbol": "SPXW 261218P07705000",
+                                "assetType": "OPTION",
+                                "description": "SPX 12/18/2026 7705 P",
+                                "underlyingSymbol": "$SPX",
+                                "putCall": "PUT",
+                            },
+                            "longQuantity": 0.0,
+                            "shortQuantity": 1.0,
+                            "averagePrice": 146.2371,
+                            "marketValue": -21240.00,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        internal = _transform_provider_payload(provider_payload, "2026-11-03T17:59:52+00:00")
+        entry = internal["accounts"][0]["positions"][0]
+        assert entry["assetType"] == "OPTION"
+        assert entry["unrealizedPL"] == pytest.approx(-6616.29)
+
+
+# =============================================================================
 # Multi-account handling at mapping level (US3)
 # =============================================================================
 
