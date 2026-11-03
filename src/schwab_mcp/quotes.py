@@ -93,9 +93,10 @@ def _classify(symbol: str) -> tuple[str, str] | None:
     """Classify one normalized symbol as ``(kind, provider_form)``.
 
     Returns ``None`` when the symbol matches no kind grammar (the caller
-    reports ``malformed_symbol``).  Index and equity/ETF symbols travel
-    to the provider as requested; option contracts are rewritten to the
-    canonical OCC form above.
+    reports ``malformed_symbol``).  Index symbols travel to the provider
+    as requested; equity/ETF class shares (embedded dot) are rewritten
+    to the provider's slash form (live probe 2026-11-02); option
+    contracts are rewritten to the canonical OCC form above.
     """
     if _INDEX_RE.match(symbol):
         return "index", symbol
@@ -109,7 +110,12 @@ def _classify(symbol: str) -> tuple[str, str] | None:
             return "option", provider
         return None
     if _EQUITY_RE.match(symbol) and symbol.count(".") <= 1:
-        return "equity", symbol
+        # Class shares (embedded dot) resolve at the provider ONLY in the
+        # slash form (live probe 2026-11-02: ``BRK/B``/``HEI/A``/``BF/B``/
+        # ``LEN/B`` -> candles + quotes; the dotted form -> not_found /
+        # empty candles).  The agent-facing echo stays the dotted request
+        # form; this translation is provider-internal.
+        return "equity", symbol.replace(".", "/")
     return None
 
 

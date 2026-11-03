@@ -21,6 +21,11 @@ exclusively via `schwab-mcp serve`.
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 | Index | `\$[A-Z0-9]{1,5}` | `$SPX`, `$VIX` |
 
+Class-share equities (embedded `.`) are rewritten to the provider's
+**slash form** at the upcall (`BRK.B` → `BRK/B`; live probe
+2026-11-02: the dotted form returns `not_found` / empty candles).  The
+request/echo/error envelopes keep the dotted agent-facing form.
+
 Option-contract symbols are rejected at validation
 (`unsupported_symbol_kind`): the provider price-history endpoint serves
 underlyings, not option contracts (research D9).

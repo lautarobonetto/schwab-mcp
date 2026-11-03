@@ -22,6 +22,11 @@ list (the tool surface remains one tool for 1..N — FR-001).
 | Option contract | `[A-Z0-9.]{1,6}([ _])?(YYMMDD)(C\|P)([0-9]+(\.[0-9]+)?)` | `AAPL 261127C350`, `AAPL_261127P350.5` |
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 
+Class-share equities (embedded `.`) are rewritten to the provider's
+**slash form** at the upcall (`BRK.B` → `BRK/B`; live probe
+2026-11-02: the dotted form returns `not_found`).  The display symbol
+and error keys keep the dotted agent-facing form.
+
 Validation errors (before any upcall, FR-005/FR-007/FR-013): empty symbol
 list, a symbol matching none of the grammars (`errors[symbol] =
 "malformed_symbol"`), distinct count > 20 (structured error stating the

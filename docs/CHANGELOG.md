@@ -55,6 +55,31 @@ one symbol per invocation, with named period presets under a global
 
 ### Fixed
 
+- **Class-share symbols resolve at the provider** (bug
+  `dot-class-symbols-unresolved`, 2026-11-03): symbols with an
+  embedded dot denoting the share class (`BRK.B`, `HEI.A`, `BF.B`,
+  `LEN.B`) passed validation in both `get_quotes` and
+  `get_price_history`, but the provider resolved none of them —
+  quotes answered `not_found` and price history returned
+  `history_unavailable`, and the hyphen spelling was rejected by the
+  grammar, leaving class shares unreachable. A controlled live probe
+  (2026-11-03) established that the provider resolves class shares
+  only in slash form (`BRK/B` → candles and quotes; `BRK-B`, `BRK B`,
+  `brk.b`, and padded forms → empty). The equity branch of
+  `_classify` (`src/schwab_mcp/quotes.py`, the shared symbol source
+  of truth) now rewrites the dotted agent-facing form to the slash
+  form at the upcall, and `get_price_history`
+  (`src/schwab_mcp/price_history.py`) sends that provider form
+  instead of the raw normalized symbol. Everything agent-facing is
+  unchanged: envelopes, echoes, and error keys keep the requested
+  dotted form, and the input grammar is untouched (`BRK-B` and
+  two-dot spellings still `malformed_symbol`). Documented in
+  `docs/tools.md` (both symbol-grammar sections) and the feature
+  010/011 contracts. Tests:
+  `tests/unit/test_quotes_validation.py` (classification mapping and
+  quotes-upcall pin), `tests/unit/test_price_history_validation.py`
+  (provider-form upcall with preserved echo).
+
 - **OAuth authorization with trailing-slash callbacks**: the
   compatibility shim for `schwabdev`'s callback validation restored the
   exact registered URL only *after* client initialization, but

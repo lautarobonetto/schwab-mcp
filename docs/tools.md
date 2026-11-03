@@ -655,6 +655,12 @@ compact output by default, the complete raw provider payload on request.
 | Option contract | root (≤ 6 chars, `.` allowed) + optional separator (` `/`_`) + `YYMMDD` + `C`/`P` + strike (literal, or 8-digit OCC-encoded) | `AAPL 261127C350`, `AAPL_261127P350.5`, `AAPL  261028C00345000` |
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 
+Equity/ETF **class shares** (embedded `.`) resolve at the provider only
+in **slash form**: the upcall rewrites `BRK.B` → `BRK/B` (live probe
+2026-11-02 — the dotted form returns `not_found` / empty candles).
+Envelopes, errors, and echoes keep the requested dotted form; agents
+never send the slash form themselves.
+
 Option-contract symbols are quoted by their **canonical OCC form**
 (root padded to six columns + 8-digit strike × 1000, e.g.
 `AAPL  261028C00345000`); compact spellings are accepted and rewritten
@@ -803,6 +809,12 @@ named period preset. Read-only: places no orders and moves no money.
 |------|---------|----------|
 | Equity/ETF | `[A-Z0-9]{1,6}` with at most one embedded `.` | `AAPL`, `NOK`, `BRK.B` |
 | Index | `$` + `[A-Z0-9]{1,5}` | `$SPX`, `$VIX` |
+
+Equity/ETF **class shares** (embedded `.`) resolve at the provider only
+in **slash form**: the upcall rewrites `BRK.B` → `BRK/B` (live probe
+2026-11-02 — the dotted form returns `not_found` / empty candles).
+Envelopes, errors, and echoes keep the requested dotted form; agents
+never send the slash form themselves.
 
 Option-contract symbols are **rejected at validation**
 (`unsupported_symbol_kind`): the provider price-history endpoint

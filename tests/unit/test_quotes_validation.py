@@ -174,7 +174,7 @@ class TestAcceptedSymbolKinds:
             ("$SPX", ["$SPX"]),
             ("$spx", ["$SPX"]),
             ("aapl", ["AAPL"]),
-            ("BRK.B", ["BRK.B"]),
+            ("BRK.B", ["BRK/B"]),
             ("  nOk  ", ["NOK"]),
         ],
         ids=["index", "index-lowercase", "equity-lowercase", "class-shares", "stripped"],
@@ -188,6 +188,22 @@ class TestAcceptedSymbolKinds:
 
         assert client.call_count == 2, "validation passed: one market-hours + one quotes call"
         assert client.quotes_calls[0]["symbols"] == expected_provider
+
+    def test_class_share_classified_to_slash_provider_form(self) -> None:
+        """Class-share equities (embedded dot) classify to the provider's
+        slash form — the only representation the provider resolves (live
+        probe 2026-11-02: ``BRK/B`` -> candles, ``BRK.B`` -> not_found).
+
+        The mapping is owned by ``_classify`` (single source of truth) so
+        ``get_quotes`` and ``get_price_history`` inherit it alike.  The
+        agent-facing echo stays the dotted request form.
+        """
+        from schwab_mcp.quotes import _classify
+
+        assert _classify("BRK.B") == ("equity", "BRK/B")
+        assert _classify("HEI.A") == ("equity", "HEI/A")
+        assert _classify("AAPL") == ("equity", "AAPL"), "dotless symbols pass through unchanged"
+        assert _classify("$SPX") == ("index", "$SPX"), "indexes are never rewritten"
 
     @pytest.mark.parametrize(
         "requested,expected_provider",

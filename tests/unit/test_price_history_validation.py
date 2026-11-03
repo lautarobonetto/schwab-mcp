@@ -148,6 +148,22 @@ class TestAcceptedSymbolKinds:
         assert result["symbol"] == "SPY"
         assert client.price_history_calls[0]["symbol"] == "SPY"
 
+    def test_class_share_upcall_translated_echo_preserved(self) -> None:
+        """Class-share (dotted) symbols reach the provider in the slash
+        form the provider resolves (live probe 2026-11-02) while the
+        envelope keeps echoing the requested dotted symbol (FR-008)."""
+        from schwab_mcp.price_history import get_price_history
+
+        client = _client(symbol="BRK.B")
+        result = get_price_history(client, "BRK.B")
+
+        assert result["outcome"] == "ok"
+        assert result["symbol"] == "BRK.B", "echo stays the agent-facing dotted form"
+        assert client.call_count == 1
+        assert client.price_history_calls[0]["symbol"] == "BRK/B", (
+            "provider upcall must carry the slash form the provider resolves"
+        )
+
 
 # =============================================================================
 # Option-contract symbols rejected (D9, quickstart S5 case 1)

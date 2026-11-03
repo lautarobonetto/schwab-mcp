@@ -512,7 +512,8 @@ def get_price_history(
             extended_hours,
             extended,
         )
-    if classified[0] == "option":
+    kind, provider_form = classified
+    if kind == "option":
         return _fail(
             "unsupported_symbol_kind",
             normalized,
@@ -563,7 +564,7 @@ def get_price_history(
         response = retry_call(
             client.price_history,
             0,
-            normalized,
+            provider_form,
             periodType=period_type,
             period=period_value,
             frequencyType=frequency_type,
