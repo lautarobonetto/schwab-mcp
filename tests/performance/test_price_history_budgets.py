@@ -83,7 +83,7 @@ class TestDefaultWindowTokenBudget:
 
     @pytest.mark.performance
     def test_default_response_within_budget(self) -> None:
-        """22 daily candles (the default window) <= 650 tokens."""
+        """The live default window (23 sessions) stays <= 650 tokens."""
         from schwab_mcp.price_history import get_price_history
 
         client = FakePriceHistoryClient(payload=fx.DAILY_PAYLOAD)
@@ -91,8 +91,10 @@ class TestDefaultWindowTokenBudget:
 
         assert result["outcome"] == "ok"
         # Anti-gaming: the full curated window must be present.
-        assert result["candle_count"] == 22, "default window is ~22 sessions"
-        assert len(result["candles"]) == 22
+        assert result["candle_count"] == len(fx.DAILY_PAYLOAD["candles"]), (
+            "the curated window must carry every delivered session"
+        )
+        assert len(result["candles"]) == len(fx.DAILY_PAYLOAD["candles"])
         for candle in result["candles"]:
             assert set(candle) == {"t", "o", "h", "l", "c", "v", "in_progress"}
         tokens = _tokens(result)

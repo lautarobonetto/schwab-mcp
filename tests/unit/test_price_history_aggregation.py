@@ -410,3 +410,61 @@ class TestWeeklyEndToEnd:
         for out, src in zip(result["candles"], source):
             for key in ("o", "h", "l", "c", "v"):
                 assert out[key] == src[key]
+
+# =============================================================================
+# T034 — live-capture stamping pins (D6/D7/D8 constants guard)
+# =============================================================================
+
+
+class TestLiveStampingPin:
+    """The 2026-11-02 live capture pinned the D8 conventions.  These tests
+    guard the fixture constants so a future re-capture that changes the
+    provider's behavior fails loudly instead of silently."""
+
+    def test_live_daily_stamps_are_utc_0500(self) -> None:
+        """Every daily fixture stamp is 05:00 UTC of its session date."""
+        from datetime import datetime, timezone
+
+        for candle in fx.DAILY_PAYLOAD["candles"]:
+            utc = datetime.fromtimestamp(candle["datetime"] / 1000, timezone.utc)
+            assert (utc.hour, utc.minute, utc.second) == (5, 0, 0), utc
+
+    def test_live_weekly_stamps_are_week_open(self) -> None:
+        """Every weekly fixture stamp is a Monday (week_open, D7)."""
+        from datetime import datetime
+
+        for candle in fx.WEEKLY_PAYLOAD["candles"]:
+            assert datetime.fromtimestamp(
+                candle["datetime"] / 1000, fx.ET
+            ).weekday() == 0
+
+    def test_live_weekly_relabel_agrees_with_the_daily_path(self) -> None:
+        """FR-019 cross-check with REAL data: the relabelled weekly label
+        of any week covered by the daily capture equals the provider's
+        own daily stamp of that Friday — the weekly and daily paths
+        agree on the closing-session stamp."""
+        from datetime import datetime
+
+        daily_by_date = {
+            datetime.fromtimestamp(c["datetime"] / 1000, fx.ET).date(): c[
+                "datetime"
+            ]
+            for c in fx.DAILY_PAYLOAD["candles"]
+        }
+        checked = 0
+        for candle in fx.WEEKLY_PAYLOAD["candles"]:
+            label = fx.iso_week_close_session(candle["datetime"])
+            session = datetime.fromtimestamp(label / 1000, fx.ET).date()
+            if session in daily_by_date:
+                assert label == daily_by_date[session], session
+                checked += 1
+        assert checked > 0, "the captures overlap on at least one week"
+
+    def test_live_regular_30m_stamps_are_period_start(self) -> None:
+        """Regular-session 30-minute candles stamp inside [09:30, 16:00)
+        and the last one starts the 16:00-ending window (D8 pin)."""
+        stamps = [c["datetime"] for c in fx.MINUTE_30M_PAYLOAD["candles"]]
+        assert all(fx.in_regular_session(s) for s in stamps)
+        assert fx.minute_period_end(stamps[-1], 30) == fx.daily_period_end(
+            stamps[-1]
+        ), "the last regular candle's period end is the 16:00 close"

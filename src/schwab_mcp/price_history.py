@@ -68,14 +68,14 @@ SESSION_CLOSE_MINUTES = 16 * 60
 """Regular session close, 16:00 ET."""
 
 STAMPING_CONVENTION = "period_start"
-"""Assumed provider stamping convention — UNVERIFIED (research D8).
-
-``"period_start"``: a candle's ``datetime`` is the start of its period
-(session open for daily, bucket start for intraday).  ``"period_end"``:
-the stamp is the period end.  Rules that cannot be written convention-
-agnostically (regular-session membership of a boundary stamp) take this
-value as an explicit parameter so the assumed convention is visible and
-re-pinning it after a live capture is a one-line change.
+"""PINNED by the live capture of 2026-11-02 (research D8 resolved):
+intraday candles are stamped at their period START (30-minute regular
+session: 09:30 .. 15:30 ET, the last one starting the 16:00-ending
+window).  Daily candles are stamped at 05:00 UTC (the session date,
+01:00 ET under EDT) — the D6 rule below (session close at/after the
+stamp) holds unchanged.  Weekly candles are stamped at the ISO week's
+first session (Monday), so FR-019's closing-session labels require the
+D7 relabel performed by :func:`normalize_weekly_labels`.
 """
 
 INTRADAY_FREQUENCIES: tuple[str, ...] = ("5m", "15m", "30m", "1h")

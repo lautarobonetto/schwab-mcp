@@ -227,7 +227,7 @@ class TestWindowAndCount:
         result = _history(_client(fx.DAILY_PAYLOAD), fx.SYMBOL)
 
         assert result["candle_count"] == len(result["candles"])
-        assert result["candle_count"] == 22
+        assert result["candle_count"] == len(fx.DAILY_PAYLOAD["candles"])
 
     def test_window_matches_first_and_last_timestamp(self) -> None:
         result = _history(_client(fx.DAILY_PAYLOAD), fx.SYMBOL)
@@ -294,7 +294,7 @@ class TestInProgressShape:
     def test_every_candle_carries_in_progress(self) -> None:
         result = _history(_client(fx.DAILY_PAYLOAD), fx.SYMBOL)
 
-        assert len(result["candles"]) == 22
+        assert len(result["candles"]) == len(fx.DAILY_PAYLOAD["candles"])
         for candle in result["candles"]:
             assert "in_progress" in candle
             assert isinstance(candle["in_progress"], bool)

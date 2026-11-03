@@ -300,8 +300,20 @@ class TestPresetMatrixAcceptance:
     def test_matrix_pair_accepted_with_one_upcall(self, frequency, period) -> None:
         from schwab_mcp.price_history import get_price_history
 
-        client = _client()
-        result = get_price_history(client, fx.SYMBOL, frequency=frequency, period=period)
+        # Payload per frequency: 1h aggregates minute candles (research D2),
+        # so a daily payload would aggregate to nothing under the pinned
+        # 05:00-UTC daily stamp (outside the regular session) — the provider
+        # serves minute candles for intraday frequencies.
+        if frequency == "weekly":
+            payload = fx.WEEKLY_PAYLOAD
+        elif frequency == "daily":
+            payload = fx.DAILY_PAYLOAD
+        else:
+            payload = fx.MINUTE_30M_PAYLOAD
+        symbol = payload["symbol"]
+
+        client = FakePriceHistoryClient(payload=payload)
+        result = get_price_history(client, symbol, frequency=frequency, period=period)
 
         assert result["outcome"] == "ok", f"{frequency}/{period} is inside the matrix"
         assert result["frequency"] == frequency

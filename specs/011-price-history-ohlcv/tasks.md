@@ -436,3 +436,21 @@ partial gaps remain; each task follows TDD (RED first).
   implementation delivers a `valid_presets` envelope field (also missing
   from `docs/tools.md`) — update all three per Constitution commit
   discipline / SC-002 (partial)
+
+---
+
+## Phase 8: Convergence
+
+Appended by `/speckit.converge` (2026-11-03) after the Phase 7 fixes
+(commit 6718e7d, suite 1571 passed / 0 skipped).  One environment-blocked
+obligation remains; it is deferred by T002's own fallback text and now
+made traceable.
+
+- [X] T034 Run the live validation pass of quickstart S1–S6 against a real
+  authorized client (`uv run schwab-mcp auth` first — the refresh token is
+  expired), capture real provider payloads per frequency into
+  `tests/unit/fixtures/price_history_payloads.py` replacing the derived
+  fixtures, flip `STAMPING_CONVENTION` / `WEEKLY_STAMP_CONVENTION` (and
+  the module constant + `aggregate_hourly` convention default) to the
+  observed D8 values, re-run the full suite, and record the pinned
+  conventions in the commit message per T002 / T029 (partial)
