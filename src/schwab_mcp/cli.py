@@ -147,14 +147,9 @@ def run_auth() -> None:
             # The callback URL may legitimately end in '/' (portal-required,
             # literal redirect_uri comparison) — relax schwabdev's check.
             install_trailing_slash_callback_support()
-            schwabdev.Client(
-                config.app_key,
-                config.app_secret,
-                config.callback_url,
-                tokens_db=config.token_db,
-                call_on_auth=counted_hook,
-                open_browser_for_auth=False,
-            )
+            from schwab_mcp.client import build_schwab_client  # noqa: PLC0415 — late import for testability
+
+            build_schwab_client(config, config.token_db, counted_hook)
 
             # If the client never ran the interactive flow (e.g. inert test
             # stubs) and the store is still empty, invoke the hook manually so
@@ -315,7 +310,7 @@ def run_renew() -> None:
 
 def _do_run_renew(config: object, store_path: str) -> None:
     """Build the client and execute ``renew()`` (under ``AuthLock``)."""
-    import schwabdev  # noqa: PLC0415 — late import for testability
+    from schwab_mcp.client import build_schwab_client  # noqa: PLC0415 — late import for testability
 
     from schwab_mcp.server import _build_serve_guard_hook
 
@@ -327,14 +322,7 @@ def _do_run_renew(config: object, store_path: str) -> None:
 
     # Use the same guard hook as ``serve`` — in the explicit CLI command,
     # a re-authorization attempt is still a permanent error.
-    client = schwabdev.Client(
-        config.app_key,
-        config.app_secret,
-        config.callback_url,
-        tokens_db=store_path,
-        call_on_auth=guard_hook,
-        open_browser_for_auth=False,
-    )
+    client = build_schwab_client(config, store_path, guard_hook)
 
     outcome = _renew(client, store_path, trigger_detail="explicit_command")
     print(outcome.to_json())

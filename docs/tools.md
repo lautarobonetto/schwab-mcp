@@ -520,6 +520,7 @@ client-side.
 | Condition | Behavior | Agent action |
 |-----------|----------------|-------------------|
 | Entire expiration without data (FR-013, `ChainDataError`) | Structured **error** naming the date and the type; **never** a partial chain | Retry later or reduce the scope; do not trust partial data |
+| 502 `Body buffer overflow` (`protocol.http.TooBigBody`) | Provider rejected the response body as too large — deterministic, **not** transient. With `delta_target`, the internal ceiling re-fetch degrades to the last successful window (audit event `options_chain_query_degraded` detail=`provider_body_limit`); an explicit oversized `max_strikes` is a structured error naming the limit | Reduce `max_strikes` or `dte_max` for index symbols (`$SPX`); do not retry the identical request |
 | 401/403 | Reauthorization required | `renew` playbook (`reauth_required`) |
 | 5xx/408/429 | Transient failure | Retry with backoff |
 | Other 4xx | The provider reviewed and rejected the request | Fix the parameters; do not retry identically |

@@ -144,6 +144,20 @@ class ChainDataError(Exception):
     """
 
 
+class ProviderBodyLimitError(ChainDataError):
+    """Raised when the provider rejects the chain response body as too
+    large (bug spx-chain-body-limit).
+
+    Observed live 2026-11-03: a ``$SPX`` chain at ``strikeCount=200``
+    takes ~44 s to assemble server-side and is then rejected by the API
+    gateway with ``502 {"fault":{"faultstring":"Body buffer overflow",
+    "detail":{"errorcode":"protocol.http.TooBigBody"}}}``.  This is a
+    deterministic request-shape fault, NOT transient connectivity — it
+    must never surface as :class:`schwab_mcp.errors.ConnectivityError`
+    (whose message tells the user to check connectivity).
+    """
+
+
 # =============================================================================
 # Query validation (FR-008)
 # =============================================================================
@@ -311,6 +325,25 @@ def fetch_option_chain(
     # instead of a transport error (FR-009, contract §4).
     if getattr(response, "status_code", None) == 400:
         return {}
+
+    # The provider gateway rejects oversized chain responses with
+    # 502 + "Body buffer overflow" (protocol.http.TooBigBody) after a
+    # long (~44 s for $SPX at strikeCount=200) server-side assembly — a
+    # deterministic request-shape fault, not transient connectivity (bug
+    # spx-chain-body-limit).  Detect it before the shared 5xx mapping so
+    # callers can degrade (delta ceiling re-fetch) or report an actionable
+    # error (explicit oversized max_strikes).
+    if getattr(response, "status_code", None) == 502:
+        body = getattr(response, "text", "") or ""
+        if (
+            "protocol.http.TooBigBody" in body
+            or "Body buffer overflow" in body
+        ):
+            raise ProviderBodyLimitError(
+                f"provider rejected the chain response body as too large "
+                f"(requested strikeCount={count}); reduce max_strikes or "
+                f"narrow dte_max for this symbol"
+            )
 
     return retry_call(response_json, 0, response=response)
 
@@ -482,7 +515,14 @@ def _select_delta_window(
     sequence ± ``DELTA_WINDOW_SIDE`` contiguous strikes each side — up to 5,
     clipped to what exists.  Never invents strikes; ``max_strikes`` does not
     reduce this window.
+
+    ``delta_target`` is compared by magnitude (``abs``): users pass the
+    signed provider delta convention (puts negative, calls positive), so
+    the anchor matches ``|delta| ≈ |target|`` regardless of sign (bug
+    delta-target-sign-bracketing: the raw negative value anchored the
+    window on the deepest-OTM contract).
     """
+    delta_target = abs(delta_target)
     anchored = [
         (strike, contract)
         for strike, contract in contracts_by_strike.items()
@@ -508,10 +548,18 @@ def _delta_bracketed(payload: dict, query: OptionChainQuery) -> bool:
     ``abs(delta)`` values are not all above and not all below it.  A type
     with no delta values at all is ignored; an entirely missing included
     map is left to the FR-013 partial-chain check.
+
+    The comparison uses ``abs(delta_target)``: deltas are compared by
+    magnitude against the target's magnitude (users pass the signed
+    provider convention — puts negative).  With the raw negative value
+    every payload was classified unbracketed, triggering the
+    ``strikeCount=200`` ceiling re-fetch on every negative-target call
+    (bug delta-target-sign-bracketing).
     """
     target = query.delta_target
     if target is None:
         return True
+    target = abs(target)
     for kind in _included_legs(query.option_type):
         values = [
             abs(contract["delta"])
@@ -748,11 +796,22 @@ def get_option_chain(
                 strike_count=max(query.max_strikes, DELTA_STRIKE_COUNT_FLOOR),
             )
             if not _delta_bracketed(payload, query):
-                payload = fetch_option_chain(
-                    client,
-                    query,
-                    strike_count=DELTA_STRIKE_COUNT_CEILING,
-                )
+                try:
+                    payload = fetch_option_chain(
+                        client,
+                        query,
+                        strike_count=DELTA_STRIKE_COUNT_CEILING,
+                    )
+                except ProviderBodyLimitError:
+                    # The ceiling re-fetch exceeded the provider response
+                    # body limit (bug spx-chain-body-limit, observed live
+                    # on $SPX).  Degrade to the floor payload per research
+                    # R2: the available contracts closest to the target.
+                    auth_event(
+                        "options_chain_query_degraded",
+                        "degraded",
+                        detail="provider_body_limit",
+                    )
         else:
             payload = fetch_option_chain(client, query)
         result = build_chain_result(payload, query)

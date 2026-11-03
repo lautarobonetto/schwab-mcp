@@ -29,6 +29,7 @@ class Config:
     app_secret: str
     callback_url: str
     token_db: str
+    request_timeout: int = 60
 
     # Bracket-index access so callers can write ``config["app_key"]``
     # without converting to a dict.
@@ -44,6 +45,7 @@ _ENV_APP_KEY = "SCHWAB_APP_KEY"
 _ENV_APP_SECRET = "SCHWAB_APP_SECRET"
 _ENV_CALLBACK_URL = "SCHWAB_CALLBACK_URL"
 _ENV_TOKEN_DB = "SCHWAB_TOKEN_DB"
+_ENV_REQUEST_TIMEOUT = "SCHWAB_MCP_REQUEST_TIMEOUT"
 
 # ---------------------------------------------------------------------------
 # Defaults  (FR-012)
@@ -51,6 +53,11 @@ _ENV_TOKEN_DB = "SCHWAB_TOKEN_DB"
 
 _DEFAULT_CALLBACK_URL = "https://127.0.0.1"
 _DEFAULT_TOKEN_DB = "~/.schwab-mcp/tokens.db"
+# Provider request timeout in seconds.  schwabdev defaults to 10 s, which is
+# too short for full-chain fetches at large ``strikeCount`` (bug
+# spx-delta-timeout: ``$SPX`` + ``delta_target`` needs up to 200 strikes and
+# exceeds 10 s at Schwab's API → ReadTimeout → ConnectivityError).
+_DEFAULT_REQUEST_TIMEOUT = 60
 
 
 # ---------------------------------------------------------------------------
@@ -131,9 +138,34 @@ def load_config() -> Config:
     # advisory lock — FR-012 sensible local defaults must actually work).
     token_db = os.path.expanduser(token_db)
 
+    # --- Optional: provider request timeout ---------------------------------
+    # Passed to schwabdev.Client(timeout=...) — see _DEFAULT_REQUEST_TIMEOUT
+    # for why the library default is not acceptable (bug spx-delta-timeout).
+    raw_timeout = os.environ.get(_ENV_REQUEST_TIMEOUT)
+    if raw_timeout is None:
+        request_timeout = _DEFAULT_REQUEST_TIMEOUT
+    else:
+        try:
+            request_timeout = int(raw_timeout.strip())
+        except ValueError:
+            raise InvalidConfigError(
+                detail=(
+                    f"{_ENV_REQUEST_TIMEOUT} must be an integer number of "
+                    f"seconds, got {raw_timeout.strip()!r}"
+                )
+            ) from None
+        if request_timeout <= 0:
+            raise InvalidConfigError(
+                detail=(
+                    f"{_ENV_REQUEST_TIMEOUT} must be a positive integer "
+                    f"(seconds), got {request_timeout}"
+                )
+            )
+
     return Config(
         app_key=app_key,
         app_secret=app_secret,
         callback_url=callback_url,
         token_db=token_db,
+        request_timeout=request_timeout,
     )

@@ -18,6 +18,7 @@ set -a; source ~/.schwab-mcp/env; set +a   # file outside the repo, chmod 600
 | `SCHWAB_APP_SECRET` | yes | — | App secret from app approval. Never logged (FR-006). |
 | `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback/redirect URI **as registered in the developer portal**. Must match the registration exactly (no trailing slash, https). It is never connected to by this server — the auth flow is paste-the-redirect-URL, so no inbound socket is opened. |
 | `SCHWAB_TOKEN_DB` | no | `~/.schwab-mcp/tokens.db` | Token store path (FR-012). Must be outside the repo; enforced permissions `0o600` (file) / `0o700` (directory). |
+| `SCHWAB_MCP_REQUEST_TIMEOUT` | no | `60` | Provider request timeout in seconds, forwarded to `schwabdev.Client(timeout=...)` for every entry point (`serve`, `auth`, `renew`). Bug spx-delta-timeout: schwabdev's 10 s default is too short for full-chain fetches at large `strikeCount`. |
 
 Derived internal default: advisory auth lock at
 `~/.schwab-mcp/auth.lock` (alongside the token DB; not independently
@@ -33,6 +34,8 @@ configurable — YAGNI).
    validation logic (DRY).
 3. Malformed `SCHWAB_TOKEN_DB` that is clearly invalid (ends with `/`,
    empty) → `InvalidConfigError` before touching the filesystem.
+4. `SCHWAB_MCP_REQUEST_TIMEOUT` set to a non-integer, empty, or
+   non-positive value → `InvalidConfigError` (exit 2).
 
 ## Security invariants
 

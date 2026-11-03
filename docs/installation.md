@@ -73,6 +73,7 @@ chmod 600 ~/.schwab-mcp/env
 | `SCHWAB_APP_SECRET` | yes | — | App secret, from the **same** app |
 | `SCHWAB_CALLBACK_URL` | no | `https://127.0.0.1` | Callback registered in the portal, copied EXACTLY (character for character, trailing slash included). `https` required |
 | `SCHWAB_TOKEN_DB` | no | `~/.schwab-mcp/tokens.db` | Path of the token store (SQLite). Outside the repo; permissions forced to `0o600` |
+| `SCHWAB_MCP_REQUEST_TIMEOUT` | no | `60` | Provider request timeout in **seconds**, applied to every Schwab API call. Raise it on slow links; must be a positive integer. The default is well above the library's 10 s because full-chain option fetches at large `strikeCount` (e.g. `$SPX` with `delta_target`) exceed 10 s |
 
 ## 4. Load the credentials into the shell
 

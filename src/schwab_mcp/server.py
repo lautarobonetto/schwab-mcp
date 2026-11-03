@@ -82,23 +82,18 @@ def run_serve() -> None:
     # ------------------------------------------------------------------
     # 3. Instantiate schwabdev client with guard hook (FR-001)
     # ------------------------------------------------------------------
-    import schwabdev  # noqa: PLC0415 — late import so CLI can patch
-
     guard_hook = _build_serve_guard_hook()
 
     # Same relaxation as ``auth``: preserve a portal-required trailing
     # slash in the callback URL (literal redirect_uri comparison).
     install_trailing_slash_callback_support()
 
+    from schwab_mcp.client import (  # noqa: PLC0415 — late import so CLI can patch
+        build_schwab_client,
+    )
+
     try:
-        client = schwabdev.Client(
-            config.app_key,
-            config.app_secret,
-            config.callback_url,
-            tokens_db=store_path,
-            call_on_auth=guard_hook,
-            open_browser_for_auth=False,
-        )
+        client = build_schwab_client(config, store_path, guard_hook)
     except ValueError as exc:
         # schwabdev validates key format and raises ValueError on malformed
         # credentials — map to InvalidConfigError per contracts/cli.md.

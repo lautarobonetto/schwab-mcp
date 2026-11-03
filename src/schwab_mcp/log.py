@@ -24,6 +24,7 @@ ALLOWED_EVENTS = frozenset({
     "options_chain_query_start",
     "options_chain_query_success",
     "options_chain_query_failure",
+    "options_chain_query_degraded",
     "expiration_chain_query_start",
     "expiration_chain_query_success",
     "expiration_chain_query_failure",
@@ -53,6 +54,7 @@ _ALLOWED_OUTCOMES = {
         "no_options_listed",
         "no_expirations_in_range",
     },
+    "options_chain_query_degraded": {"degraded"},
     "options_chain_query_failure": {
         "transient",
         "reauth",

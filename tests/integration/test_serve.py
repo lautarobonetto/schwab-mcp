@@ -104,6 +104,10 @@ class FakeSchwabdevClient:
         self.tokens_db = str(tokens_db)
         self.call_on_auth = call_on_auth
         self.open_browser_for_auth = open_browser_for_auth
+        # bug spx-delta-timeout: record the provider request timeout so
+        # tests can pin that the client is constructed with the configured
+        # ``Config.request_timeout``.
+        self.timeout = kwargs.get("timeout")
         self.linked_accounts_call_count: int = 0
         # When True, simulate silent token renewal on linked_accounts()
         # without invoking call_on_auth.
@@ -276,6 +280,9 @@ def _default_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("SCHWAB_CALLBACK_URL", "https://127.0.0.1")
     token_db = str(tmp_path / "tokens.db")
     monkeypatch.setenv("SCHWAB_TOKEN_DB", token_db)
+    # Isolate from any operator-set value (bug spx-delta-timeout tests set
+    # their own SCHWAB_MCP_REQUEST_TIMEOUT explicitly).
+    monkeypatch.delenv("SCHWAB_MCP_REQUEST_TIMEOUT", raising=False)
     tmp_path.mkdir(parents=True, exist_ok=True)
 
 
@@ -299,6 +306,52 @@ def _patch_mcp_server(monkeypatch: pytest.MonkeyPatch) -> None:
 # ===================================================================
 # 1. Valid store → client constructed with guard hook (FR-001)
 # ===================================================================
+
+
+class TestClientRequestTimeout:
+    """bug spx-delta-timeout: ``serve`` constructs the schwabdev client
+    with the configured provider request ``timeout`` — schwabdev's 10 s
+    default is too short for full-chain fetches at large ``strikeCount``
+    ($SPX + ``delta_target`` needs up to 200 strikes)."""
+
+    def test_client_constructed_with_env_timeout(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A custom SCHWAB_MCP_REQUEST_TIMEOUT reaches the client constructor."""
+        _make_token_db(tmp_path / "tokens.db")
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "90")
+        monkeypatch.setattr("schwabdev.Client", FakeSchwabdevClient)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cli_main(["serve"])
+
+        assert exc_info.value.code == 0, (
+            f"Expected exit code 0 on successful serve startup, "
+            f"got {exc_info.value.code}"
+        )
+        assert len(FakeSchwabdevClient._instances) == 1
+        client = FakeSchwabdevClient._instances[0]
+        assert client.timeout == 90, (
+            "serve must pass the configured request timeout to the "
+            "schwabdev client constructor (bug spx-delta-timeout)"
+        )
+
+    def test_client_constructed_with_default_timeout(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """With the env var unset, the client gets the 60 s default."""
+        _make_token_db(tmp_path / "tokens.db")
+        monkeypatch.delenv("SCHWAB_MCP_REQUEST_TIMEOUT", raising=False)
+        monkeypatch.setattr("schwabdev.Client", FakeSchwabdevClient)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cli_main(["serve"])
+
+        assert exc_info.value.code == 0
+        client = FakeSchwabdevClient._instances[0]
+        assert client.timeout == 60, (
+            "the default request timeout must be 60 s, not schwabdev's 10 s"
+        )
 
 
 class TestValidStoreStartsServe:

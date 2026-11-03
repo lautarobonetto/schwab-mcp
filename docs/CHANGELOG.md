@@ -6,6 +6,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.4] - 2026-11-03
+
+### Fixed
+
+- **`delta_target` with negative values (put targets, e.g. `-0.35`) no
+  longer produces wrong strike windows or spurious re-fetches** (bug
+  `delta-target-sign-bracketing`, 2026-11-03): the bracketing check and
+  the delta anchor compared `abs(delta)` values against the **raw**
+  negative target, so (1) every negative-target payload was classified
+  "not bracketed", always triggering the internal `strikeCount=200`
+  ceiling re-fetch, and (2) the window anchored on the deepest-OTM
+  contract instead of `|delta| ≈ |target|` — silently wrong strikes
+  reported as `outcome: ok` on every symbol. Both computations now use
+  `|delta_target|`; positive-target behavior is unchanged and the
+  `filters` echo keeps the signed value as passed.
+- **`get_option_chain` no longer aborts on the provider response-body
+  limit** (bug `spx-chain-body-limit`, 2026-11-03, observed live on
+  `$SPX`): the `strikeCount=200` ceiling re-fetch exceeds Schwab's API
+  gateway body limit — the backend assembles the response for ~44 s and
+  rejects it with `502 {"fault":{"faultstring":"Body buffer overflow",
+  "errorcode":"protocol.http.TooBigBody"}}`, which was misclassified as
+  transient `ConnectivityError`. The fault is now detected and raised as
+  `ProviderBodyLimitError` (a `ChainDataError`): with `delta_target` the
+  ceiling re-fetch degrades to the last successful window (research R2:
+  closest contracts to the target; audit event
+  `options_chain_query_degraded` detail=`provider_body_limit`), and an
+  explicit oversized `max_strikes` surfaces as an actionable
+  `ChainDataError` naming the limit. Genuine transient 502s (without the
+  fault marker) still map to `ConnectivityError`. `docs/tools.md`
+  documents the new source-error row and audit event.
+
+## [0.9.3] - 2026-11-03
+
+### Fixed
+
+- **`get_option_chain` with `delta_target` no longer times out on
+  `$SPX`** (bug `spx-delta-timeout`, 2026-11-03): the schwabdev client
+  was constructed without a request `timeout`, so the library's 10 s
+  default applied. The `delta_target` path fetches with
+  `strikeCount = max(max_strikes, 100)` and re-fetches at up to 200
+  strikes when the target is not bracketed; a full `$SPX` chain at that
+  size exceeds 10 s at Schwab's API, producing a deterministic
+  `ReadTimeout` → `ConnectivityError` (reproduced 4/4 live, while
+  equities/ETFs and `$XSP` worked). All three client construction sites
+  (`serve`, `auth`, `renew`) now build the client through the shared
+  `schwab_mcp.client.build_schwab_client` factory, which forwards
+  `timeout=Config.request_timeout`. The timeout is configurable via the
+  new `SCHWAB_MCP_REQUEST_TIMEOUT` environment variable (positive
+  integer seconds, default `60`); invalid values fail fast with
+  `InvalidConfigError` (exit 2). `docs/installation.md` and
+  `specs/001-schwab-oauth-access/contracts/configuration.md` document
+  the new variable.
+
 ## [0.9.2] - 2026-11-03
 
 ### Fixed

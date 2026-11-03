@@ -145,6 +145,71 @@ class TestOptionalVars:
         assert not config["token_db"].startswith("~")
 
 
+class TestRequestTimeout:
+    """bug spx-delta-timeout: ``SCHWAB_MCP_REQUEST_TIMEOUT`` controls the
+    provider request timeout passed to schwabdev.
+
+    schwabdev defaults to a 10 s read timeout, which is too short for
+    full-chain fetches at large ``strikeCount`` ($SPX + ``delta_target``
+    needs up to 200 strikes and exceeds 10 s at Schwab's API).  The
+    timeout must be configurable and validated (positive integer).
+    """
+
+    def _set_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SCHWAB_APP_KEY", "some_key")
+        monkeypatch.setenv("SCHWAB_APP_SECRET", "some_secret")
+
+    def test_default_60_when_unset(self, monkeypatch):
+        """SCHWAB_MCP_REQUEST_TIMEOUT defaults to 60 s."""
+        self._set_required(monkeypatch)
+        monkeypatch.delenv("SCHWAB_MCP_REQUEST_TIMEOUT", raising=False)
+        config = load_config()
+        assert config["request_timeout"] == 60
+
+    def test_custom_value_honoured(self, monkeypatch):
+        """A custom SCHWAB_MCP_REQUEST_TIMEOUT is honoured as an int."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "90")
+        config = load_config()
+        assert config["request_timeout"] == 90
+        assert isinstance(config["request_timeout"], int)
+
+    def test_whitespace_stripped(self, monkeypatch):
+        """Surrounding whitespace is cleaned before parsing."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", " 45 ")
+        config = load_config()
+        assert config["request_timeout"] == 45
+
+    def test_zero_rejected(self, monkeypatch):
+        """Zero seconds is invalid → InvalidConfigError."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "0")
+        with pytest.raises(InvalidConfigError):
+            load_config()
+
+    def test_negative_rejected(self, monkeypatch):
+        """Negative seconds is invalid → InvalidConfigError."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "-5")
+        with pytest.raises(InvalidConfigError):
+            load_config()
+
+    def test_non_integer_rejected(self, monkeypatch):
+        """Non-integer values are invalid → InvalidConfigError."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "abc")
+        with pytest.raises(InvalidConfigError):
+            load_config()
+
+    def test_empty_rejected(self, monkeypatch):
+        """Empty (set but empty) is invalid → InvalidConfigError."""
+        self._set_required(monkeypatch)
+        monkeypatch.setenv("SCHWAB_MCP_REQUEST_TIMEOUT", "")
+        with pytest.raises(InvalidConfigError):
+            load_config()
+
+
 class TestInvalidTokenDbPath:
     """Invalid SCHWAB_TOKEN_DB values → InvalidConfigError before filesystem access."""
 
