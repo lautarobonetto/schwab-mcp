@@ -29,9 +29,9 @@ pages are updated in the same commit.
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Fixed (v0.9.8, 2026-11-04) |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Fixed (v0.9.8, 2026-11-04) |
-| TD-016 | Low | Dead code | Dead parameters in helpers | Fixed (unreleased, 2026-11-04) |
-| TD-017 | Low | Dead code | Unused imports and members | Partial (unreleased, 2026-11-04) |
-| TD-018 | Low | KISS | Obscured imports and misc readability | Fixed (unreleased, 2026-11-04) |
+| TD-016 | Low | Dead code | Dead parameters in helpers | Fixed (v0.9.9, 2026-11-04) |
+| TD-017 | Low | Dead code | Unused imports and members | Partial (v0.9.9, 2026-11-04) |
+| TD-018 | Low | KISS | Obscured imports and misc readability | Fixed (v0.9.9, 2026-11-04) |
 
 ---
 
@@ -599,26 +599,26 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 | Location | Issue |
 |----------|-------|
-| `positions.py:10, 13` | ~~`import time` and `List` unused~~ `import time` Fixed (TD-017, unreleased): removed. `List` was **not** unused — used by `accounts_failed`; annotation normalized to `list[...]` in the same change |
-| `allowlist.py:19` | ~~`from collections.abc import Mapping` unused~~ Fixed (TD-017, unreleased): removed |
-| `tokens.py:18` | ~~`TypeVar F` unused (`retry_call` does not annotate)~~ Fixed (TD-017, unreleased): removed |
-| `tokens.py:380-385` | ~~`retry_once` has no src callers (tests and comments only) — remove with test updates~~ Fixed (TD-017, unreleased): removed; docstring mentions updated to `retry_call(..., retries=1)` |
-| `renewal.py:106` | ~~`from datetime import datetime, timezone` unused~~ Fixed (TD-017, unreleased): removed |
+| `positions.py:10, 13` | ~~`import time` and `List` unused~~ `import time` Fixed (TD-017, v0.9.9): removed. `List` was **not** unused — used by `accounts_failed`; annotation normalized to `list[...]` in the same change |
+| `allowlist.py:19` | ~~`from collections.abc import Mapping` unused~~ Fixed (TD-017, v0.9.9): removed |
+| `tokens.py:18` | ~~`TypeVar F` unused (`retry_call` does not annotate)~~ Fixed (TD-017, v0.9.9): removed |
+| `tokens.py:380-385` | ~~`retry_once` has no src callers (tests and comments only) — remove with test updates~~ Fixed (TD-017, v0.9.9): removed; docstring mentions updated to `retry_call(..., retries=1)` |
+| `renewal.py:106` | ~~`from datetime import datetime, timezone` unused~~ Fixed (TD-017, v0.9.9): removed |
 | `renewal.py:102, 389` | ~~`import os as _os` duplicated (module level and inside `read_store_lifetime`)~~ Stale — already removed by the v0.9.8 refactor (commit e3e5466); a single `import os` remains |
-| `config.py:36-37` | ~~`Config.__getitem__` has no callers — speculative over-engineering~~ Corrected (TD-017, unreleased): claim **invalid** — `tests/unit/test_config.py` exercises `config["key"]` bracket access 15×; the method and the `Any` import are retained |
-| `transactions.py:218-242` | ~~`ALL_TRANSACTION_TYPES` lists the 15 enum values twice (map keys and joined string); derive as `",".join(t.value for t in ProviderTransactionType)`~~ Fixed (TD-017, unreleased): derived from the enum, pinned by unit test |
+| `config.py:36-37` | ~~`Config.__getitem__` has no callers — speculative over-engineering~~ Corrected (TD-017, v0.9.9): claim **invalid** — `tests/unit/test_config.py` exercises `config["key"]` bracket access 15×; the method and the `Any` import are retained |
+| `transactions.py:218-242` | ~~`ALL_TRANSACTION_TYPES` lists the 15 enum values twice (map keys and joined string); derive as `",".join(t.value for t in ProviderTransactionType)`~~ Fixed (TD-017, v0.9.9): derived from the enum, pinned by unit test |
 | `transactions.py:1191-1205` | ~~Dead `partial_failure` branch producing an identical result (also listed in TD-005)~~ Stale — already consolidated by TD-005 (v0.9.8): a single branch now covers both cases |
 
 ### TD-018 — Obscured imports and readability nits
 
 | Location | Issue |
 |----------|-------|
-| `cli.py:424-425` | ~~`__import__("logging").root` — plain `import logging` at module top is strictly simpler~~ Fixed (TD-018, unreleased): `import logging` added to the top-level stdio imports; both redaction-filter call sites use it directly |
-| `cli.py:152-160` | ~~Auth-URL fallback exists only for inert test stubs (per its own comment); consider moving to a test fixture~~ Resolved (TD-018, unreleased): kept as deliberate hardening against a schwabdev hook-timing change — comment reframed and behavior pinned by `TestAuthUrlFallbackForInertClient` (URL printed exactly once, never reports success) |
-| `renewal.py:1-5, 101-114` | ~~Docstring says "value types" but the module also holds the orchestrator, locks, and store reader; imports appear mid-file — split or fix docstring, move imports to top~~ Fixed (TD-018, unreleased): docstring describes all three responsibilities, mid-file import block hoisted to the top, misplaced section banners corrected. The module split was deliberately deferred (higher blast radius, zero behavior gain) |
-| `transactions.py:1204, 1212` (pattern) | ~~Results constructed with raw strings where enums exist; post-hoc mutation (`positions.py:542-545`) bypasses validator intent (also listed in TD-002/TD-007)~~ Fixed (TD-018, unreleased): `AccountFailureDetail` enum used at both `TransactionAccountFailed` constructions (pinned by `test_enum_construction_serializes_canonical_values`). The post-hoc-mutation claim was stale — already fixed by TD-007; the remaining `positions.py` raw-dict `accounts_failed_list` construction stays with TD-002/TD-007 |
-| `options_chain.py:390-423` | ~~`serialize_leg` elif-chain; move the `trade_time` alias into the key map as candidate keys (`("tradeTime", "tradeTimeInLong")`)~~ Fixed (TD-018, unreleased): `_PROVIDER_KEY_MAP` retyped to candidate-key tuples in precedence order, `trade_time` maps to `("tradeTime", "tradeTimeInLong")`, `serialize_leg` takes the first candidate present; the special-case branch is gone (pinned by two `TestSerializeLeg` alias tests) |
-| `archive.py:71` | ~~`payloads.get(spec.path, generated.get(spec.path))` fails with a cryptic `TypeError` if a member is in neither dict; use an explicit merged lookup with a clear error~~ Fixed (TD-018, unreleased): explicit membership check raises `ReleaseError("no payload or generated artifact for archive member <path>")` — pinned red→green by `TestMemberLookupRobustness` (pre-fix failure was the predicted `zipfile` `TypeError`) |
+| `cli.py:424-425` | ~~`__import__("logging").root` — plain `import logging` at module top is strictly simpler~~ Fixed (TD-018, v0.9.9): `import logging` added to the top-level stdio imports; both redaction-filter call sites use it directly |
+| `cli.py:152-160` | ~~Auth-URL fallback exists only for inert test stubs (per its own comment); consider moving to a test fixture~~ Resolved (TD-018, v0.9.9): kept as deliberate hardening against a schwabdev hook-timing change — comment reframed and behavior pinned by `TestAuthUrlFallbackForInertClient` (URL printed exactly once, never reports success) |
+| `renewal.py:1-5, 101-114` | ~~Docstring says "value types" but the module also holds the orchestrator, locks, and store reader; imports appear mid-file — split or fix docstring, move imports to top~~ Fixed (TD-018, v0.9.9): docstring describes all three responsibilities, mid-file import block hoisted to the top, misplaced section banners corrected. The module split was deliberately deferred (higher blast radius, zero behavior gain) |
+| `transactions.py:1204, 1212` (pattern) | ~~Results constructed with raw strings where enums exist; post-hoc mutation (`positions.py:542-545`) bypasses validator intent (also listed in TD-002/TD-007)~~ Fixed (TD-018, v0.9.9): `AccountFailureDetail` enum used at both `TransactionAccountFailed` constructions (pinned by `test_enum_construction_serializes_canonical_values`). The post-hoc-mutation claim was stale — already fixed by TD-007; the remaining `positions.py` raw-dict `accounts_failed_list` construction stays with TD-002/TD-007 |
+| `options_chain.py:390-423` | ~~`serialize_leg` elif-chain; move the `trade_time` alias into the key map as candidate keys (`("tradeTime", "tradeTimeInLong")`)~~ Fixed (TD-018, v0.9.9): `_PROVIDER_KEY_MAP` retyped to candidate-key tuples in precedence order, `trade_time` maps to `("tradeTime", "tradeTimeInLong")`, `serialize_leg` takes the first candidate present; the special-case branch is gone (pinned by two `TestSerializeLeg` alias tests) |
+| `archive.py:71` | ~~`payloads.get(spec.path, generated.get(spec.path))` fails with a cryptic `TypeError` if a member is in neither dict; use an explicit merged lookup with a clear error~~ Fixed (TD-018, v0.9.9): explicit membership check raises `ReleaseError("no payload or generated artifact for archive member <path>")` — pinned red→green by `TestMemberLookupRobustness` (pre-fix failure was the predicted `zipfile` `TypeError`) |
 
 ---
 
