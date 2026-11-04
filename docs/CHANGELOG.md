@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.11] - 2026-11-04
+
+### Fixed
+
+- **OCC option symbol parsing consolidated into `schwab_mcp.symbols`**
+  (tech debt TD-019, 2026-11-04): the knowledge *"the last 15 characters
+  of an OCC option symbol encode `YYMMDD` + `C/P` + 8-digit strike×1000"*
+  lived in three modules — `symbols.py` (`OPTION_RE` +
+  `canonical_option_symbol()`, the declared SSOT), `transactions.py`
+  (its own `_OCC_TAIL_RE` + `_option_root()`) and `positions.py`
+  (`_parse_occ_option_symbol()`, hand-written tail checks plus the only
+  derivation of the ISO expiry) — each pinned by different tests with
+  nothing asserting they agree. The grammar now lives once:
+  `symbols.parse_occ_symbol()` (frozen dataclass `OccSymbol`: root,
+  ISO expiry, put/call, strike÷1000) is the single source of truth;
+  `transactions._option_root` and `positions._parse_occ_option_symbol`
+  are thin wrappers with untouched signatures and call sites; the
+  duplicate `_OCC_TAIL_RE` and hand-written checks are deleted. The
+  strict-tail contract is pinned against the deliberately permissive
+  `OPTION_RE` (a literal-strike symbol like `"AMD   261120P63"` is
+  accepted by `classify_symbol` but rejected by `parse_occ_symbol`),
+  and cross-parser parity is locked by the new
+  `tests/unit/test_occ_symbol_parity.py` over the fixtures already
+  pinned in `test_transactions_underlying.py` and
+  `test_positions_live_response.py`. Behavior-preserving; existing
+  suites green unchanged (1875 passed, 0 skipped). Assessment and fix
+  report: `.specify/bugs/td-019-occ-symbol-parsing/`.
+
 ## [0.9.10] - 2026-11-04
 
 ### Fixed

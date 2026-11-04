@@ -29,6 +29,7 @@ from schwab_mcp.results import (
     ResultOutcome,
     validate_shared_outcome_rules,
 )
+from schwab_mcp.symbols import parse_occ_symbol
 
 
 class InstrumentType(str, Enum):
@@ -173,23 +174,20 @@ class PositionsResult(BaseModel):
 def _parse_occ_option_symbol(symbol: str) -> tuple[float | None, str | None]:
     """Extract ``(strike, ISO expiry)`` from an OCC option symbol.
 
+    Thin wrapper over :func:`schwab_mcp.symbols.parse_occ_symbol` — the
+    tail grammar and the expiry/strike decoding live there as the single
+    source of truth (TD-019).
+
     The real ``instrument`` objects for options carry ``putCall`` and
     ``underlyingSymbol`` but not ``strikePrice``/``expirationDate`` (found
     live 2026-10-24) — strike and expiry are encoded in the standard OCC
     symbol (e.g. ``AMD   261120P00090000`` → strike 90.0, expiry
-    2026-11-20).  Parsing is right-anchored: the last 15 characters are
-    always ``YYMMDD + C/P + strike×1000`` (8 digits), regardless of how
-    the root is padded.
+    2026-11-20).
     """
-    tail = (symbol or "")[-15:]
-    if len(tail) < 15 or tail[6] not in "CP":
+    parsed = parse_occ_symbol(symbol)
+    if parsed is None:
         return None, None
-    yymmdd, strike_millis = tail[:6], tail[7:]
-    if not (yymmdd.isdigit() and strike_millis.isdigit()):
-        return None, None
-    strike = int(strike_millis) / 1000.0
-    expiry = f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}"
-    return strike, expiry
+    return parsed.strike, parsed.expiry
 
 
 def _normalize_positions_payload(raw: Any, hash_by_number: dict) -> dict:

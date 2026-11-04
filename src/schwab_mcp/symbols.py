@@ -16,11 +16,18 @@ Grammar summary (normalized uppercase):
   8-digit OCC-encoded).
 - Equity/ETF: ``[A-Z0-9.]{1,6}`` with at most one embedded ``.``
   (``AAPL``, ``BRK.B``).
+
+The strict 15-character OCC tail grammar (``YYMMDD`` + ``C/P`` +
+8-digit strike×1000) also lives here: :func:`parse_occ_symbol` is its
+single source of truth, consumed by ``transactions._option_root`` and
+``positions._parse_occ_option_symbol`` (TD-019).  No other module may
+re-encode the tail grammar.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 INDEX_RE = re.compile(r"^\$[A-Z0-9]{1,5}$")
 EQUITY_RE = re.compile(r"^[A-Z0-9.]{1,6}$")
@@ -51,6 +58,61 @@ def canonical_option_symbol(root: str, date: str, cp: str, strike_raw: str) -> s
     if strike <= 0 or encoded >= 100_000_000:
         return None
     return f"{root:<6}{date}{cp}{encoded:08d}"
+
+
+OCC_TAIL_RE = re.compile(r"^\d{6}[CP]\d{8}$")
+"""Strict OCC tail: ``YYMMDD`` + ``C/P`` + exactly 8 strike digits (×1000).
+
+Unlike :data:`OPTION_RE` — whose strike group is deliberately permissive
+(literal strikes like ``261120P63`` are valid for
+:func:`classify_symbol`) — this matches only the canonical 15-character
+provider tail, right-anchored regardless of root padding.
+"""
+
+
+@dataclass(frozen=True)
+class OccSymbol:
+    """Fields decoded from one OCC option symbol (:func:`parse_occ_symbol`).
+
+    ``expiry`` is the ISO ``YYYY-MM-DD`` derivation of the tail's
+    ``YYMMDD``; ``strike`` is the 8-digit tail field divided by 1000;
+    ``root`` is the portion before the tail with padding stripped (empty
+    for a bare 15-character symbol, preserving historical behavior).
+    """
+
+    root: str
+    expiry: str
+    put_call: str
+    strike: float
+
+
+def parse_occ_symbol(symbol: str | None) -> OccSymbol | None:
+    """Parse one OCC option symbol — the tail grammar's single source of truth.
+
+    The last 15 characters of an OCC option symbol always encode
+    ``YYMMDD`` + ``C/P`` + 8-digit strike × 1000 (live evidence
+    2026-10-24/27), regardless of how the root is padded.  Consolidates
+    the grammar previously re-encoded by ``transactions._option_root`` and
+    ``positions._parse_occ_option_symbol`` (TD-019); those helpers are now
+    thin wrappers over this function.
+
+    Returns ``None`` when the symbol is not a recognisable OCC option
+    symbol (``None``/empty input, shorter than 15 characters, or a tail
+    that fails :data:`OCC_TAIL_RE`).  No ``YYMMDD`` range validation is
+    performed, matching the historical parsers' behavior.
+    """
+    if not symbol:
+        return None
+    tail = symbol[-15:]
+    if len(tail) < 15 or not OCC_TAIL_RE.match(tail):
+        return None
+    yymmdd, put_call, strike_millis = tail[:6], tail[6], tail[7:]
+    return OccSymbol(
+        root=symbol[:-15].strip(),
+        expiry=f"20{yymmdd[:2]}-{yymmdd[2:4]}-{yymmdd[4:6]}",
+        put_call=put_call,
+        strike=int(strike_millis) / 1000.0,
+    )
 
 
 def classify_symbol(symbol: str) -> tuple[str, str] | None:

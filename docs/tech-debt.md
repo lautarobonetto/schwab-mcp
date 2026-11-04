@@ -5,6 +5,13 @@ Working backlog of KISS/DRY violations found in a full audit of `src/`
 column as each item lands. Line numbers refer to the state of the code at
 audit time and may shift as fixes merge — re-verify before editing.
 
+TD-019–TD-034 come from a **second audit pass** (2026-11-04, after
+v0.9.9) covering the DRY/KISS debt TD-001–TD-018 did not reach —
+including the `tests/` tree, whose duplication had never been audited.
+Structural evidence for TD-019/TD-024 was cross-checked against the
+codebase-memory knowledge graph (`SIMILAR_TO` edges among the affected
+functions).
+
 Per the project constitution, every fix follows TDD: write the failing
 test first (Red → Green → Refactor). Bug fixes (marked **BUG**) start
 with a regression test that reproduces the defect. Affected `docs/`
@@ -32,6 +39,22 @@ pages are updated in the same commit.
 | TD-016 | Low | Dead code | Dead parameters in helpers | Fixed (v0.9.9, 2026-11-04) |
 | TD-017 | Low | Dead code | Unused imports and members | Fixed (v0.9.9, 2026-11-04) |
 | TD-018 | Low | KISS | Obscured imports and misc readability | Fixed (v0.9.9, 2026-11-04) |
+| TD-019 | High | DRY | OCC symbol parsing triplicated (`symbols`/`transactions`/`positions`) | Fixed (v0.9.11, 2026-11-04) |
+| TD-020 | High | DRY | Transactions test fakes x5, `_validator` x3, 15-types literal (tests) | Open |
+| TD-021 | High | KISS | `positions.py`: payload crosses 3 shapes before mapping | Open |
+| TD-022 | Medium | DRY | `ConnectivityError` cause classification written 3x | Open |
+| TD-023 | Medium | DRY | `utc_now_iso()` duplicated; UTC-timestamp convention x4 | Open |
+| TD-024 | Medium | DRY | Five `*_tool` wrappers repeat the same boilerplate skeleton | Open |
+| TD-025 | Medium | DRY/KISS | `retry_call` used without retries at 13/14 sites; manual retry in `renewal` | Open |
+| TD-026 | Medium | KISS | `TransactionsResult` validator: outcome→detail rules as dict | Open |
+| TD-027 | Low | DRY | `options_chain.py` mirrored error-mapping except blocks (re-opens TD-008 site 1) | Open |
+| TD-028 | Low | DRY | `cli.py`: identical result branches in `run_auth_status`/`run_renew` | Open |
+| TD-029 | Low | DRY | `to_json`/`from_json` duplicated in `renewal.py` | Open |
+| TD-030 | Low | KISS | `movement_involves_filter`: M3 documented but identical to M1 (doc debt) | Open |
+| TD-031 | Low | DRY | Market-timezone constant x3; `positions` plumbing and event-emission inconsistencies | Open |
+| TD-032 | Low | KISS | `quotes.get_quotes` validates and accumulates in the same loop | Open |
+| TD-033 | Low | KISS | `log.py` event registry hand-maintained; `quotes` never emits a success event | Open |
+| TD-034 | Medium | KISS | `transactions.py`: 1336 lines, 9 responsibilities (optional split) | Open |
 
 ---
 
@@ -644,6 +667,516 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 ---
 
+## Second audit pass (TD-019–TD-034, open)
+
+### TD-019 — OCC option symbol parsing triplicated (DRY)
+
+**Area:** `src/schwab_mcp/symbols.py:31-53`, `src/schwab_mcp/transactions.py:53-81`,
+`src/schwab_mcp/positions.py:173-192`
+
+The knowledge *"the last 15 characters of an OCC option symbol encode
+`YYMMDD` + `C/P` + 8-digit strike×1000"* lives in three modules:
+
+- `symbols.py` — `OPTION_RE` + `canonical_option_symbol()`. The module
+  docstring proclaims it "the package's single source of truth"
+  (established by TD-009).
+- `transactions.py:53` — its own `_OCC_TAIL_RE`
+  (`^\d{6}[CP]\d{8}$`) plus `_option_root()`, re-encoding the same tail
+  grammar independently of the SSOT.
+- `positions.py:173-192` — `_parse_occ_option_symbol()` re-implements
+  the tail checks by hand (`len(tail) < 15 or tail[6] not in "CP"`,
+  `yymmdd.isdigit() and strike_millis.isdigit()`) — it does not even
+  reuse the regex. It also holds the only derivation of the ISO expiry
+  (`20{YYMMDD}`).
+
+**Risk:** a change in the OCC encoding (strike digits, decimals,
+separator tolerance) must be fixed in three places, each pinned by
+different tests; the copies can drift silently because nothing asserts
+they agree.
+
+**Refactor:** add `parse_occ_symbol(symbol) -> {root, expiry, put_call,
+strike} | None` (or a small dataclass) to `symbols.py`, built on
+`OPTION_RE`/`canonical_option_symbol` — one parse of the tail, three
+consumers. `transactions._option_root` and
+`positions._parse_occ_option_symbol` become thin wrappers (or are
+deleted in favour of direct calls); the expiry derivation moves next to
+the strike decoding it mirrors.
+
+**TDD:** parity tests first (Red): feed the same OCC fixtures to the
+three current parsers and pin that the shared parser reproduces every
+existing result (root/strike/expiry, including the padded-root case
+`"AMD   261120P00630000"`); then Green with the shared function. The
+existing suites must stay green unchanged.
+
+**Resolved** (v0.9.11, 2026-11-04): the tail grammar now lives once, in
+`src/schwab_mcp/symbols.py` (`OCC_TAIL_RE` + frozen dataclass
+`OccSymbol` + `parse_occ_symbol()`, with the ISO expiry derivation moved
+next to the strike÷1000 decoding it mirrors). `transactions._option_root`
+and `positions._parse_occ_option_symbol` are thin wrappers over it (their
+signatures and call sites untouched — the direct-call migration remains a
+follow-up); `_OCC_TAIL_RE` and the hand-written tail checks are deleted.
+The strict-tail contract is pinned against the permissive `OPTION_RE`
+(`parse_occ_symbol("AMD   261120P63") is None`) and cross-parser parity
+is locked by `tests/unit/test_occ_symbol_parity.py` (shared parser vs.
+both former private parsers over the fixtures already pinned in
+`test_transactions_underlying.py` and `test_positions_live_response.py`).
+Behavior-preserving; existing suites green unchanged (1875 passed, 0
+skipped). Assessment and fix report: `.specify/bugs/td-019-occ-symbol-parsing/`.
+
+---
+
+### TD-020 — Transactions test fakes x5, `_validator` x3, 15-types literal (DRY, tests)
+
+**Area:** `tests/unit/test_transactions_query.py:62-157`,
+`tests/unit/test_transactions_symbol.py:68-174`,
+`tests/unit/test_transactions_filter_query.py:79-193`,
+`tests/unit/test_transactions_pagination.py:43`,
+`tests/unit/test_transactions_live_response.py:47-89`,
+`tests/unit/helpers.py`
+
+`tests/unit/helpers.py` declares itself "single source of truth
+(Constitution II)" and already centralizes `FakeQuotesClient` /
+`FakePriceHistoryClient`, but the transactions domain re-implements its
+own fake per file — five clients (~100 lines each) sharing
+`linked_accounts()`, `transactions()`, `call_log`, `set_accounts`,
+`set_response`, `reset_tracking`:
+
+| File | Fake class | Extra behaviour |
+|------|-----------|-----------------|
+| `test_transactions_query.py` | `FakeClient` | global/per-account `transactions()` errors, `instruments()` with a hardcoded known-symbol set |
+| `test_transactions_symbol.py` | `FakeClient` | symbol-aware `transactions()` filtering, own known-symbol set |
+| `test_transactions_filter_query.py` | `FilterFakeClient` | same, plus raw-response passthrough |
+| `test_transactions_pagination.py` | `FakeClient` | minimal copy |
+| `test_transactions_live_response.py` | `LiveLikeClient` | live-shaped responses |
+
+Additional copies inside the same files:
+
+- `class _validator` (a two-line stub of `schwabdev.validation.Validator`)
+  duplicated at `test_transactions_query.py:56`,
+  `test_transactions_symbol.py:62`, `test_transactions_pagination.py:37`.
+- The 15-type literal `ALL_TYPES` re-declared in
+  `test_transactions_query.py:40-45` (plus `EXPECTED_TYPE_COUNT`) when
+  `transactions.ALL_TRANSACTION_TYPES` is derived from the enum precisely
+  so "the two lists cannot drift apart" (TD-017).
+
+The knowledge graph shows these fakes with in-degree 15–39 — they are
+the backbone of the transactions suite; every change to
+`get_transaction_history` touches up to five synchronized copies. There
+are 22 `Fake*` classes across 13 test files in total.
+
+**Refactor:** one configurable `FakeTransactionsClient` in
+`tests/unit/helpers.py` — flags for global/per-account errors, raw
+responses, and symbol-filtering mode; `_validator` promoted to the same
+module; the type-literal tests import `ALL_TRANSACTION_TYPES` from
+`src`.
+
+**TDD:** behavior-preserving — every transactions test stays green with
+only the import/constructor changes; add a guard test asserting the
+per-file fake classes are gone (e.g. via a helpers-only inventory test
+in the style of TD-014's invariant test).
+
+---
+
+### TD-021 — `positions.py`: payload crosses three shapes before mapping (KISS)
+
+**Area:** `src/schwab_mcp/positions.py:195-237` (`_normalize_positions_payload`),
+`636-724` (`_transform_provider_payload`), `293-439` (`map_provider_positions`)
+
+The `get_open_positions` pipeline converts the provider payload through
+three shapes before the real mapping:
+
+1. Raw provider form (top-level list of `{"aggregatedBalance",
+   "securitiesAccount": {...}}`, live 2026-10-23).
+2. `_normalize_positions_payload()` → the **legacy** `{"accountDetails":
+   [...]}` dict — kept only for historical/test compatibility.
+3. `_transform_provider_payload()` → the "internal" `{"accounts":
+   [{"accountHash", "positions": [...]}]}` shape.
+4. `map_provider_positions()` → `PositionsResult`.
+
+Two whole functions exist purely to re-shape data between steps 2 and 3
+(~120 lines); the legacy `accountDetails` shape is ceremonial. TD-007
+already removed the intra-layer duplication (triple `unrealized_pl`,
+inline `_collect_extended`, post-hoc mutation) but left the shape
+pipeline intact.
+
+**Refactor:** normalize once into a single internal shape (either the
+raw securitiesAccount entries or the `accounts` form) and map directly
+from it; retire the `accountDetails` intermediate, updating the tests
+that construct it (T004 constructs the internal shape already, so the
+blast radius is `_normalize_positions_payload` + `_transform_provider_payload`
+callers).
+
+**TDD:** the mapping-core tests (`T004`) must stay green unchanged; if
+any normalization edge case is not already pinned (non-dict elements,
+missing `accountNumber`, per-entry `error` keys), add the test first.
+
+---
+
+### TD-022 — `ConnectivityError` cause classification written three times (DRY)
+
+**Area:** `src/schwab_mcp/transactions.py:946-958`, `src/schwab_mcp/price_history.py:532-545`,
+`src/schwab_mcp/quotes.py:280-290`, `src/schwab_mcp/renewal.py:185-209`
+
+The rule "`__cause__` is `ReauthorizationRequiredError`/`PermissionError`
+→ reauth, otherwise transient" is implemented three times:
+
+- `transactions._classify_connectivity_cause()` — the named helper
+  (introduced by TD-005), which also returns `"provider_error"`.
+- `price_history.py:536-538` — inline `isinstance(exc.__cause__, (...)
+  )` despite importing both exception classes.
+- `quotes.py:281-283` — inline again.
+- `renewal._tie_breaker_probe` branches over the same exception pair
+  (its contract differs — probe, not cause classification — but it is
+  the fourth consumer of the same taxonomy knowledge).
+
+**Risk:** re-classifying a cause (e.g. treating a permission-scoped 403
+differently from a full reauth) requires three coordinated edits;
+`price_history` and `quotes` can drift from the helper.
+
+**Refactor:** promote the classifier to a shared home —
+`errors.classify_connectivity_cause(exc)` or `provider.py` — and
+consume it from `transactions`, `price_history` and `quotes`.
+
+**TDD:** unit tests for the classifier (all three return values,
+including `PermissionError` cause and a non-connectivity cause) plus
+the existing per-tool event-parity tests staying green.
+
+---
+
+### TD-023 — `utc_now_iso()` duplicated; UTC-timestamp convention x4 (DRY)
+
+**Area:** `src/schwab_mcp/transactions.py:506-512`, `src/schwab_mcp/positions.py:259-265`,
+`src/schwab_mcp/options_chain.py:732`, `src/schwab_mcp/log.py:183`
+
+`utc_now_iso()` exists twice with an identical body and a near-identical
+docstring (`transactions` and `positions`). The ISO-8601-UTC
+`isoformat(timespec="seconds")` convention is additionally written
+inline in `options_chain._result_meta` (`generated_at`) and
+`log.auth_event` (the audit-line timestamp). Four copies of one
+convention that TD-013 just finished normalizing ("no non-standard
+`Z+00:00` suffix") across the codebase.
+
+**Refactor:** one `utc_now_iso()` in a shared home (a small
+`time_util.py`, or `results.py` next to the models that consume it);
+`transactions`, `positions` and `options_chain` import it. `log.py` may
+keep its own copy *only* if the audit-line contract demands isolation —
+in that case document the decision at both sites so the fourth copy is
+explicit, not accidental.
+
+**TDD:** identity test (the three consumers return identical-shape
+values) + the existing `fromisoformat` regression tests from TD-013.
+
+---
+
+### TD-024 — Five `*_tool` wrappers repeat the same boilerplate skeleton (DRY)
+
+**Area:** `src/schwab_mcp/transactions.py:1307-1337`,
+`src/schwab_mcp/options_chain.py:926-959` and `1191-1217`,
+`src/schwab_mcp/price_history.py:610-642`, `src/schwab_mcp/quotes.py:338-360`
+
+Every MCP tool wrapper repeats the same skeleton (~30 lines each):
+late imports of `AuthError` and `raise_classified_tool_error`,
+`try: return fn(...) except (AuthError, ChainDataError?, ValueError,
+TypeError): raise_classified_tool_error(exc)`, and a near-identical
+docstring ("Converts validation errors ... into the MCP SDK's
+`ToolError` so the actionable message ... reaches the agent"). The
+knowledge graph connects all five functions pairwise with `SIMILAR_TO`
+edges — structural duplication confirmed independently of source
+reading. Variation points: the domain-error tuple (only
+`transactions` adds `InstrumentNotFoundError`, only the chain tools add
+`ChainDataError`) and the forwarded parameters.
+
+Related inconsistency: `positions.get_open_positions` is registered
+directly without any `*_tool` wrapper, so it follows a third pattern.
+
+**Refactor:** one shared factory in `tool_errors.py`, e.g.
+
+```python
+def make_tool(fn, *, domain_errors: tuple[type[Exception], ...] = (ValueError, TypeError)):
+    def tool(client, *args, **kwargs):
+        try:
+            return fn(client, *args, **kwargs)
+        except (AuthError, *domain_errors) as exc:
+            raise_classified_tool_error(exc)
+    tool.__name__ = fn.__name__
+    tool.__qualname__ = fn.__qualname__
+    return tool
+```
+
+Each `*_tool` collapses to a one-line `get_x_tool = make_tool(...)`
+plus the tool-specific docstring; the domain-error tuple becomes the
+only declared variation. Decide the `positions` question (adopt the
+factory or document why it has no wrapper).
+
+**TDD:** the existing wrapper-classification tests
+(`tests/unit/test_tool_error_classification.py`) must stay green;
+add a test asserting every registered tool's wrapper routes
+`(AuthError, ValueError, TypeError)` through the shared factory (e.g.
+pinning `__wrapped__`/factory identity).
+
+---
+
+### TD-025 — `retry_call` used without retries at 13/14 sites; manual retry in `renewal` (DRY/KISS)
+
+**Area:** `src/schwab_mcp/tokens.py:333-378`, `src/schwab_mcp/renewal.py:303-322`
+
+- **13 of 14** production call sites pass `retries=0` (positional `0`):
+  `transactions.py:1057,1065,1158`; `options_chain.py:349,385,983,991`;
+  `price_history.py:521,531`; `quotes.py:169,170,276,279`. Only
+  `server.py:156` uses an actual retry (`retries=1`). At `retries=0`
+  the function is not a retry — it is a one-shot
+  "wrap any exception in `ConnectivityError`" — and both its name and
+  its error message lie: `"Schwab API unreachable after retry"` when
+  no retry happened (`tokens.py:373-375`).
+- `renewal._do_renew` (lines 303-322) re-implements its own retry loop —
+  `for attempt in range(1 + RETRIES)` with `time.sleep(0.5)` — i.e. the
+  same knowledge `retry_call` already owns (retry count + 0.5 s wait).
+
+**Refactor (decide first, then edit):** either (a) `retry_call` becomes
+the retry mechanism of record — the `renewal` manual loop is replaced by
+a `retry_call`-based attempt helper, and call sites that genuinely want
+a retry declare it — or (b) the wrapper is renamed/re-messaged for what
+it mostly is (e.g. `unwrap_call` with `ConnectivityError` mapping, with
+the message "Provider call failed" not "after retry") and `renewal`'s
+loop is the documented second mechanism. Option (a) removes a
+duplicated loop; option (b) removes a lie from 13 call sites. Do not
+leave both the misleading message and the duplicate loop.
+
+**TDD:** pin the chosen message/behaviour contract in
+`tests/unit/test_tokens.py`; the renewal retry tests
+(`tests/unit/test_renewal.py`) must stay green under option (a).
+
+---
+
+### TD-026 — `TransactionsResult` validator: outcome→detail rules as a table (KISS)
+
+**Area:** `src/schwab_mcp/transactions.py:658-766`
+(`_validate_cross_rules`, 108 lines)
+
+The final block repeats three "outcome X ⇒ detail Y" checks with the
+same shape (`is_partial`/`is_transient`/`is_reauth` flags computed at
+the top, lines 665-668, then three consecutive `if` blocks at 748-764).
+A `dict{TransactionOutcome: TransactionDetail}` iterated once expresses
+the same contract. Two adjacent fragilities worth keeping pinned while
+touching this function: rules 2-3 (has_more ⇔ next_offset, lines
+695-706) and rule 7's silent `pass` on unparseable fixture dates
+(709-725).
+
+**Refactor:** replace the three outcome⇒detail `if`s with a module-level
+`_OUTCOME_REQUIRED_DETAIL` map; keep the numbered contract comments for
+the remaining rules.
+
+**TDD:** the data-model rule tests must stay green unchanged (this is a
+pure code-shape change).
+
+---
+
+### TD-027 — `options_chain.py` mirrored error-mapping except blocks (DRY; re-opens TD-008 site 1)
+
+**Area:** `src/schwab_mcp/options_chain.py:884-908`
+(`get_option_chain`) vs `1159-1178` (`get_option_expiration_chain`)
+
+Seven `except` clauses that only emit `auth_event(...)` and re-raise,
+near-mirrored between the two orchestrators. TD-008 resolved its site 1
+by declaring the mirrors deliberate ("the per-tool auth_event prefixes
+and this one-block difference are the only variation"). The second
+audit pass challenges that call: the variation is fully parameterizable
+— a `{exc_type: (state, detail)}` table iterated once, with
+`ChainDataError` and the event prefix as parameters — and the current
+shape adds a new error class in two places that can diverge silently.
+
+**Refactor:** one `_emit_failure_event(exc, event_prefix, mapping)` loop
+in the module; both orchestrators shrink to a single `try/except`
+wrapper. If after implementing it the table reads worse than the
+explicit blocks, record that judgement here instead of merging it.
+
+**TDD:** event-parity characterization tests: for each error class on
+each path, the emitted `(event, outcome, detail)` tuple is unchanged.
+
+---
+
+### TD-028 — `cli.py`: identical result branches in `run_auth_status`/`run_renew` (DRY)
+
+**Area:** `src/schwab_mcp/cli.py:229-262`, `281-305`
+
+- `run_auth_status` constructs the identical
+  `AuthHealth(state="reauth_required", access_expires_in_seconds=None,
+  refresh_expires_in_seconds=None)` **three times** (absent store,
+  corrupted store, unreadable lifetime) and prints/exits the same way.
+- `run_renew` has two near-identical blocks for absent/corrupted
+  (differing only in the `detail` string: `"store_absent"` vs
+  `"store_corrupted"`).
+
+**Refactor:** a `status → (detail, health-or-outcome, exit_code)` map
+consumed by one branch each; ~30 lines removed and a fourth status
+requires one table row.
+
+**TDD:** the CLI exit-code/status contract tests
+(`tests/unit/test_cli_*`) must stay green unchanged.
+
+---
+
+### TD-029 — `to_json`/`from_json` duplicated in `renewal.py` (DRY)
+
+**Area:** `src/schwab_mcp/renewal.py:80-89` (`RenewalOutcome`) and
+`108-117` (`AuthHealth`)
+
+Both frozen dataclasses carry byte-identical
+`to_json()`/`from_json()` implementations
+(`json.dumps(dataclasses.asdict(self), separators=(",", ":"),
+sort_keys=True)` / `cls(**json.loads(data))`).
+
+**Refactor:** one mixin (e.g. `_CompactJson`) or a free pair
+`to_compact_json(obj)` / `from_compact_json(data, cls)`; the two
+classes keep only their `__post_init__` validation.
+
+**TDD:** the existing serialization round-trip tests cover it; no new
+tests needed beyond keeping them green.
+
+---
+
+### TD-030 — `movement_involves_filter`: M3 documented but identical to M1 (KISS, doc debt)
+
+**Area:** `src/schwab_mcp/transactions.py:100-145`
+
+The docstring describes three matching forms (M1 exact symbol, M2 option
+OCC root, M3 "same as M1, listed separately in the data model"), but M3
+is literally the same `if` as M1 — the code implements two rules, not
+three. A reader looking for the third branch finds none. The data-model
+distinction is historical (the provider used to reject full OCC
+symbols); the docstring should say that once instead of enumerating a
+rule the code does not have.
+
+**Refactor:** rewrite the docstring to describe the two implemented
+rules and cite the data-model §2 note about the historical M1/M3 split;
+or fold M2's comment accordingly. No code change.
+
+**TDD:** none (docstring only).
+
+---
+
+### TD-031 — Market-timezone constant x3; `positions` plumbing and event-emission inconsistencies (DRY)
+
+**Area:** `src/schwab_mcp/transactions.py:336,523`, `src/schwab_mcp/price_history.py:65`,
+`src/schwab_mcp/positions.py:479-480`, `src/schwab_mcp/transactions.py:997,1287`
+
+Three small inconsistencies, batched because each is a one-liner:
+
+1. `ZoneInfo("America/New_York")` is constructed twice inside
+   `transactions.py` (`validate_history_query`, `_provider_datetime`)
+   while `price_history.py` already defines the shared `ET` constant —
+   the exchange timezone should be one constant (in `symbols.py`? in a
+   shared util?) consumed by both modules.
+2. `positions.get_open_positions` (479-480) calls `response_json` **without**
+   `retry_call` — the only orchestration that skips the shared
+   retry/unwrap plumbing (TD-005/TD-008 established it everywhere
+   else). Align it or document why positions is exempt.
+3. Transactions emits its success event in two conventions:
+   `_empty_ok_result` emits *inside* the result builder (997 — a
+   side effect in a helper documented as canonical result construction)
+   while the main path emits at the call site (1287). Pick one
+   convention.
+
+**Refactor:** each item independent; all three are small.
+
+**TDD:** event-parity and timezone-dependent tests stay green; add a
+pin for the chosen positions retry behaviour if it changes.
+
+---
+
+### TD-032 — `quotes.get_quotes` validates and accumulates in the same loop (KISS)
+
+**Area:** `src/schwab_mcp/quotes.py:241-258`
+
+The symbol loop appends to `errors` **and** fills `symbols_out`/
+`provider_forms`/`kinds`/`seen` in the same pass; if any symbol is
+malformed, the accumulated valid symbols are then discarded by the
+early return. Two concerns in one loop with throwaway work on the
+error path.
+
+**Refactor:** validate all symbols first (collect only errors), then
+accumulate the output lists in a second pass once validation is known
+clean. Same observable behaviour, one concern per loop.
+
+**TDD:** existing quotes validation tests must stay green unchanged.
+
+---
+
+### TD-033 — `log.py` event registry hand-maintained; `quotes` never emits a success event (KISS + contract question)
+
+**Area:** `src/schwab_mcp/log.py:11-91`; `src/schwab_mcp/quotes.py:204-330`
+
+1. `ALLOWED_EVENTS` + `_ALLOWED_OUTCOMES` are two hand-maintained levels
+   for six domains × (start/success/failure): the failure-outcome sets
+   of `options_chain_query_failure`, `expiration_chain_query_failure`,
+   `quotes_query_failure` and `price_history_query_failure` are four
+   copies of the same set; every new tool extends both structures by
+   hand. A factory — e.g. `register_tool_events(prefix,
+   success_outcomes=..., failure_outcomes=DEFAULT_FAILURE_OUTCOMES)` —
+   derives both registries from per-tool declarations.
+2. **Inconsistency (decide the contract):** every tool emits a success
+   event except `get_quotes`, which emits only start/failure — and
+   `quotes_query_success` is not even in `ALLOWED_EVENTS`. Either the
+   quotes contract genuinely requires no success event (then document
+   why, there and here) or it is a gap from feature 010 (then add the
+   event + `ALLOWED_EVENTS`/`_ALLOWED_OUTCOMES` entries with the
+   regression test).
+
+**TDD:** item 1 is behavior-preserving (the event-parity tests pin
+every emitted tuple); item 2 is a contract decision — whichever way,
+add the test that pins it.
+
+---
+
+### TD-034 — `transactions.py`: 1336 lines, 9 responsibilities (KISS, optional split)
+
+**Area:** `src/schwab_mcp/transactions.py` (whole module)
+
+The largest module in the repo mixes: custom exception
+(`InstrumentNotFoundError`, 39-44), OCC matching (47-145), four enums +
+type-category map (148-259), query validation (262-383), bisection
+machinery (386-543), three pydantic models (545-766), the provider
+mapper (769-905), the orchestrator with dual validation (908-1299) and
+the MCP tool wrapper (1302-1337). The thematic cohesion is real, but
+the seams are clean: validation and the OCC parser are independent of
+the models; the exception belongs in `errors.py`; the tool wrapper is
+TD-024's factory.
+
+**Refactor (deferred — only if the module keeps growing or TD-019/TD-024
+do not land first):** extract `transactions_validation.py` (query
+validation + bisection) and move `InstrumentNotFoundError` to
+`errors.py`; re-export from `transactions.py` to keep import paths
+stable. Do not split the models from the mapper — they share the
+data-model contract.
+
+**TDD:** import-path stability test (the public surface listed in
+`docs/tools.md` and consumed by tests imports unchanged).
+
+---
+
+## Accepted complexity — do not fix (second-pass verdict)
+
+These were flagged during the audit and deliberately accepted; recorded
+so future audits do not re-open them without new evidence:
+
+- **`server.register_tool` reaches into SDK internals**
+  (`server.py:50-81`, `mcp._tool_manager._tools[name]`): no public API
+  for the unknown-argument hardening; pinned by
+  `tests/unit/test_tool_arg_strictness.py`. Fragile by necessity.
+- **`schwabdev_compat.py` shim**: monkeypatching schwabdev internals is
+  the only mechanism that survives `uv sync` and preserves the
+  portal-registered callback exactly; fails loudly on upstream change.
+- **`cli.run_auth` fresh-write detection** (`cli.py:128-198`): the
+  counted hook + pre/post byte comparison + status checks are justified
+  by the auth-false-success and auth-corrupt-store-blocked bugs.
+- **`validate_history_query` rules 2b/2c** (`transactions.py:339-363`):
+  the future-date/range interplay is driven by contract error messages;
+  the comments already document why each branch exists.
+- **`Config.__getitem__`** (`config.py:36-37`): verified used (15× by
+  `tests/unit/test_config.py`); the earlier TD-017 note stands corrected.
+
+---
+
 ## Dominant patterns
 
 1. **Each feature re-implemented the same self-classifying result shape**
@@ -655,10 +1188,28 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
    auth/connectivity classification) — TD-004, TD-006.
 3. **Dead parameters "for interface consistency"** in four helpers —
    abstractions outgrew their usage — TD-016.
+4. **Provider-format knowledge is re-encoded per feature** instead of
+   imported from the module that owns it — the OCC tail grammar (TD-019),
+   the connectivity-cause taxonomy (TD-022), the UTC-timestamp
+   convention (TD-023). `symbols.py` and `results.py` exist precisely to
+   stop this; the second pass found the modules that never adopted them.
+5. **Test doubles are re-implemented per test file** despite
+   `tests/unit/helpers.py` declaring itself the single source of truth
+   (TD-020) — the tests were never part of any TD-001–TD-018 audit.
 
 ## Suggested resolution order
 
-1. TD-001 (bug, regression test first) → 2. TD-004 (live divergence) →
-3. TD-005 → 4. TD-002 → 5. TD-003 → 6. TD-006 → 7. TD-013 (bug) →
-8. remaining medium items → 9. low-priority cleanup — **done**: TD-013 …
-TD-018 all resolved (2026-11-04, one commit per area, TDD-gated).
+First pass (TD-001–TD-018) — **done**: TD-013 … TD-018 all resolved
+(2026-11-04, one commit per area, TDD-gated).
+
+Second pass (TD-019–TD-034):
+
+1. TD-019 (OCC parsing, highest DRY payoff) →
+2. TD-020 (tests consolidation — unlocks safe edits to `transactions.py`) →
+3. TD-021 (positions pipeline) →
+4. TD-022 + TD-023 (one commit: shared taxonomy/timestamp helpers) →
+5. TD-025 (retry decision) →
+6. TD-024 (tool factory) →
+7. TD-026, TD-027, TD-028, TD-029 (medium/low DRY batch) →
+8. TD-030, TD-031, TD-032, TD-033 (low batch; TD-033 needs a contract decision first) →
+9. TD-034 (optional split — revisit only after 1-6 land).

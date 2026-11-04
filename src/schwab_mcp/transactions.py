@@ -8,7 +8,6 @@ mapping function.
 from __future__ import annotations
 
 import contextlib
-import re
 from datetime import date, datetime, time, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
@@ -19,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
+from schwab_mcp.symbols import parse_occ_symbol
 from schwab_mcp.results import (
     DETAIL_ACCOUNT_FAILED,
     DETAIL_PROVIDER_UNREACHABLE,
@@ -48,18 +48,14 @@ class InstrumentNotFoundError(Exception):
 # Underlying-aware matching (007)
 # =============================================================================
 
-# OCC option symbol pattern: the last 15 characters are always
-# YYMMDD + C/P + 8-digit strike×1000 (right-anchored).
-_OCC_TAIL_RE = re.compile(r"^\d{6}[CP]\d{8}$")
-
 
 def _option_root(symbol: str | None) -> str | None:
     """Derive the underlying root from an OCC option symbol (data-model §1-R1).
 
-    The root is the portion before the last 15 characters (which encode
-    expiry date, call/put indicator, and strike price × 1000), with padding
-    stripped.  Returns ``None`` when the symbol is not a recognisable OCC
-    option symbol (too short, wrong pattern, or ``None`` input).
+    Thin wrapper over :func:`schwab_mcp.symbols.parse_occ_symbol` — the
+    tail grammar lives there as the single source of truth (TD-019).
+    Returns ``None`` when the symbol is not a recognisable OCC option
+    symbol (too short, wrong pattern, or ``None`` input).
 
     Parameters
     ----------
@@ -71,14 +67,8 @@ def _option_root(symbol: str | None) -> str | None:
     str | None
         The underlying root (e.g. ``"AMD"``) or ``None``.
     """
-    if not symbol:
-        return None
-    tail = symbol[-15:]
-    if len(tail) < 15:
-        return None
-    if not _OCC_TAIL_RE.match(tail):
-        return None
-    return symbol[:-15].strip()
+    parsed = parse_occ_symbol(symbol)
+    return parsed.root if parsed is not None else None
 
 
 def _is_currency_instrument(instrument: dict) -> bool:
