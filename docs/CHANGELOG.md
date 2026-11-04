@@ -32,6 +32,27 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **`price_history.py` failure-event pattern de-duplicated** (tech debt
+  TD-010, 2026-11-04): `get_price_history` repeated the same
+  5-argument selection tuple `(normalized, frequency, period,
+  extended_hours, extended)` across seven `_fail(...)` call sites and
+  composed the audit-event detail `f"{detail} " + _selection_detail(...)`
+  at seven sites, and the `ConnectivityError` handler duplicated the
+  reauth/unreachable branches. The selection is now bound once by a
+  `fail(detail, **extra)` closure created immediately after symbol
+  normalization; `_fail_event(detail, ...)` is the single home of the
+  detail composition; the connectivity handler collapses to one
+  emission path via a `(state, reason, envelope)` lookup; the success
+  event composes through the same path. Behavior is byte-identical
+  (verified by a differential harness running the pre-refactor and
+  post-refactor implementations side by side over 15 failure/success
+  scenarios: identical events, envelopes and raised errors). One
+  assessment claim was rejected during triage: the success event never
+  logged a "raw" symbol — `_selection_detail` normalizes internally, so
+  all events already logged the same normalized symbol. Net −28 lines;
+  audit-event names, detail strings and envelopes unchanged. Full suite
+  green (1819 passed, 0 skipped). Assessment, fix report and
+  verification: `.specify/bugs/td-010-price-history-fail-dry/`.
 - **Symbol grammar unified in `schwab_mcp.symbols`** (tech debt TD-009,
   2026-11-04): two definitions of "valid symbol" coexisted — the quotes
   grammars (`quotes.py`, declared single source of truth and already

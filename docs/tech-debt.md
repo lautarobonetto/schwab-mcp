@@ -23,7 +23,7 @@ pages are updated in the same commit.
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Fixed (v0.9.8, 2026-11-04) |
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Fixed (v0.9.8, 2026-11-04) |
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Fixed (v0.9.8, 2026-11-04) |
-| TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Open |
+| TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Fixed (v0.9.8, 2026-11-04) |
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Open |
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Open |
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Open |
@@ -422,6 +422,24 @@ report and verification: `.specify/bugs/duplicate-symbol-validation/`.
 normalization (or pass a selection object); a `_fail_event(detail)`
 helper; use `normalized` everywhere; collapse the two failure branches
 into one parameterized helper.
+
+**Resolved** (v0.9.8, 2026-11-04): the selection tuple is bound once by
+a `fail(detail, **extra)` closure created immediately after symbol
+normalization (all seven `_fail` call sites are now one-liners);
+`_fail_event(detail, ...)` is the single home of the
+`f"{reason} " + _selection_detail(...)` composition (used by `_fail`,
+the `invalid_request` site and the `fail_event` closure); the
+`ConnectivityError` handler collapses to one emission path via a
+`(state, reason, envelope)` lookup; the success event composes through
+the same closure path. One report claim was rejected during triage: the
+success event never logged a "raw" symbol — `_selection_detail`
+normalizes internally, so all events already emitted the same normalized
+symbol (only the START event keeps passing the raw argument, provably
+output-identical). Behavior verified byte-identical by a differential
+harness (pre- vs post-refactor over 15 scenarios: identical events,
+envelopes, raised errors). Full suite green (1819 passed, 0 skipped).
+Assessment, fix report and verification:
+`.specify/bugs/td-010-price-history-fail-dry/`.
 
 ---
 

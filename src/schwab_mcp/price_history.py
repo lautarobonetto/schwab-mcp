@@ -176,6 +176,24 @@ def _selection_detail(
     )
 
 
+def _fail_event(
+    detail: str,
+    symbol: Any,
+    frequency: Any,
+    period: Any,
+    extended_hours: Any,
+    extended: Any,
+) -> str:
+    """Composed event detail: reason plus selection (contract §6).
+
+    Single place where the ``f"{reason} " + _selection_detail(...)``
+    shape lives; every failure/success event detail is built here.
+    """
+    return f"{detail} " + _selection_detail(
+        symbol, frequency, period, extended_hours, extended
+    )
+
+
 def _fail(
     detail: str,
     symbol: str,
@@ -194,7 +212,7 @@ def _fail(
     auth_event(
         FAILURE_EVENT,
         "validation",
-        detail=f"{detail} " + _selection_detail(symbol, frequency, period, extended_hours, extended),
+        detail=_fail_event(detail, symbol, frequency, period, extended_hours, extended),
     )
     return validation_error(detail, symbol, **extra)
 
@@ -441,9 +459,8 @@ def get_price_history(
         auth_event(
             FAILURE_EVENT,
             "validation",
-            detail="invalid_request "
-            + _selection_detail(
-                symbol, frequency, period, extended_hours, extended
+            detail=_fail_event(
+                "invalid_request", symbol, frequency, period, extended_hours, extended
             ),
         )
         raise TypeError(
@@ -455,10 +472,21 @@ def get_price_history(
     # 2. Normalization + validation before any upcall (FR-007, D9)
     # ------------------------------------------------------------------
     normalized = (symbol or "").strip().upper()
-    if not normalized:
+
+    def fail(detail: str, **extra: Any) -> dict:
+        """Emit the failure event + envelope with the bound selection."""
         return _fail(
-            "malformed_symbol", normalized, frequency, period, extended_hours, extended
+            detail, normalized, frequency, period, extended_hours, extended, **extra
         )
+
+    def fail_event(detail: str) -> str:
+        """Composed event detail for the bound selection (contract §6)."""
+        return _fail_event(
+            detail, normalized, frequency, period, extended_hours, extended
+        )
+
+    if not normalized:
+        return fail("malformed_symbol")
 
     classified = classify_symbol(normalized)
     if classified is None:
@@ -467,65 +495,23 @@ def get_price_history(
         # endpoint serves underlyings, so the kind rejection comes first.
         # The OCC shape grammar is reused from ``symbols`` (Principle II).
         if OPTION_RE.match(normalized):
-            return _fail(
-                "unsupported_symbol_kind",
-                normalized,
-                frequency,
-                period,
-                extended_hours,
-                extended,
-            )
-        return _fail(
-            "malformed_symbol",
-            normalized,
-            frequency,
-            period,
-            extended_hours,
-            extended,
-        )
+            return fail("unsupported_symbol_kind")
+        return fail("malformed_symbol")
     kind, provider_form = classified
     if kind == "option":
-        return _fail(
-            "unsupported_symbol_kind",
-            normalized,
-            frequency,
-            period,
-            extended_hours,
-            extended,
-        )
+        return fail("unsupported_symbol_kind")
 
     if frequency not in PRESET_TABLE:
-        return _fail(
-            "unsupported_frequency",
-            normalized,
-            frequency,
-            period,
-            extended_hours,
-            extended,
-            valid_frequencies=list(PRESET_TABLE),
+        return fail(
+            "unsupported_frequency", valid_frequencies=list(PRESET_TABLE)
         )
 
     presets = PRESET_TABLE[frequency]
     if period not in presets:
-        return _fail(
-            "unsupported_period",
-            normalized,
-            frequency,
-            period,
-            extended_hours,
-            extended,
-            valid_presets=list(presets),
-        )
+        return fail("unsupported_period", valid_presets=list(presets))
 
     if extended_hours and frequency not in INTRADAY_FREQUENCIES:
-        return _fail(
-            "extended_hours_not_applicable",
-            normalized,
-            frequency,
-            period,
-            extended_hours,
-            extended,
-        )
+        return fail("extended_hours_not_applicable")
 
     # ------------------------------------------------------------------
     # 3. One provider fetch through the shared retry/unwrap plumbing
@@ -544,27 +530,19 @@ def get_price_history(
         )
         payload = retry_call(response_json, 0, response=response)
     except ConnectivityError as exc:
-        if isinstance(
+        # One emission path for both connectivity failures (td-010): the
+        # only differences are the classification, the detail reason, and
+        # the envelope constructor.
+        reauth = isinstance(
             exc.__cause__, (ReauthorizationRequiredError, PermissionError)
-        ):
-            auth_event(
-                FAILURE_EVENT,
-                "reauth",
-                detail="reauth_needed "
-                + _selection_detail(
-                    normalized, frequency, period, extended_hours, extended
-                ),
-            )
-            return reauth_needed(symbol=normalized)
-        auth_event(
-            FAILURE_EVENT,
-            "provider_unreachable",
-            detail="provider_unreachable "
-            + _selection_detail(
-                normalized, frequency, period, extended_hours, extended
-            ),
         )
-        return provider_unreachable(symbol=normalized)
+        state, reason, envelope = (
+            ("reauth", "reauth_needed", reauth_needed)
+            if reauth
+            else ("provider_unreachable", "provider_unreachable", provider_unreachable)
+        )
+        auth_event(FAILURE_EVENT, state, detail=fail_event(reason))
+        return envelope(symbol=normalized)
 
     if not isinstance(payload, dict):
         payload = {}
@@ -577,10 +555,7 @@ def get_price_history(
         auth_event(
             FAILURE_EVENT,
             "error",
-            detail="history_unavailable "
-            + _selection_detail(
-                normalized, frequency, period, extended_hours, extended
-            ),
+            detail=fail_event("history_unavailable"),
         )
         return history_unavailable(symbol=normalized)
 
@@ -621,10 +596,7 @@ def get_price_history(
     auth_event(
         SUCCESS_EVENT,
         "ok",
-        detail="price_history_retrieved "
-        + _selection_detail(
-            symbol, frequency, period, extended_hours, extended
-        )
+        detail=fail_event("price_history_retrieved")
         + f" candle_count={len(candles)}",
     )
     return result
