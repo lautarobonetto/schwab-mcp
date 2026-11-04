@@ -213,6 +213,23 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   transform test, new mapping-level outcome-parameter tests, and a new
   orchestration-level partial-failure test class; full suite green.
 
+- **Constitution amended to v1.6.0 — graph-first enforcement**:
+  Principle VI (Graph-First Code Discovery) existed since v1.4.0 but was
+  violated end-to-end during the TD-010 cycle (the graph was indexed but
+  never queried; blast radius and duplication hunts ran on raw grep).
+  The amendment closes the compliance gaps rather than re-declaring the
+  principle: Principle VI gains an enforcement block (absolute priority
+  for structural questions, with
+  `.opencode/rules/graph-first-discovery.md` as the operational
+  reference; session-start/compaction index verification via
+  `list_projects`/`index_status` with declared evidence tiers
+  Scout/Verify/Auditor; claim discipline via `get_code_snippet` +
+  `check_index_coverage`, no absence/exhaustiveness claims from Scout);
+  the Index Currency Rule is now bidirectional (refresh after changes
+  AND freshness verification before consuming evidence; passive
+  warehouse usage explicitly does not satisfy it); new quality gate 9
+  (evidence-tier gate). No principle added, removed, or redefined.
+
 ## [0.9.7] - 2026-11-03
 
 ### Fixed

@@ -88,6 +88,30 @@ non-code files (Dockerfiles, shell scripts, configs), or when graph tools
 return insufficient results. When the fallback is used because of a coverage
 gap, the gap MUST be noted in the analysis output.
 
+The following enforcement rules make this principle mandatory and
+auditable:
+
+- **Priority is absolute**: for structural questions — who calls a
+  function, blast radius of a change, duplicated logic, dead code,
+  what a diff affects — grep/glob/manual reading MUST NOT be used
+  while graph tools are available. The operational reference for
+  correct vs incorrect usage is `.opencode/rules/graph-first-discovery.md`.
+- **Session-start verification**: at session start and after context
+  compaction, agents MUST confirm the nearest graph project (the
+  `list_projects` entry whose `root_path` contains the working
+  directory) and its freshness via `index_status` before any
+  structural exploration, and MUST state which evidence tier they are
+  operating at: Scout (fast provisional lookup), Verify (task-directed
+  evidence, the default), or Auditor (bounded full verification).
+- **Claim discipline**: every material structural claim (a caller
+  relationship, a blast radius, an absence) MUST be backed by
+  `get_code_snippet` on the cited symbol and validated with
+  `check_index_coverage` covering all evidence paths. Absence,
+  exhaustiveness, or dead-code claims MUST NOT be made from a
+  Scout-tier lookup alone. Where the index reports stale, partial, or
+  gapped coverage, the reported ranges MUST be read/grep-verified
+  before the claim is relied on.
+
 ### VII. English-Only Documentation & Comments
 
 All documentation and all code comments in this repository MUST be written
@@ -182,6 +206,11 @@ All changes follow the Spec Kit flow (`/speckit.specify` →
    trusted (Principle VI).
 8. **Language gate**: every new or modified documentation file and code
    comment is written in English (Principle VII).
+9. **Evidence-tier gate**: any structural analysis produced during the
+   change states which graph evidence tier it used; material structural
+   claims are backed by `get_code_snippet` and validated with
+   `check_index_coverage`; grep fallbacks used due to coverage gaps are
+   noted in the output (Principle VI).
 
 ### Index Currency Rule
 
@@ -191,6 +220,15 @@ included) MUST leave the codebase-memory-mcp index up to date. The index
 MUST be refreshed within the same workflow step that produced the change,
 before a later phase consumes graph evidence. Analysis based on a stale
 index (older than the last code change) is non-compliant.
+
+The currency obligation is bidirectional: symmetrically to the refresh
+duty, at session start and after context compaction agents MUST verify
+index freshness (`index_status`) and confirm the project entry **before**
+consuming graph evidence, and MUST NOT run structural analysis against an
+index whose generation predates the last code change. Using the graph as
+a passive warehouse (indexing without querying) does not satisfy this
+rule: when a task involves structural analysis, the graph MUST be both
+current AND consumed as the first discovery step (Principle VI).
 
 ### Commit Discipline
 
@@ -231,4 +269,4 @@ are part of the compliance review.
   Kit plan documents; agents MUST consult the constitution at the start of
   plan and implement phases.
 
-**Version**: 1.5.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-10-26
+**Version**: 1.6.0 | **Ratified**: 2026-10-19 | **Last Amended**: 2026-11-04
