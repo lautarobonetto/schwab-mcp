@@ -132,6 +132,29 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   `tests/unit/test_cli_dispatch.py`. Emitted schemas, descriptions,
   exit codes, and audit events are unchanged; full suite green.
 
+- **Positions pipeline computed each value once** (tech debt TD-007,
+  2026-11-04): `positions.py` computed `unrealized_pl` three times per
+  pipeline run (in `_transform_provider_payload`, in the consolidation
+  map, and at `PositionEntry` construction) while only the last was
+  ever read — a future multiplier/rounding change in one site would
+  have silently diverged the others. The two dead computations are gone
+  (single computation at entry construction), the transform layer
+  reuses `_collect_extended` instead of an inline duplicate, the
+  defensive timestamp override in `get_open_positions` (re-assigning
+  values already propagated via the payload) is removed, and the dead
+  `retrieved_at` parameter of `_detect_account_failures` was dropped.
+  All `PositionsResult` constructions now pass `ResultOutcome` /
+  `DetailType` / `AccountFailureDetail` enum members instead of raw
+  strings, and the partial-failure path builds its result in a single
+  `map_provider_positions` call via new `outcome` / `detail` /
+  `accounts_failed` / `retryable` parameters — replacing the old
+  mutate-after-validate flow that could bypass the shared outcome rules
+  (pydantic v2 does not validate post-hoc assignment, so
+  `accounts_failed` entries survived as raw dicts). Emitted values are
+  unchanged (str enums serialize identically); pinned by a rewritten
+  transform test, new mapping-level outcome-parameter tests, and a new
+  orchestration-level partial-failure test class; full suite green.
+
 ## [0.9.7] - 2026-11-03
 
 ### Fixed

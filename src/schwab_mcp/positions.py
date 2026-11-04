@@ -291,7 +291,14 @@ def _collect_extended(pos: dict) -> dict:
     return result
 
 
-def map_provider_positions(payload: dict, extended: bool = False) -> PositionsResult:
+def map_provider_positions(
+    payload: dict,
+    extended: bool = False,
+    outcome: OutcomeType = OutcomeType.OK,
+    detail: Optional[DetailType] = None,
+    accounts_failed: Optional[List[AccountFailed]] = None,
+    retryable: bool = False,
+) -> PositionsResult:
     """Map an already-processed provider payload to a ``PositionsResult``.
 
     This function is the pure mapping core, tested by T004. The payload
@@ -300,10 +307,17 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
 
     Each position has flat fields: ``symbol``, ``assetType``,
     ``description``, ``longQuantity``, ``shortQuantity``,
-    ``averagePrice``, ``marketValue``, ``unrealizedPL``
+    ``averagePrice``, ``marketValue``
+    (``unrealizedPL`` is intentionally absent — see below)
     and optional option-specific fields (``underlyingSymbol``,
     ``putCall``, ``strikePrice``, ``expirationDate``)
     and extended passthrough fields (``cusip``, etc.).
+
+    The final ``PositionsResult`` is built here in a single construction
+    (TD-007): ``outcome``/``detail``/``accounts_failed``/``retryable`` are
+    constructor parameters, so the shared outcome rules run exactly once,
+    at model construction — never as post-hoc mutation of a validated
+    result.
     """
     accounts_raw: list[dict] = payload.get("accounts", [])
     retrieved_at: str = payload.get("retrieved_at", utc_now_iso())
@@ -362,9 +376,10 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
                     "average_price_sum": average_price,
                     "count": 1,
                     "market_value": market_value,
-                    "unrealized_pl": _compute_unrealized_pl(
-                        market_value, average_price, quantity, instrument_type_str,
-                    ),
+                    # TD-007: unrealized_pl is NOT stored here — it is
+                    # computed exactly once at PositionEntry construction
+                    # below, from the consolidated market_value /
+                    # average_price / quantity / instrument_type.
                     "price_timestamp": retrieved_at,
                     "underlying_symbol": underlying_symbol,
                     "put_call": put_call_str,
@@ -377,11 +392,12 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
 
     if total_positions == 0:
         return PositionsResult(
-            outcome="ok",
+            outcome=outcome,
             positions=[],
-            detail="no_positions",
-            retryable=False,
+            detail=detail if detail is not None else DetailType.NO_POSITIONS,
+            retryable=retryable,
             retrieved_at=retrieved_at,
+            accounts_failed=accounts_failed,
         )
 
     entries: list[PositionEntry] = []
@@ -415,11 +431,12 @@ def map_provider_positions(payload: dict, extended: bool = False) -> PositionsRe
         entries.append(PositionEntry(**kw))
 
     return PositionsResult(
-        outcome="ok",
+        outcome=outcome,
         positions=entries,
-        detail="data_received",
-        retryable=False,
+        detail=detail if detail is not None else DetailType.DATA_RECEIVED,
+        retryable=retryable,
         retrieved_at=retrieved_at,
+        accounts_failed=accounts_failed,
     )
 
 
@@ -469,9 +486,9 @@ def get_open_positions(
             detail="provider_unreachable",
         )
         return PositionsResult(
-            outcome="transient_failure",
+            outcome=OutcomeType.TRANSIENT_FAILURE,
             positions=[],
-            detail="provider_unreachable",
+            detail=DetailType.PROVIDER_UNREACHABLE,
             retryable=True,
             retrieved_at=retrieved_at,
         )
@@ -482,9 +499,9 @@ def get_open_positions(
             detail="reauth_needed",
         )
         return PositionsResult(
-            outcome="reauth_required",
+            outcome=OutcomeType.REAUTH_REQUIRED,
             positions=[],
-            detail="reauth_needed",
+            detail=DetailType.REAUTH_NEEDED,
             retryable=False,
             retrieved_at=retrieved_at,
         )
@@ -495,9 +512,9 @@ def get_open_positions(
             detail="store_corrupted",
         )
         return PositionsResult(
-            outcome="reauth_required",
+            outcome=OutcomeType.REAUTH_REQUIRED,
             positions=[],
-            detail="store_corrupted",
+            detail=DetailType.STORE_CORRUPTED,
             retryable=False,
             retrieved_at=retrieved_at,
         )
@@ -520,34 +537,42 @@ def get_open_positions(
         (matched if entry.get("accountHash") else unmatched).append(entry)
 
     accounts_failed_list = [
-        {"account_hash": f"unmatched-account-{i}", "detail": "provider_error"}
+        {
+            "account_hash": f"unmatched-account-{i}",
+            "detail": AccountFailureDetail.PROVIDER_ERROR,
+        }
         for i, _ in enumerate(unmatched, start=1)
     ]
     working = {"accountDetails": matched}
 
     # Check for per-account failures (FR-010 / D7)
-    accounts_failed_list += _detect_account_failures(working, retrieved_at)
+    accounts_failed_list += _detect_account_failures(working)
     if accounts_failed_list:
         # Some or all accounts failed — isolate per-account
         successful_accounts = _extract_successful_accounts(working)
         if successful_accounts:
-            # Partial failure: some worked, some didn't
+            # Partial failure: some worked, some didn't. The final result
+            # is built in one call (TD-007) — no post-hoc mutation of a
+            # validated result.
             internal_payload = _transform_provider_payload(
                 {"accountDetails": successful_accounts},
                 retrieved_at,
                 extended=extended,
             )
-            pos_result = map_provider_positions(internal_payload, extended=extended)
-            pos_result.outcome = "partial_failure"
-            pos_result.detail = "account_failed"
-            pos_result.accounts_failed = accounts_failed_list
-            pos_result.retryable = False
+            pos_result = map_provider_positions(
+                internal_payload,
+                extended=extended,
+                outcome=OutcomeType.PARTIAL_FAILURE,
+                detail=DetailType.ACCOUNT_FAILED,
+                accounts_failed=accounts_failed_list,
+                retryable=False,
+            )
         else:
             # All accounts failed
             pos_result = PositionsResult(
-                outcome="partial_failure",
+                outcome=OutcomeType.PARTIAL_FAILURE,
                 positions=[],
-                detail="account_failed",
+                detail=DetailType.ACCOUNT_FAILED,
                 retryable=False,
                 retrieved_at=retrieved_at,
                 accounts_failed=accounts_failed_list,
@@ -557,34 +582,30 @@ def get_open_positions(
         internal_payload = _transform_provider_payload(working, retrieved_at, extended=extended)
         pos_result = map_provider_positions(internal_payload, extended=extended)
 
-    # Override timestamps
-    pos_result.retrieved_at = retrieved_at
-    for entry in pos_result.positions:
-        entry.price_timestamp = retrieved_at
-
     # Emit terminal audit event
-    if pos_result.outcome == "ok":
+    if pos_result.outcome == OutcomeType.OK:
         result_detail = "positions_found" if pos_result.positions else "no_positions"
         auth_event("positions_query_success", "ok", detail=result_detail)
-    elif pos_result.outcome == "partial_failure":
+    elif pos_result.outcome == OutcomeType.PARTIAL_FAILURE:
         auth_event("positions_query_success", "partial_failure", detail="account_failed")
-    elif pos_result.outcome == "transient_failure":
+    elif pos_result.outcome == OutcomeType.TRANSIENT_FAILURE:
         auth_event("positions_query_failure", "transient", detail="provider_unreachable")
-    elif pos_result.outcome == "reauth_required":
+    elif pos_result.outcome == OutcomeType.REAUTH_REQUIRED:
         pass  # Already emitted in the error handler above
 
     return pos_result
 
 
-def _detect_account_failures(provider_payload: dict, retrieved_at: str) -> list[dict]:
+def _detect_account_failures(provider_payload: dict) -> list[dict]:
     """Detect per-account failures in the provider payload (FR-010).
 
     Checks each entry in ``accountDetails`` for an ``error`` key. If found,
     the account is considered failed and added to the returned list.
     If no account has an error, returns an empty list.
 
-    Returns a list of ``{"account_hash": str, "detail": str}`` dicts for
-    the failed accounts, or an empty list if all accounts succeeded.
+    Returns a list of ``{"account_hash": str, "detail": AccountFailureDetail}``
+    dicts for the failed accounts, or an empty list if all accounts
+    succeeded.
     """
     account_details = provider_payload.get("accountDetails", [])
     failed: list[dict] = []
@@ -594,7 +615,11 @@ def _detect_account_failures(provider_payload: dict, retrieved_at: str) -> list[
             account_hash = account.get("accountHash") or "unmatched-account"
             # Classify the error detail
             err = account["error"]
-            error_detail = "transient" if isinstance(err, dict) and err.get("transient") else "provider_error"
+            error_detail = (
+                AccountFailureDetail.TRANSIENT
+                if isinstance(err, dict) and err.get("transient")
+                else AccountFailureDetail.PROVIDER_ERROR
+            )
             failed.append({
                 "account_hash": account_hash,
                 "detail": error_detail,
@@ -622,6 +647,11 @@ def _transform_provider_payload(
 
     The internal format is:
     ``{"accounts": [{"accountHash": "<opaque>", "positions": [...]}], "retrieved_at": "..."}``
+
+    Unrealized P/L is deliberately NOT part of the internal payload
+    (TD-007): ``map_provider_positions`` computes it exactly once at
+    ``PositionEntry`` construction from marketValue / averagePrice /
+    quantity / assetType.
 
     Parameters
     ----------
@@ -651,12 +681,8 @@ def _transform_provider_payload(
                 "shortQuantity": pos.get("shortQuantity", 0.0),
                 "averagePrice": pos.get("averagePrice", 0.0),
                 "marketValue": pos.get("marketValue", 0.0),
-                "unrealizedPL": _compute_unrealized_pl(
-                    pos.get("marketValue", 0.0),
-                    pos.get("averagePrice", 0.0),
-                    pos.get("longQuantity", 0.0) - pos.get("shortQuantity", 0.0),
-                    instrument.get("assetType", "EQUITY"),
-                ),
+                # TD-007: no "unrealizedPL" here — computed once at
+                # PositionEntry construction in map_provider_positions.
             }
 
             # Map option-specific fields from instrument sub-object.
@@ -680,9 +706,7 @@ def _transform_provider_payload(
 
             # Passthrough extended fields at the position level
             if extended:
-                for f in _EXTENDED_FIELDS:
-                    if f in pos:
-                        entry[f] = pos[f]
+                entry.update(_collect_extended(pos))
                 # Note: 'instrument' sub-object is NOT included here because
                 # its key fields (symbol, assetType, description) are already
                 # extracted into the curated fields — duplicating them in

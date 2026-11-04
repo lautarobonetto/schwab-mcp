@@ -1172,14 +1172,15 @@ class TestUnrealizedPlOptionMultiplier:
         assert len(result.positions) == 1
         assert result.positions[0].unrealized_pl == pytest.approx(200.34)
 
-    def test_transform_payload_option_upl_multiplied(self) -> None:
-        """``_transform_provider_payload`` bakes the multiplier into ``unrealizedPL``.
+    def test_transform_payload_carries_no_unrealized_pl(self) -> None:
+        """The internal payload must NOT carry ``unrealizedPL`` (TD-007).
 
-        The raw provider payload carries ``assetType`` inside the
-        ``instrument`` sub-object; the internal flat entry must already be
-        dollarized so downstream mapping stays multiplier-correct.
+        The transform layer's ``unrealizedPL`` key was dead work:
+        ``map_provider_positions`` never reads it — P/L is computed exactly
+        once, at ``PositionEntry`` construction.  The option multiplier
+        must therefore surface only on the final entry's ``unrealized_pl``.
         """
-        from schwab_mcp.positions import _transform_provider_payload
+        from schwab_mcp.positions import _transform_provider_payload, map_provider_positions
 
         provider_payload = {
             "accountDetails": [
@@ -1208,7 +1209,106 @@ class TestUnrealizedPlOptionMultiplier:
         internal = _transform_provider_payload(provider_payload, "2026-11-03T17:59:52+00:00")
         entry = internal["accounts"][0]["positions"][0]
         assert entry["assetType"] == "OPTION"
-        assert entry["unrealizedPL"] == pytest.approx(-6616.29)
+        assert "unrealizedPL" not in entry, (
+            "internal payload must not carry unrealizedPL; "
+            "P/L is computed once at PositionEntry construction (TD-007)"
+        )
+
+        # The option multiplier still lands on the final entry's unrealized_pl:
+        # -21240.00 - 146.2371 * (-1) * 100 = -6616.29
+        result = map_provider_positions(internal)
+        assert len(result.positions) == 1
+        assert result.positions[0].unrealized_pl == pytest.approx(-6616.29)
+
+
+class TestMapProviderPositionsOutcomeParams:
+    """TD-007: ``map_provider_positions`` builds the final result in one call.
+
+    Outcome/detail/accounts_failed/retryable are constructor parameters —
+    no post-hoc mutation of a validated result — and every result carries
+    ``ResultOutcome``/``DetailType`` enum members.
+    """
+
+    @staticmethod
+    def _payload() -> dict:
+        return {
+            "accounts": [
+                {
+                    "accountHash": "acc-ok",
+                    "positions": [
+                        {
+                            "symbol": "SPY",
+                            "assetType": "EQUITY",
+                            "description": "SPDR S&P 500 ETF Trust",
+                            "longQuantity": 10.0,
+                            "shortQuantity": 0.0,
+                            "averagePrice": 580.25,
+                            "marketValue": 5910.0,
+                        }
+                    ],
+                }
+            ],
+            "retrieved_at": "2026-11-04T10:00:00+00:00",
+        }
+
+    def test_ok_defaults_use_enum_members(self) -> None:
+        """Default call constructs the result with enum members (TD-007)."""
+        from schwab_mcp.positions import DetailType, OutcomeType, map_provider_positions
+
+        result = map_provider_positions(self._payload())
+
+        assert result.outcome == OutcomeType.OK
+        assert result.detail == DetailType.DATA_RECEIVED
+        assert result.retryable is False
+
+    def test_no_positions_default_uses_no_positions_detail(self) -> None:
+        """Empty mapping defaults to detail ``no_positions`` (TD-007)."""
+        from schwab_mcp.positions import DetailType, OutcomeType, map_provider_positions
+
+        payload = {"accounts": [], "retrieved_at": "2026-11-04T10:00:00+00:00"}
+        result = map_provider_positions(payload)
+
+        assert result.outcome == OutcomeType.OK
+        assert result.detail == DetailType.NO_POSITIONS
+
+    def test_partial_failure_built_in_single_call(self) -> None:
+        """Partial-failure result is constructed in one call with enum
+        members — no post-hoc mutation (TD-007)."""
+        from schwab_mcp.positions import DetailType, OutcomeType, map_provider_positions
+
+        result = map_provider_positions(
+            self._payload(),
+            outcome=OutcomeType.PARTIAL_FAILURE,
+            detail=DetailType.ACCOUNT_FAILED,
+            accounts_failed=[
+                {"account_hash": "acc-failed", "detail": "provider_error"}
+            ],
+            retryable=False,
+        )
+
+        assert result.outcome == OutcomeType.PARTIAL_FAILURE
+        assert result.detail == DetailType.ACCOUNT_FAILED
+        assert result.accounts_failed is not None
+        assert result.accounts_failed[0].account_hash == "acc-failed"
+        assert result.accounts_failed[0].detail == "provider_error"
+        assert result.retryable is False
+        assert len(result.positions) == 1
+
+    def test_ok_with_accounts_failed_is_rejected_at_construction(self) -> None:
+        """The shared validator runs at construction: ``accounts_failed``
+        requires ``partial_failure`` — the old mutate-after-map flow could
+        bypass this window (TD-007)."""
+        from schwab_mcp.positions import DetailType, OutcomeType, map_provider_positions
+
+        with pytest.raises(ValueError):
+            map_provider_positions(
+                self._payload(),
+                outcome=OutcomeType.OK,
+                detail=DetailType.ACCOUNT_FAILED,
+                accounts_failed=[
+                    {"account_hash": "acc-failed", "detail": "provider_error"}
+                ],
+            )
 
 
 # =============================================================================

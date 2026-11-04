@@ -20,7 +20,7 @@ pages are updated in the same commit.
 | TD-004 | High | DRY | Error envelopes and tool `ToolError` boundary divergent | Fixed (v0.9.8, 2026-11-04) |
 | TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Open |
 | TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Fixed (v0.9.8, 2026-11-04) |
-| TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Open |
+| TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Fixed (v0.9.8, 2026-11-04) |
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Open |
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Open |
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Open |
@@ -462,7 +462,7 @@ version through; share the strip helper.
 |----------|-------|
 | `transactions.py:386-394` | `_should_split(range_days)` — parameter "accepted for interface consistency", never used; `3000` cap should be a named constant (`UPSTREAM_TXN_CAP`) |
 | `transactions.py:480` | `range_days` computed only to feed the dead parameter |
-| `positions.py:580` | `_detect_account_failures(payload, retrieved_at)` — `retrieved_at` never used (also listed in TD-007) |
+| `positions.py:580` | ~~`_detect_account_failures(payload, retrieved_at)` — `retrieved_at` never used~~ Fixed (TD-007, v0.9.8): parameter removed |
 | `options_chain.py:675-680` | `_result_meta(query, payload)` — `payload` never used (also listed in TD-008) |
 
 ### TD-017 — Unused imports and members

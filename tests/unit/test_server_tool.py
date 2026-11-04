@@ -431,6 +431,90 @@ class TestNoPositions:
 
 
 # =============================================================================
+# 3b. Partial failure — per-account errors (FR-010 / TD-007)
+# =============================================================================
+
+
+@pytest.fixture
+def partial_failure_payload() -> dict:
+    """One account fails (carries ``error``), one succeeds with positions."""
+    return {
+        "accountDetails": [
+            {
+                "accountNumber": "11111111",
+                "error": {"code": "INTERNAL", "message": "upstream failure"},
+            },
+            {
+                "accountNumber": "22222222",
+                "positions": [
+                    {
+                        "instrument": {
+                            "symbol": "QQQ",
+                            "assetType": "EQUITY",
+                            "description": "Invesco QQQ Trust",
+                        },
+                        "longQuantity": 5.0,
+                        "shortQuantity": 0.0,
+                        "averagePrice": 480.0,
+                        "marketValue": 2500.0,
+                    }
+                ],
+            },
+        ]
+    }
+
+
+class TestPartialFailure:
+    """One account errors while another succeeds → ``partial_failure``.
+
+    TD-007: the result must be constructed in a single call with
+    ``ResultOutcome``/``DetailType`` enum members — no post-hoc mutation
+    of a validated result.
+    """
+
+    @staticmethod
+    def _result(partial_failure_payload: dict):
+        from schwab_mcp.positions import get_open_positions
+
+        client = FakePositionsClient(payload=partial_failure_payload)
+        return get_open_positions(client)
+
+    def test_outcome_partial_failure(self, partial_failure_payload: dict) -> None:
+        assert self._result(partial_failure_payload).outcome == "partial_failure"
+
+    def test_detail_account_failed(self, partial_failure_payload: dict) -> None:
+        assert self._result(partial_failure_payload).detail == "account_failed"
+
+    def test_accounts_failed_lists_only_the_error_account(
+        self, partial_failure_payload: dict
+    ) -> None:
+        result = self._result(partial_failure_payload)
+        assert result.accounts_failed is not None
+        assert len(result.accounts_failed) == 1
+        assert result.accounts_failed[0].account_hash == "hash-11111111"
+        assert result.accounts_failed[0].detail == "provider_error"
+
+    def test_successful_account_positions_present(
+        self, partial_failure_payload: dict
+    ) -> None:
+        result = self._result(partial_failure_payload)
+        assert len(result.positions) == 1
+        assert result.positions[0].symbol == "QQQ"
+        assert result.positions[0].account_hash == "hash-22222222"
+
+    def test_retryable_false(self, partial_failure_payload: dict) -> None:
+        assert self._result(partial_failure_payload).retryable is False
+
+    def test_outcome_is_enum_member(self, partial_failure_payload: dict) -> None:
+        """Outcome/detail carry the shared enum members, not raw strings."""
+        from schwab_mcp.positions import DetailType, OutcomeType
+
+        result = self._result(partial_failure_payload)
+        assert result.outcome == OutcomeType.PARTIAL_FAILURE
+        assert result.detail == DetailType.ACCOUNT_FAILED
+
+
+# =============================================================================
 # 4. ConnectivityError → transient_failure
 # =============================================================================
 
