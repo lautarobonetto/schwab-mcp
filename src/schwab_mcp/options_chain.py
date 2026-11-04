@@ -278,6 +278,20 @@ class OptionChainQuery:
 # =============================================================================
 
 
+def _is_no_options_response(response: Any) -> bool:
+    """Whether *response* is the provider's HTTP-400 "no options listed".
+
+    The provider rejects symbols with no listed options with HTTP 400
+    (found live 2026-10-24) instead of empty maps.  After query
+    validation no other parameter can trigger a 400, so this is the live
+    shape of "no options listed" — a structured no-data state, not a
+    transport error (FR-009, contract §4).  Shared verbatim by
+    :func:`fetch_option_chain` and :func:`_fetch_expiration_chain`
+    (TD-008 site 2).
+    """
+    return getattr(response, "status_code", None) == 400
+
+
 def fetch_option_chain(
     client: Any,
     query: OptionChainQuery,
@@ -318,12 +332,10 @@ def fetch_option_chain(
         includeUnderlyingQuote=True,
     )
 
-    # The provider rejects symbols with no listed options with HTTP 400
-    # (found live 2026-10-24) instead of empty maps.  After query
-    # validation no other parameter can trigger a 400, so this is the live
-    # shape of "no options listed" — report the structured no-data state
+    # Post-validation HTTP 400 = "no options listed" (see
+    # _is_no_options_response) — report the structured no-data state
     # instead of a transport error (FR-009, contract §4).
-    if getattr(response, "status_code", None) == 400:
+    if _is_no_options_response(response):
         return {}
 
     # The provider gateway rejects oversized chain responses with
@@ -585,26 +597,34 @@ def _atm_strike(strikes: list[float], underlying_price: float | None) -> float:
     return min(strikes, key=lambda s: (abs(s - underlying_price), s))
 
 
+def _underlying_price(payload: dict) -> float | None:
+    """Underlying reference price: ``underlyingPrice`` with the
+    ``underlying.last`` fallback (research R1).  ``None`` when the payload
+    carries neither — values are never invented (FR-007).  Shared by the
+    ``ok`` result state and the ATM selection (TD-008 site 3)."""
+    price = payload.get("underlyingPrice")
+    if price is None:
+        underlying = payload.get("underlying") or {}
+        price = underlying.get("last")
+    return price
+
+
 def _map_expirations(
-    payload: dict,
+    leg_maps: dict[str, dict],
     query: OptionChainQuery,
     today: date,
+    underlying_price: float | None,
 ) -> list[dict]:
-    """Build the curated ``expirations`` list from the provider payload.
+    """Build the curated ``expirations`` list from *leg_maps*.
 
-    Applies the DTE filter, per-type strike windows (or the delta window)
-    and the strike-level leg union.  Returns expirations sorted ascending
-    by date, strikes ascending.
+    ``leg_maps`` and ``underlying_price`` are computed once by
+    :func:`build_chain_result` and passed down, so the normalization
+    cannot diverge between the no-data gate and the mapping (TD-008
+    sites 3/4).  Applies the DTE filter, per-type strike windows (or the
+    delta window) and the strike-level leg union.  Returns expirations
+    sorted ascending by date, strikes ascending.
     """
     legs = _included_legs(query.option_type)
-    leg_maps = {
-        "call": _leg_map(payload, "call"),
-        "put": _leg_map(payload, "put"),
-    }
-    underlying_price = payload.get("underlyingPrice")
-    if underlying_price is None:
-        underlying = payload.get("underlying") or {}
-        underlying_price = underlying.get("last")
 
     dates: set[str] = set()
     for kind in legs:
@@ -672,12 +692,24 @@ def _filters_echo(query: OptionChainQuery) -> dict:
     }
 
 
-def _result_meta(query: OptionChainQuery, payload: dict) -> dict:
-    """ChainMeta fields shared by every result state (FR-010)."""
+def _result_meta(query: OptionChainQuery) -> dict:
+    """ChainMeta fields shared by every result state of both tools
+    (FR-010).  No payload input — the meta depends on the query only
+    (TD-008 site 7)."""
     return {
         "symbol": query.symbol,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+def _no_expirations_detail(query: OptionChainQuery) -> str:
+    """Detail string of the ``no_expirations_in_range`` state, shared
+    verbatim by both tools (TD-008 site 5); pinned by tests (contract §2)."""
+    return (
+        "no_expirations_in_range: "
+        f"dte_max_effective={query.dte_max_effective} "
+        "excludes all expirations"
+    )
 
 
 def build_chain_result(
@@ -702,7 +734,8 @@ def build_chain_result(
         "call": _leg_map(payload, "call"),
         "put": _leg_map(payload, "put"),
     }
-    meta = _result_meta(query, payload)
+    underlying_price = _underlying_price(payload)
+    meta = _result_meta(query)
 
     if not leg_maps["call"] and not leg_maps["put"]:
         return {
@@ -713,25 +746,16 @@ def build_chain_result(
 
     _check_partial_chain(leg_maps, legs)
 
-    expirations = _map_expirations(payload, query, today)
+    expirations = _map_expirations(leg_maps, query, today, underlying_price)
 
     if not expirations:
         return {
             "outcome": "no_expirations_in_range",
-            "detail": (
-                "no_expirations_in_range: "
-                f"dte_max_effective={query.dte_max_effective} "
-                "excludes all expirations"
-            ),
+            "detail": _no_expirations_detail(query),
             **meta,
             "filters": _filters_echo(query),
             "expirations": [],
         }
-
-    underlying_price = payload.get("underlyingPrice")
-    if underlying_price is None:
-        underlying = payload.get("underlying") or {}
-        underlying_price = underlying.get("last")
 
     return {
         "outcome": "ok",
@@ -748,6 +772,43 @@ def build_chain_result(
 # =============================================================================
 # Orchestration: get_option_chain
 # =============================================================================
+
+
+def _fetch_chain_payload(client: Any, query: OptionChainQuery) -> dict:
+    """Fetch the raw chain payload with the delta strikeCount expansion.
+
+    With a delta target the fetch asks ``max(max_strikes, 100)`` so the
+    target zone is inside the returned window, with exactly one re-fetch
+    up to 200 when the target is not bracketed (T016, research R2).  When
+    the ceiling re-fetch exceeds the provider response body limit (bug
+    spx-chain-body-limit, observed live on $SPX) the request degrades to
+    the floor payload: the available contracts closest to the target.
+    Extracted from :func:`get_option_chain` so the degradation logic is a
+    named seam instead of nested try/except (TD-008 site 8).
+    """
+    if query.delta_target is None:
+        return fetch_option_chain(client, query)
+
+    payload = fetch_option_chain(
+        client,
+        query,
+        strike_count=max(query.max_strikes, DELTA_STRIKE_COUNT_FLOOR),
+    )
+    if _delta_bracketed(payload, query):
+        return payload
+    try:
+        return fetch_option_chain(
+            client,
+            query,
+            strike_count=DELTA_STRIKE_COUNT_CEILING,
+        )
+    except ProviderBodyLimitError:
+        auth_event(
+            "options_chain_query_degraded",
+            "degraded",
+            detail="provider_body_limit",
+        )
+        return payload
 
 
 def get_option_chain(
@@ -784,36 +845,13 @@ def get_option_chain(
         )
         raise
 
-    # Internal strikeCount expansion (research R2): with a delta target the
-    # fetch asks max(max_strikes, 100) so the target zone is inside the
-    # returned window, with exactly one re-fetch up to 200 when the target
-    # is not bracketed (T016).
+    # Error mapping (TD-008 site 1): near-mirrored in
+    # get_option_expiration_chain, which omits ChainDataError — that path
+    # fetches no chain data.  Kept as explicit near-duplicates (KISS): the
+    # per-tool auth_event prefixes and this one-block difference are the
+    # only variation.
     try:
-        if query.delta_target is not None:
-            payload = fetch_option_chain(
-                client,
-                query,
-                strike_count=max(query.max_strikes, DELTA_STRIKE_COUNT_FLOOR),
-            )
-            if not _delta_bracketed(payload, query):
-                try:
-                    payload = fetch_option_chain(
-                        client,
-                        query,
-                        strike_count=DELTA_STRIKE_COUNT_CEILING,
-                    )
-                except ProviderBodyLimitError:
-                    # The ceiling re-fetch exceeded the provider response
-                    # body limit (bug spx-chain-body-limit, observed live
-                    # on $SPX).  Degrade to the floor payload per research
-                    # R2: the available contracts closest to the target.
-                    auth_event(
-                        "options_chain_query_degraded",
-                        "degraded",
-                        detail="provider_body_limit",
-                    )
-        else:
-            payload = fetch_option_chain(client, query)
+        payload = _fetch_chain_payload(client, query)
         result = build_chain_result(payload, query)
     except ChainDataError:
         auth_event(
@@ -913,54 +951,59 @@ def _fetch_expiration_chain(client: Any, query: OptionChainQuery) -> dict:
 
     response = retry_call(client.option_expiration_chain, 0, query.symbol)
 
-    # See fetch_option_chain: post-validation a 400 can only mean the
-    # symbol has no listed options — a structured no-data state, not a
-    # transport error.
-    if getattr(response, "status_code", None) == 400:
+    # See _is_no_options_response: post-validation a 400 can only mean
+    # the symbol has no listed options — a structured no-data state, not
+    # a transport error.
+    if _is_no_options_response(response):
         return {}
 
     return retry_call(response_json, 0, response=response)
 
 
-def _expiration_entry(entry: dict, today: date) -> dict:
+def _parse_expiration_date(raw: Any) -> date | None:
+    """Parse a provider expiration date string; ``None`` when absent or
+    unparseable (the entry is kept with a null ``dte`` — never silently
+    dropped, research R6).  Shared by the entry mapping and the sort key,
+    which receives the date already parsed by :func:`_map_expiration_list`
+    — each expiration date is parsed exactly once (TD-008 site 6)."""
+    if isinstance(raw, str):
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _expiration_entry(entry: dict, dte: int | None) -> dict:
     """Map one provider expiration entry to the curated shape (data-model §2).
 
     ``expiration_date`` (provider ``expirationDate``) and ``settlement_type``
     (provider ``settlementType``) pass through unmodified; a missing field
     yields an explicit ``None`` — values are never invented (research R6).
-    ``dte`` is calendar days from *today* computed locally: the provider's
+    ``dte`` is calendar days from *today* computed locally by the caller
+    (via :func:`_parse_expiration_date`): the provider's
     ``daysToExpiration`` is deliberately ignored (research R4, one DTE
     definition across both tools).  An unparseable date keeps the entry with
     a null ``dte`` — entries are never silently dropped (research R6).
     """
-    raw_date = entry.get("expirationDate")
-    dte: int | None = None
-    if isinstance(raw_date, str):
-        try:
-            dte = (date.fromisoformat(raw_date) - today).days
-        except ValueError:
-            dte = None
     return {
-        "expiration_date": raw_date,
+        "expiration_date": entry.get("expirationDate"),
         "dte": dte,
         "settlement_type": entry.get("settlementType"),
     }
 
 
-def _expiration_sort_key(item: tuple[int, dict]) -> tuple[int, int, int]:
+def _expiration_sort_key(
+    item: tuple[date | None, int, dict],
+) -> tuple[int, int, int]:
     """Ascending ``expiration_date`` with provider order for ties (§2).
 
-    Entries without a parseable date cannot be ordered against dated ones
-    and sort last, keeping provider order among themselves.
+    The parsed date arrives pre-computed from :func:`_map_expiration_list`
+    (TD-008 site 6 — no re-parse at sort time).  Entries without a
+    parseable date cannot be ordered against dated ones and sort last,
+    keeping provider order among themselves.
     """
-    index, entry = item
-    raw = entry["expiration_date"]
-    parsed: date | None = None
-    if isinstance(raw, str):
-        try:
-            parsed = date.fromisoformat(raw)
-        except ValueError:
-            parsed = None
+    parsed, index, _entry = item
     if parsed is None:
         return (1, 0, index)
     return (0, parsed.toordinal(), index)
@@ -983,15 +1026,16 @@ def _map_expiration_list(
     entries = payload.get("expirationList")
     if not isinstance(entries, list):
         return []
-    mapped = [
-        _expiration_entry(entry, today) for entry in entries if isinstance(entry, dict)
-    ]
-    kept = [
-        entry
-        for entry in mapped
-        if entry["dte"] is None or entry["dte"] <= query.dte_max_effective
-    ]
-    return [entry for _index, entry in sorted(enumerate(kept), key=_expiration_sort_key)]
+    kept: list[tuple[date | None, int, dict]] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        parsed = _parse_expiration_date(entry.get("expirationDate"))
+        dte: int | None = None if parsed is None else (parsed - today).days
+        if dte is not None and dte > query.dte_max_effective:
+            continue
+        kept.append((parsed, index, _expiration_entry(entry, dte)))
+    return [entry for _parsed, _index, entry in sorted(kept, key=_expiration_sort_key)]
 
 
 def _expiration_filters_echo(query: OptionChainQuery) -> dict:
@@ -1017,7 +1061,7 @@ def build_expiration_result(
     """
     query.validate()
     today = today if today is not None else date.today()
-    meta = _result_meta(query, payload)
+    meta = _result_meta(query)
 
     if not payload.get("expirationList"):
         return {
@@ -1034,11 +1078,7 @@ def build_expiration_result(
         return {
             **meta,
             "outcome": "no_expirations_in_range",
-            "detail": (
-                "no_expirations_in_range: "
-                f"dte_max_effective={query.dte_max_effective} "
-                "excludes all expirations"
-            ),
+            "detail": _no_expirations_detail(query),
             "retryable": True,
             "filters": _expiration_filters_echo(query),
             "expirations": [],
@@ -1083,6 +1123,8 @@ def get_option_expiration_chain(
         )
         raise
 
+    # Error mapping — near-mirror of get_option_chain's (TD-008 site 1);
+    # this path cannot raise ChainDataError (no chain data is fetched).
     try:
         payload = _fetch_expiration_chain(client, query)
         result = build_expiration_result(payload, query)

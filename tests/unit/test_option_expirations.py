@@ -283,6 +283,18 @@ class TestDteCeiling:
             "dte_max_effective": 60,
         }
 
+    def test_no_expirations_in_range_detail_string_is_pinned(self) -> None:
+        """Characterization (TD-008 site 5): the ``no_expirations_in_range``
+        detail string names the effective cap and is shared verbatim with
+        ``get_option_chain`` — consumers may match on it."""
+        payload = build_expiration_chain_payload(
+            [(chain_expiry_date(70, TODAY), 70, "C")]
+        )
+        result = build_expiration_result(payload, _query(dte_max=7), TODAY)
+        assert result["detail"] == (
+            "no_expirations_in_range: dte_max_effective=7 excludes all expirations"
+        )
+
 
 # =============================================================================
 # Validation errors before any upcall (US2 — contracts/mcp-tools.md §4)

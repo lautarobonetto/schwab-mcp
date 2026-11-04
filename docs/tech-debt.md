@@ -21,7 +21,7 @@ pages are updated in the same commit.
 | TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Fixed (v0.9.8, 2026-11-04) |
 | TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Fixed (v0.9.8, 2026-11-04) |
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Fixed (v0.9.8, 2026-11-04) |
-| TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Open |
+| TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Fixed (v0.9.8, 2026-11-04) |
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Open |
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Open |
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Open |
@@ -322,6 +322,27 @@ Related dead params: `_detect_account_failures(..., retrieved_at)`
 `_parse_expiration_date`); build `leg_maps`/`underlying_price` once in
 `build_chain_result` and pass them down; `_result_meta(query)`.
 
+**Resolved** (v0.9.8, 2026-11-04): all eight sites consolidated.
+`_is_no_options_response` (site 2), `_underlying_price` (site 3),
+`_no_expirations_detail` (site 5) and `_parse_expiration_date` (site 6)
+replace the duplicated pairs; `build_chain_result` builds `leg_maps` and
+`underlying_price` once and passes them into `_map_expirations` (site 4 —
+the normalization can no longer diverge between the no-data gate and the
+mapping); `_result_meta(query)` lost its unused `payload` parameter
+(site 7; two call sites, not three); the delta strikeCount expansion and
+the body-limit degradation were extracted as `_fetch_chain_payload(client,
+query)` (site 8 — both orchestrators are now flat, max nested try depth 1).
+The error-mapping try/except blocks (site 1) remain explicit
+near-duplicates by decision (KISS / rule of three), annotated with mutual
+TD-008 cross-references: their only variations are the per-tool
+`auth_event` prefixes and the chain path's `ChainDataError` clause.
+Behavior-preserving: outcomes, result shapes and `detail` strings are
+unchanged; the shared `no_expirations_in_range` detail string is pinned
+verbatim by tests on both paths (new characterization test for the
+expiration tool). Each expiration date is parsed exactly once. Full suite
+green (1811 passed, 0 skipped). Assessment, fix report and verification:
+`.specify/bugs/td-008-options-chain-dry/`.
+
 ---
 
 ### TD-009 — Two symbol-validation grammars in the package (DRY)
@@ -463,7 +484,7 @@ version through; share the strip helper.
 | `transactions.py:386-394` | `_should_split(range_days)` — parameter "accepted for interface consistency", never used; `3000` cap should be a named constant (`UPSTREAM_TXN_CAP`) |
 | `transactions.py:480` | `range_days` computed only to feed the dead parameter |
 | `positions.py:580` | ~~`_detect_account_failures(payload, retrieved_at)` — `retrieved_at` never used~~ Fixed (TD-007, v0.9.8): parameter removed |
-| `options_chain.py:675-680` | `_result_meta(query, payload)` — `payload` never used (also listed in TD-008) |
+| `options_chain.py:675-680` | ~~`_result_meta(query, payload)` — `payload` never used (also listed in TD-008)~~ Fixed (TD-008, v0.9.8): signature is now `_result_meta(query)` |
 
 ### TD-017 — Unused imports and members
 

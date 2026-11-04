@@ -32,6 +32,27 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **`options_chain.py` internal duplication consolidated** (tech debt
+  TD-008, 2026-11-04): the option-chain and expiration-chain tools had
+  re-implemented the same provider semantics side by side — HTTP-400
+  "no options listed" sniff, `underlying_price` extraction, the
+  `no_expirations_in_range` detail string, `date.fromisoformat` with
+  fallback-to-`None` (each expiration date parsed twice), a dead
+  `payload` parameter in `_result_meta`, and the delta strikeCount
+  expansion with the body-limit degradation buried two try levels deep
+  in the orchestrator; `leg_maps` was built twice from the same payload
+  (divergence risk). Shared helpers now own each pair
+  (`_is_no_options_response`, `_underlying_price`,
+  `_no_expirations_detail`, `_parse_expiration_date`);
+  `build_chain_result` builds `leg_maps`/`underlying_price` once and
+  passes them into `_map_expirations`; `_result_meta(query)` dropped the
+  unused parameter; the delta expansion and degradation live in the new
+  `_fetch_chain_payload(client, query)`. The error-mapping try/except
+  blocks remain explicit near-duplicates (KISS / rule of three) with
+  mutual cross-references. Behavior-preserving: outcomes, result shapes
+  and `detail` strings are byte-identical — the shared detail string is
+  pinned verbatim by tests on both paths, and each expiration date is
+  parsed exactly once. Full suite green (1811 passed, 0 skipped).
 - **Shared result taxonomy extracted to `schwab_mcp.results`** (tech debt
   TD-002, 2026-11-04): `positions.py` and `transactions.py` had each
   re-implemented the same self-classifying result shape (outcome enum,
