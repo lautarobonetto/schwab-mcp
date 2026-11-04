@@ -28,66 +28,65 @@ import pytest
 
 
 class TestShouldSplit:
-    """_should_split(movements: list, range_days: int) -> bool
+    """_should_split(movements: list) -> bool
 
     Determines whether a date range needs bisection. Returns ``True``
-    when the movement count is >= 3000 (the upstream cap) and the range
-    spans more than 1 day. A 1-day sub-range at the cap still triggers
-    the check, but the recursion stops because it cannot be split further.
+    when the movement count is >= ``UPSTREAM_TXN_CAP`` (the upstream
+    cap). A 1-day sub-range at the cap still triggers the check, but the
+    recursion stops because it cannot be split further.
     """
 
-    def test_exactly_3000_triggers_split(self) -> None:
-        """Exactly 3000 movements triggers bisection (the upstream cap)."""
-        from schwab_mcp.transactions import _should_split
+    def test_exactly_cap_triggers_split(self) -> None:
+        """Exactly UPSTREAM_TXN_CAP movements triggers bisection."""
+        from schwab_mcp.transactions import UPSTREAM_TXN_CAP, _should_split
 
-        movements = [object() for _ in range(3000)]
-        assert _should_split(movements, range_days=30) is True
+        movements = [object() for _ in range(UPSTREAM_TXN_CAP)]
+        assert _should_split(movements) is True
 
-    def test_2999_does_not_trigger_split(self) -> None:
-        """2999 movements does NOT trigger bisection (below cap)."""
-        from schwab_mcp.transactions import _should_split
+    def test_cap_minus_one_does_not_trigger_split(self) -> None:
+        """One below the cap does NOT trigger bisection."""
+        from schwab_mcp.transactions import UPSTREAM_TXN_CAP, _should_split
 
-        movements = [object() for _ in range(2999)]
-        assert _should_split(movements, range_days=30) is False
+        movements = [object() for _ in range(UPSTREAM_TXN_CAP - 1)]
+        assert _should_split(movements) is False
 
-    def test_3001_triggers_split(self) -> None:
-        """3001 movements triggers bisection (exceeds cap, edge case)."""
-        from schwab_mcp.transactions import _should_split
+    def test_cap_plus_one_triggers_split(self) -> None:
+        """One above the cap triggers bisection (edge case)."""
+        from schwab_mcp.transactions import UPSTREAM_TXN_CAP, _should_split
 
-        movements = [object() for _ in range(3001)]
-        assert _should_split(movements, range_days=30) is True
+        movements = [object() for _ in range(UPSTREAM_TXN_CAP + 1)]
+        assert _should_split(movements) is True
 
     def test_empty_movements_does_not_trigger(self) -> None:
         """Empty movements list does NOT trigger bisection."""
         from schwab_mcp.transactions import _should_split
 
-        assert _should_split([], range_days=30) is False
-
-    def test_2999_long_range_does_not_trigger(self) -> None:
-        """2999 movements even over a long range does NOT trigger."""
-        from schwab_mcp.transactions import _should_split
-
-        movements = [object() for _ in range(2999)]
-        assert _should_split(movements, range_days=365) is False
+        assert _should_split([]) is False
 
     def test_one_movement_does_not_trigger(self) -> None:
         """A single movement never triggers bisection."""
         from schwab_mcp.transactions import _should_split
 
-        assert _should_split([object()], range_days=30) is False
+        assert _should_split([object()]) is False
 
-    def test_exactly_3000_with_single_day_range(self) -> None:
-        """3000 on a 1-day range still triggers the check.
+    def test_cap_with_single_day_range(self) -> None:
+        """Cap-count on a 1-day range still triggers the check.
 
         The recursion stops naturally because a 1-day range cannot be
-        split further — the function returns all 3000 movements.
+        split further — the function returns all the movements.
         """
-        from schwab_mcp.transactions import _should_split
+        from schwab_mcp.transactions import UPSTREAM_TXN_CAP, _should_split
 
-        movements = [object() for _ in range(3000)]
+        movements = [object() for _ in range(UPSTREAM_TXN_CAP)]
         # Still True: the trigger fires; the recursion stop is handled
         # by the bisect function, not the trigger itself.
-        assert _should_split(movements, range_days=1) is True
+        assert _should_split(movements) is True
+
+    def test_cap_constant_value(self) -> None:
+        """The upstream cap constant is 3000 (locks the named constant)."""
+        from schwab_mcp.transactions import UPSTREAM_TXN_CAP
+
+        assert UPSTREAM_TXN_CAP == 3000
 
 
 # =============================================================================

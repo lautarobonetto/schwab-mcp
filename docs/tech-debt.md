@@ -590,8 +590,8 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 | Location | Issue |
 |----------|-------|
-| `transactions.py:386-394` | `_should_split(range_days)` — parameter "accepted for interface consistency", never used; `3000` cap should be a named constant (`UPSTREAM_TXN_CAP`) |
-| `transactions.py:480` | `range_days` computed only to feed the dead parameter |
+| `transactions.py` | ~~`_should_split(range_days)` — parameter "accepted for interface consistency", never used; `3000` cap should be a named constant (`UPSTREAM_TXN_CAP`)~~ Fixed (td-016, v0.9.8): parameter removed, cap is now `UPSTREAM_TXN_CAP` |
+| `transactions.py` | ~~`range_days` computed only to feed the dead parameter~~ Fixed (td-016, v0.9.8): computation removed with the parameter |
 | `positions.py:580` | ~~`_detect_account_failures(payload, retrieved_at)` — `retrieved_at` never used~~ Fixed (TD-007, v0.9.8): parameter removed |
 | `options_chain.py:675-680` | ~~`_result_meta(query, payload)` — `payload` never used (also listed in TD-008)~~ Fixed (TD-008, v0.9.8): signature is now `_result_meta(query)` |
 

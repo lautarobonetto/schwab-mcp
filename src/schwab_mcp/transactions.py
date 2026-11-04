@@ -246,6 +246,9 @@ ALL_TRANSACTION_TYPES = (
 )
 """All 15 upstream transaction types, comma-separated (research D2)."""
 
+UPSTREAM_TXN_CAP = 3000
+"""Upstream returns at most 3000 movements per query; hitting it triggers bisection."""
+
 
 def classify_movement_type(provider_type: str) -> MovementCategory:
     """Map an upstream transaction type string to a ``MovementCategory``.
@@ -387,15 +390,15 @@ def validate_history_query(
 # =============================================================================
 
 
-def _should_split(movements: list, range_days: int) -> bool:
-    """Return True if the response has >= 3000 items (the upstream cap).
+def _should_split(movements: list) -> bool:
+    """Return True if the response has >= ``UPSTREAM_TXN_CAP`` items.
 
-    The ``range_days`` parameter is accepted for interface consistency;
-    the trigger condition is purely based on ``len(movements) >= 3000``.
-    A 1-day range at the cap still returns True; the recursion stop is
-    handled by the bisection function, not by this check.
+    Hitting the upstream cap means the query result may have been
+    truncated, so the date range must be bisected. A 1-day range at the
+    cap still returns True; the recursion stop is handled by the
+    bisection function, not by this check.
     """
-    return len(movements) >= 3000
+    return len(movements) >= UPSTREAM_TXN_CAP
 
 
 def _split_date_range(
@@ -456,7 +459,7 @@ def _bisect_range(
     end_date: str,
     types_str: str,
 ) -> list[MovementEntry]:
-    """Recursively bisect a date range when the query hits the 3000-txn cap.
+    """Recursively bisect a date range when the query hits the cap.
 
     Parameters
     ----------
@@ -481,8 +484,7 @@ def _bisect_range(
 
     # Check whether splitting is needed (single source of truth: the cap
     # trigger lives in ``_should_split`` — Constitution II, DRY).
-    range_days = (date.fromisoformat(end_date) - date.fromisoformat(start_date)).days + 1
-    if not _should_split(movements, range_days=range_days):
+    if not _should_split(movements):
         return movements
 
     # Split the range and recurse
@@ -1045,7 +1047,7 @@ def _fetch_account_movements(
 ) -> list[MovementEntry]:
     """Fetch and map one account's movements (TD-005).
 
-    Queries with bisection support for the 3000-txn upstream limit.
+    Queries with bisection support for the upstream transaction limit.
     ``symbol`` is intentionally NOT sent upstream (research R1) — local
     filtering happens in the orchestrator.
     """

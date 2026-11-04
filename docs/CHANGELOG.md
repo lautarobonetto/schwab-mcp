@@ -10,6 +10,19 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Fixed
 
+- **Dead `range_days` parameter removed from the transaction bisection
+  trigger, cap is now the named constant `UPSTREAM_TXN_CAP`** (bug
+  TD-016, 2026-11-04): `_should_split(movements, range_days)` in
+  `transactions.py` never read `range_days` — the split trigger was
+  purely `len(movements) >= 3000` — and `_bisect_range` computed
+  `range_days` only to feed that dead parameter. The signature is now
+  `_should_split(movements)`, the caller-side computation is gone, and
+  the magic number is the module constant `UPSTREAM_TXN_CAP` (locked by
+  a unit test). Tests in `tests/unit/test_transactions_split.py` were
+  rewritten against the cap constant; the TD-016 rows in
+  `docs/tech-debt.md` are struck through. Assessment and fix report:
+  `.specify/bugs/td-016/`.
+
 - **`auth_event` stderr timestamps are standard ISO-8601 again, and the
   secret-redaction loop lives in one place** (bug TD-013, 2026-11-04):
   `log.py:170` appended `.replace("+00:00", "Z+00:00")` to the
