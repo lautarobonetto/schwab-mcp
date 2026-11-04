@@ -250,9 +250,9 @@ class TestDteCeiling:
     def test_dte_max_30_excludes_entries_beyond_the_ceiling(self) -> None:
         payload = build_expiration_chain_payload(
             [
-                (chain_expiry_date(7), 7, "C"),
-                (chain_expiry_date(30), 30, "C"),
-                (chain_expiry_date(70), 70, "C"),
+                (chain_expiry_date(7, TODAY), 7, "C"),
+                (chain_expiry_date(30, TODAY), 30, "C"),
+                (chain_expiry_date(70, TODAY), 70, "C"),
             ]
         )
         result = build_expiration_result(payload, _query(dte_max=30), TODAY)
@@ -263,9 +263,9 @@ class TestDteCeiling:
         """``dte_max=365`` replaces the default — no cap beyond it."""
         payload = build_expiration_chain_payload(
             [
-                (chain_expiry_date(7), 7, "C"),
-                (chain_expiry_date(200), 200, "C"),
-                (chain_expiry_date(360), 360, "C"),
+                (chain_expiry_date(7, TODAY), 7, "C"),
+                (chain_expiry_date(200, TODAY), 200, "C"),
+                (chain_expiry_date(360, TODAY), 360, "C"),
             ]
         )
         result = build_expiration_result(payload, _query(dte_max=365), TODAY)
@@ -273,7 +273,9 @@ class TestDteCeiling:
         assert result["filters"]["dte_max_effective"] == 365
 
     def test_default_ceiling_is_60_when_dte_max_is_none(self) -> None:
-        payload = build_expiration_chain_payload([(chain_expiry_date(70), 70, "C")])
+        payload = build_expiration_chain_payload(
+            [(chain_expiry_date(70, TODAY), 70, "C")]
+        )
         result = build_expiration_result(payload, _query(), TODAY)
         assert result["outcome"] == "no_expirations_in_range"
         assert result["filters"] == {

@@ -60,6 +60,13 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   call sites use `peek_store_status(...) == "absent"` instead.
   Behavior-preserving on all reachable states; pinned by tri-state and
   equivalence tests in `tests/unit/test_tokens.py`.
+- **`TestDteCeiling` fixtures anchored to the fixed capture date** (test
+  suite only): the two `dte_max` ceiling tests built expiration dates from
+  the wall clock (`chain_expiry_date` without an explicit base) while
+  asserting DTE values pinned to `TODAY = 2026-11-03`, producing off-by-one
+  DTE failures starting 2026-11-04. All `TestDteCeiling` fixtures now pass
+  `today=TODAY` explicitly, matching the convention used elsewhere in the
+  suite; assertions unchanged, full suite green again.
 
 ## [0.9.7] - 2026-11-03
 
