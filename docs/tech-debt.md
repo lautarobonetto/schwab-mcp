@@ -18,7 +18,7 @@ pages are updated in the same commit.
 | TD-002 | High | DRY | Outcome/detail taxonomy duplicated across modules | Fixed (v0.9.8, 2026-11-04) |
 | TD-003 | High | DRY | SQLite token-store read triplicated | Fixed (v0.9.8, 2026-11-04) |
 | TD-004 | High | DRY | Error envelopes and tool `ToolError` boundary divergent | Fixed (v0.9.8, 2026-11-04) |
-| TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Open |
+| TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Fixed (v0.9.8, 2026-11-04) |
 | TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Fixed (v0.9.8, 2026-11-04) |
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Fixed (v0.9.8, 2026-11-04) |
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Open |
