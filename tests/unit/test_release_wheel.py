@@ -22,15 +22,26 @@ class TestBuildWheel:
     def test_invokes_uv_build_and_produces_the_expected_wheel(self) -> None:
         version = resolve_version(REPO_ROOT)
         with release_sandbox("wheel") as out_dir:
-            built = build_wheel(REPO_ROOT, out_dir)
+            built = build_wheel(REPO_ROOT, version, out_dir)
             assert isinstance(built, WheelBuild)
             assert built.name == f"schwab_mcp-{version}-py3-none-any.whl"
             assert built.path.is_file()
 
+    def test_version_argument_names_the_expected_wheel(self) -> None:
+        """The caller-resolved version drives the wheel name (TD-015).
+
+        ``build_wheel`` receives the version already resolved by
+        ``cmd_build``; it must not re-read ``pyproject.toml`` for it.
+        """
+        version = resolve_version(REPO_ROOT)
+        with release_sandbox("wheel") as out_dir:
+            built = build_wheel(REPO_ROOT, version, out_dir)
+            assert built.name == f"schwab_mcp-{version}-py3-none-any.whl"
+
     def test_wheel_contains_only_the_schwab_mcp_package(self) -> None:
         version = resolve_version(REPO_ROOT)
         with release_sandbox("wheel") as out_dir:
-            built = build_wheel(REPO_ROOT, out_dir)
+            built = build_wheel(REPO_ROOT, version, out_dir)
             with zipfile.ZipFile(built.path) as zf:
                 names = zf.namelist()
             dist_info = f"schwab_mcp-{version}.dist-info"
@@ -53,7 +64,7 @@ class TestBuildWheel:
                 '[build-system]\nrequires = []\nbuild-backend = "missing_backend_module"\n'
             )
             with pytest.raises(WheelBuildError):
-                build_wheel(sandbox, sandbox / "out")
+                build_wheel(sandbox, "9.9.9", sandbox / "out")
 
 
 class TestWheelDeterminism:
@@ -66,13 +77,14 @@ class TestWheelDeterminism:
 
     def test_wheel_entries_have_normalized_timestamps(self) -> None:
         with release_sandbox("wheel") as out_dir:
-            built = build_wheel(REPO_ROOT, out_dir)
+            built = build_wheel(REPO_ROOT, resolve_version(REPO_ROOT), out_dir)
             with zipfile.ZipFile(built.path) as zf:
                 for info in zf.infolist():
                     assert info.date_time == (1980, 1, 1, 0, 0, 0), info.filename
 
     def test_two_wheel_builds_are_byte_equivalent(self) -> None:
+        version = resolve_version(REPO_ROOT)
         with release_sandbox("wheel") as first, release_sandbox("wheel") as second:
-            a = build_wheel(REPO_ROOT, first)
-            b = build_wheel(REPO_ROOT, second)
+            a = build_wheel(REPO_ROOT, version, first)
+            b = build_wheel(REPO_ROOT, version, second)
             assert a.path.read_bytes() == b.path.read_bytes()

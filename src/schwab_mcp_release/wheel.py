@@ -16,7 +16,6 @@ from pathlib import Path
 
 from schwab_mcp_release import ReleaseError
 from schwab_mcp_release.allowlist import wheel_name
-from schwab_mcp_release.version import resolve_version
 
 # Fixed epoch for wheel zip metadata (FR-011): without normalization the
 # generated dist-info entries carry build-time timestamps and the wheel
@@ -36,13 +35,15 @@ class WheelBuild:
     path: Path
 
 
-def build_wheel(project_root: Path, out_dir: Path) -> WheelBuild:
+def build_wheel(project_root: Path, version: str, out_dir: Path) -> WheelBuild:
     """Build the runtime wheel with ``uv build --wheel`` into *out_dir*.
 
-    Raises :class:`WheelBuildError` naming the tool error when the build
-    fails or does not produce exactly the expected wheel.
+    *version* is the ``pyproject.toml`` version already resolved by the
+    caller (``cmd_build``) — resolved exactly once per build, never
+    re-read here.  Raises :class:`WheelBuildError` naming the tool error
+    when the build fails or does not produce exactly the expected wheel.
     """
-    expected = wheel_name(resolve_version(project_root))
+    expected = wheel_name(version)
     out_dir.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "SOURCE_DATE_EPOCH": _SOURCE_DATE_EPOCH}
     try:

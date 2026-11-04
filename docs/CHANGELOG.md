@@ -31,6 +31,24 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **Release build command de-duplicated: one failure path, one version
+  resolution, one name-strip helper** (tech debt TD-015, 2026-11-04):
+  `cmd_build` carried three identical
+  `try/except → print error → return 3` blocks and a source-file
+  validation loop that duplicated the check `assemble_archive` already
+  performs, `build_wheel` re-read `pyproject.toml` for a version the
+  caller had resolved, and the `wrap/` prefix-strip expression appeared
+  twice in `checks.py`. The three handlers collapsed into one
+  `except ReleaseError` (both `VersionError` and `WheelBuildError`
+  already subclass it); the pre-validation loop was deleted, leaving
+  `assemble_archive` as the single missing-source check (exit code 3
+  and the member path in stderr are unchanged);
+  `build_wheel(project_root, version, out_dir)` now receives the
+  caller-resolved version; and `checks.py` strips the prefix through a
+  shared `_relative_name` helper. Behavior-preserving; full suite green
+  (1826 passed, 0 skipped). Assessment, fix report and verification:
+  `.specify/bugs/td-015/`.
+
 - **Release archive member list de-duplicated into a single table** (tech
   debt TD-014, 2026-11-04): the shipped-member set existed twice in
   `src/schwab_mcp_release/allowlist.py` — once as `MemberSpec` literals in

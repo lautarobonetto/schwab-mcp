@@ -28,7 +28,7 @@ pages are updated in the same commit.
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Fixed (v0.9.8, 2026-11-04) |
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Fixed (v0.9.8, 2026-11-04) |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
-| TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Open |
+| TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Fixed (v0.9.8, 2026-11-04) |
 | TD-016 | Low | Dead code | Dead parameters in helpers | Open |
 | TD-017 | Low | Dead code | Unused imports and members | Open |
 | TD-018 | Low | KISS | Obscured imports and misc readability | Open |
@@ -568,6 +568,19 @@ Assessment, fix report and verification: `.specify/bugs/td-014/`.
 **Refactor:** single `except ReleaseError` around resolve/build/
 assemble; delete the duplicate validation loop; pass the resolved
 version through; share the strip helper.
+
+**Resolution (v0.9.8, 2026-11-04):** all four duplications collapsed.
+`cmd_build` now wraps resolve/build/assemble in one
+`except ReleaseError → print → return 3` (the dirty-tree guard moved
+inside the try as a plain `return 2`, preserving the original
+version-error-before-dirty-guard exit-code ordering); the source-file
+pre-validation loop is deleted — `assemble_archive` remains the single
+missing-source check (exit 3 and the member path in stderr are
+unchanged); `build_wheel(project_root, version, out_dir)` receives the
+caller-resolved version instead of re-reading `pyproject.toml`;
+`checks.py` strips the `wrap/` prefix through one `_relative_name`
+helper. Full suite green (1826 passed, 0 skipped).
+Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 ---
 

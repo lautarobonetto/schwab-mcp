@@ -27,8 +27,8 @@ from schwab_mcp_release.allowlist import source_map
 from schwab_mcp_release.archive import assemble_archive
 from schwab_mcp_release.checks import check_completeness, check_dev_material, check_secrets
 from schwab_mcp_release.manifest import write_outer_checksum
-from schwab_mcp_release.version import VersionError, default_project_root, resolve_version
-from schwab_mcp_release.wheel import WheelBuildError, build_wheel
+from schwab_mcp_release.version import default_project_root, resolve_version
+from schwab_mcp_release.wheel import build_wheel
 
 _DIRTY_MESSAGE = "working tree has uncommitted changes; pass --allow-dirty to build anyway"
 
@@ -66,35 +66,27 @@ def _tree_is_dirty(root: Path) -> bool:
 
 
 def cmd_build(output_dir: Path, allow_dirty: bool) -> int:
-    """Build one distribution package.  Returns the process exit code."""
+    """Build one distribution package.  Returns the process exit code.
+
+    All prerequisite failures (version, wheel, archive assembly) share one
+    ``except ReleaseError`` path (exit 3): ``VersionError`` and
+    ``WheelBuildError`` already subclass ``ReleaseError``, and the
+    missing-source validation lives only in ``assemble_archive`` (TD-015).
+    """
     started = time.monotonic()
     root = _project_root()
     staging = root / "tmp" / "release-staging"
     try:
         try:
             version = resolve_version(root)
-        except VersionError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 3
 
-        build_dirty = _tree_is_dirty(root)
-        if build_dirty and not allow_dirty:
-            print(_DIRTY_MESSAGE, file=sys.stderr)
-            return 2
+            build_dirty = _tree_is_dirty(root)
+            if build_dirty and not allow_dirty:
+                print(_DIRTY_MESSAGE, file=sys.stderr)
+                return 2
 
-        try:
-            wheel = build_wheel(root, staging)
-        except WheelBuildError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 3
-
-        sources = source_map(root, version, wheel.path)
-        for member_path, src in sources.items():
-            if not src.is_file():
-                print(f"error: missing source file for {member_path}: {src}", file=sys.stderr)
-                return 3
-
-        try:
+            wheel = build_wheel(root, version, staging)
+            sources = source_map(root, version, wheel.path)
             result = assemble_archive(
                 version=version,
                 build_dirty=build_dirty,

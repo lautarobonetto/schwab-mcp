@@ -23,6 +23,11 @@ from schwab_mcp_release.allowlist import (
 )
 
 
+def _relative_name(entry: str, wrap: str) -> str:
+    """*entry* relative to the wrapping directory (unchanged when outside)."""
+    return entry[len(wrap) + 1 :] if entry.startswith(f"{wrap}/") else entry
+
+
 def _iter_entries(zip_path: Path, version: str) -> Iterator[tuple[str, bytes]]:
     """Yield ``(report name, content)`` for every file in the final archive.
 
@@ -30,12 +35,12 @@ def _iter_entries(zip_path: Path, version: str) -> Iterator[tuple[str, bytes]]:
     members nested inside the shipped wheel are reported as
     ``<wheel>!<entry>`` so scan failures name the full location.
     """
-    prefix = f"{wrap_dir(version)}/"
+    wrap = wrap_dir(version)
     with zipfile.ZipFile(zip_path) as zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
-            name = info.filename[len(prefix) :] if info.filename.startswith(prefix) else info.filename
+            name = _relative_name(info.filename, wrap)
             data = zf.read(info)
             yield name, data
             if name.endswith(".whl"):
@@ -64,8 +69,7 @@ def check_completeness(zip_path: Path, version: str) -> list[str]:
             problems.append(f"MISSING: {spec.path}")
     for name in infos:
         if name not in expected:
-            relative = name[len(wrap) + 1 :] if name.startswith(f"{wrap}/") else name
-            problems.append(f"UNEXPECTED: {relative}")
+            problems.append(f"UNEXPECTED: {_relative_name(name, wrap)}")
     return problems
 
 

@@ -33,7 +33,7 @@ ZIP_NAME = f"schwab-mcp-{VERSION}.zip"
 
 @pytest.fixture
 def fake_wheel_builder(monkeypatch):
-    def build(project_root, out_dir):
+    def build(project_root, version, out_dir):
         path = make_fake_wheel(out_dir, VERSION)
         return WheelBuild(name=wheel_name(VERSION), path=path)
 
@@ -150,7 +150,7 @@ class TestPrerequisiteFailure:
     def test_exit_3_on_wheel_build_failure(
         self, project, monkeypatch, capsys
     ) -> None:
-        def boom(project_root, out_dir):
+        def boom(project_root, version, out_dir):
             raise WheelBuildError("wheel build failed: uv exited 1")
 
         monkeypatch.setattr(cli, "build_wheel", boom)
@@ -195,7 +195,7 @@ class TestScanFailures:
     def test_exit_1_on_dev_material_inside_the_wheel(
         self, project, monkeypatch, capsys
     ) -> None:
-        def build(project_root, out_dir):
+        def build(project_root, version, out_dir):
             path = make_fake_wheel(out_dir, VERSION, extra_entries={"tests/probe.py": b"# probe\n"})
             return WheelBuild(name=wheel_name(VERSION), path=path)
 
