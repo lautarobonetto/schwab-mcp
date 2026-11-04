@@ -1259,8 +1259,8 @@ uv run schwab-mcp renew
 ### Events on stderr (audit)
 
 ```text
-2026-10-19T14:00:00Z+00:00 auth_event=renew_start outcome=initiated detail=explicit_command
-2026-10-19T14:00:02Z+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
+2026-10-19T14:00:00+00:00 auth_event=renew_start outcome=initiated detail=explicit_command
+2026-10-19T14:00:02+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
 ```
 
 Each attempt emits exactly one `renew_start` followed by exactly

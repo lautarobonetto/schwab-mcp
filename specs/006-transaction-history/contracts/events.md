@@ -6,7 +6,7 @@ numbers or authorization URLs. Line format identical to the existing
 one:
 
 ```text
-2026-10-23T14:00:00Z+00:00 auth_event=<event> outcome=<outcome> detail=<detail>
+2026-10-23T14:00:00+00:00 auth_event=<event> outcome=<outcome> detail=<detail>
 ```
 
 ## Events per invocation

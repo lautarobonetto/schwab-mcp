@@ -8,6 +8,27 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`auth_event` stderr timestamps are standard ISO-8601 again, and the
+  secret-redaction loop lives in one place** (bug TD-013, 2026-11-04):
+  `log.py:170` appended `.replace("+00:00", "Z+00:00")` to the
+  `isoformat()` output, so every event line carried a malformed
+  `Z+00:00` hybrid suffix that `datetime.fromisoformat()` rejects
+  (e.g. `2026-11-04T12:00:00Z+00:00`). The suffix is now the plain
+  `+00:00` offset produced by `isoformat()`, matching the
+  `utc_now_iso()` contract already established in `positions.py` and
+  `transactions.py` (which explicitly document "no non-standard
+  `Z+00:00` suffix"). The duplicated redaction loop in `auth_event` was
+  replaced by a shared `_redact(text)` helper also used by
+  `_RedactionFilter.filter` (identical longest-first semantics). Two
+  unit tests that codified the broken format (`ISO_8601_UTC_RE`
+  requiring `Z` before an offset, and `test_timestamp_contains_z`) were
+  rewritten; a `datetime.fromisoformat` regression test pins the fix.
+  Example event lines in `docs/tools.md` and the event contracts
+  (`specs/001`, `specs/002`, `specs/006`) were corrected.
+  Assessment and fix report: `.specify/bugs/td-013/`.
+
 ### Changed
 
 - **Spec Kit tooling upgraded from 1.2.3 to 1.3.0**: the `specify` CLI (uv

@@ -23,12 +23,12 @@ the vocabulary changes are recorded here.
 Example lines:
 
 ```text
-2026-10-19T14:00:00Z+00:00 auth_event=renew_start outcome=initiated detail=margin_trigger
-2026-10-19T14:00:02Z+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
-2026-10-19T14:00:00Z+00:00 auth_event=renew_start outcome=initiated detail=explicit_command
-2026-10-19T14:00:01Z+00:00 auth_event=renewal_success outcome=not_needed detail=still valid
-2026-10-19T14:00:10Z+00:00 auth_event=renewal_failure outcome=connectivity detail=retries exhausted
-2026-10-19T14:00:01Z+00:00 auth_event=renewal_failure outcome=reauth_required detail=run: schwab-mcp auth
+2026-10-19T14:00:00+00:00 auth_event=renew_start outcome=initiated detail=margin_trigger
+2026-10-19T14:00:02+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
+2026-10-19T14:00:00+00:00 auth_event=renew_start outcome=initiated detail=explicit_command
+2026-10-19T14:00:01+00:00 auth_event=renewal_success outcome=not_needed detail=still valid
+2026-10-19T14:00:10+00:00 auth_event=renewal_failure outcome=connectivity detail=retries exhausted
+2026-10-19T14:00:01+00:00 auth_event=renewal_failure outcome=reauth_required detail=run: schwab-mcp auth
 ```
 
 ## New invariants

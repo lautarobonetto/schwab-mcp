@@ -26,7 +26,7 @@ pages are updated in the same commit.
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Fixed (v0.9.8, 2026-11-04) |
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Fixed (v0.9.8, 2026-11-04) |
-| TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Open |
+| TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Fixed (v0.9.8, 2026-11-04) |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Open |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Open |
 | TD-016 | Low | Dead code | Dead parameters in helpers | Open |
@@ -505,6 +505,17 @@ verification: `.specify/bugs/td-012-client-shim-install/`.
 timestamp contract and use `.replace("+00:00", "Z")` if `Z` is intended.
 
 **TDD:** regression test for the timestamp format.
+
+**Resolved** (v0.9.8, 2026-11-04): the redaction loop lives once in
+`_redact(text)` (`log.py`), called by both `_RedactionFilter.filter` and
+`auth_event`. The timestamp contract was decided as **standard ISO-8601
+with a plain `+00:00` offset** (matching the `utc_now_iso()` precedent in
+`positions.py`/`transactions.py`, which explicitly reject the
+non-`fromisoformat`-parseable `Z+00:00` suffix); the malformed
+`.replace("+00:00", "Z+00:00")` was deleted. Two unit tests that codified
+the broken format were rewritten; a `datetime.fromisoformat` regression
+test pins the fix. Assessment and fix report:
+`.specify/bugs/td-013/`.
 
 ---
 

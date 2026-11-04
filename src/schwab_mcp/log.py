@@ -106,14 +106,23 @@ def register_secret(value: str) -> None:
     _secrets.add(value)
 
 
+def _redact(text: str) -> str:
+    """Return *text* with every registered secret replaced by ``***``.
+
+    Secrets are replaced longest-first so overlapping secrets (e.g. an
+    access token that contains the app key) are fully removed (FR-006).
+    """
+    for secret in sorted(_secrets, key=len, reverse=True):
+        text = text.replace(secret, "***")
+    return text
+
+
 class _RedactionFilter(logging.Filter):
     """A logging Filter that replaces all registered secrets with ``***``."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        redacted = msg
-        for secret in sorted(_secrets, key=len, reverse=True):
-            redacted = redacted.replace(secret, "***")
+        redacted = _redact(msg)
         if redacted == msg:
             return True  # No secrets found; pass through unchanged
         record.msg = redacted
@@ -143,6 +152,10 @@ def auth_event(event: str, outcome: str, detail: str | None = None) -> None:
 
     Format:  ``<ISO-8601 UTC timestamp> auth_event=<event> outcome=<outcome> [detail=<detail>]``
 
+    The timestamp is standard ISO-8601 UTC with a ``+00:00`` offset (e.g.
+    ``2026-11-04T12:00:00+00:00``), parseable via ``datetime.fromisoformat()``
+    — no non-standard ``Z+00:00`` suffix.
+
     Parameters
     ----------
     event:
@@ -167,13 +180,12 @@ def auth_event(event: str, outcome: str, detail: str | None = None) -> None:
             f"Invalid outcome {outcome!r} for event {event!r}"
         )
 
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z+00:00")
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     line = f"{ts} auth_event={event} outcome={outcome}"
     if detail is not None:
         # Redact any registered secrets from the detail text (FR-006).
-        for secret in sorted(_secrets, key=len, reverse=True):
-            detail = detail.replace(secret, "***")
+        detail = _redact(detail)
         line += f" detail={detail}"
 
     print(line, file=sys.stderr)

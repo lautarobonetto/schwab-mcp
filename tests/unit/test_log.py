@@ -13,6 +13,7 @@ exist (TDD red phase). Once the module is created, these tests validate:
 
 import logging
 import re
+from datetime import datetime, timezone
 
 import pytest
 
@@ -31,7 +32,7 @@ from schwab_mcp.log import (
 # ---------------------------------------------------------------------------
 
 ISO_8601_UTC_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z[+-]\d{2}:\d{2}"
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$"
 )
 
 
@@ -414,12 +415,18 @@ class TestAuthEventFormat:
         ts = line.split(" ")[0]
         assert ts.endswith("+00:00"), f"Timestamp '{ts}' does not end with +00:00"
 
-    def test_timestamp_contains_z(self, capsys):
-        """The timestamp contains 'Z' before the offset, per ISO-8601."""
+    def test_timestamp_is_fromisoformat_parseable(self, capsys):
+        """Regression (TD-013): the timestamp parses via datetime.fromisoformat.
+
+        The malformed ``Z+00:00`` hybrid suffix (previously emitted by
+        log.py) raises ValueError here, so this test fails on the bug.
+        """
         auth_event("auth_start", "initiated")
         line = capsys.readouterr().err.strip()
         ts = line.split(" ")[0]
-        assert "Z" in ts, f"Timestamp '{ts}' does not contain 'Z'"
+        parsed = datetime.fromisoformat(ts)  # must not raise
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset().total_seconds() == 0
 
     def test_newline_at_end(self, capsys):
         """Each event line ends with a newline."""

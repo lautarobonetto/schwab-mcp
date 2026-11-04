@@ -15,12 +15,12 @@ through the redaction filter before output.
 Example lines:
 
 ```text
-2026-10-19T12:00:00Z+00:00 auth_event=auth_start outcome=initiated detail=browser flow requested
-2026-10-19T12:00:00Z+00:00 auth_event=auth_start outcome=initiated detail=corrupt store quarantined: tokens.db.corrupt.20261103T120000Z
-2026-10-19T12:01:24Z+00:00 auth_event=auth_success outcome=ok detail=tokens stored at ~/.schwab-mcp/tokens.db
-2026-10-19T12:05:00Z+00:00 auth_event=auth_failure outcome=cancelled detail=run: schwab-mcp auth to retry
-2026-10-19T13:00:00Z+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
-2026-10-19T13:00:30Z+00:00 auth_event=renewal_failure outcome=reauth_required detail=run: schwab-mcp auth
+2026-10-19T12:00:00+00:00 auth_event=auth_start outcome=initiated detail=browser flow requested
+2026-10-19T12:00:00+00:00 auth_event=auth_start outcome=initiated detail=corrupt store quarantined: tokens.db.corrupt.20261103T120000Z
+2026-10-19T12:01:24+00:00 auth_event=auth_success outcome=ok detail=tokens stored at ~/.schwab-mcp/tokens.db
+2026-10-19T12:05:00+00:00 auth_event=auth_failure outcome=cancelled detail=run: schwab-mcp auth to retry
+2026-10-19T13:00:00+00:00 auth_event=renewal_success outcome=ok detail=access token renewed
+2026-10-19T13:00:30+00:00 auth_event=renewal_failure outcome=reauth_required detail=run: schwab-mcp auth
 ```
 
 ## Event types
