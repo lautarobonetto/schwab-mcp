@@ -19,13 +19,6 @@ Thumbs.db
 # Fastembed
 .fastembed_cache
 
-# Repomix local snapshots
-repomix.xml
-repomix.md
-repomix.json
-repomix.txt
-
-
 # APM dependencies
 apm_modules/
 

@@ -103,22 +103,6 @@ dependencies:
 - repo_url: srobroek/agentic-packages
   host: github.com
   resolved_commit: 9b0f0edf6e89312e6de0f157f4f9f8731f9d0475
-  virtual_path: packages/mcp-repomix
-  is_virtual: true
-  package_type: apm_package
-  deployed_files:
-  - .claude/hooks/mcp-repomix/scripts/repomix-refresh-snapshot.sh
-  - .codex/hooks/mcp-repomix/scripts/repomix-refresh-snapshot.sh
-  deployed_file_hashes:
-    .claude/hooks/mcp-repomix/scripts/repomix-refresh-snapshot.sh: sha256:60122f295247bbf2a4722dcbb2a4dd6ff9e06d1ee50286064f39402f7c3d9375
-    .codex/hooks/mcp-repomix/scripts/repomix-refresh-snapshot.sh: sha256:60122f295247bbf2a4722dcbb2a4dd6ff9e06d1ee50286064f39402f7c3d9375
-  content_hash: sha256:8160affc9479c3f49064f324738f9d0d6e4f34bcd35445556b9c8a6ad97510db
-  discovered_via: srobroek-agentic
-  marketplace_plugin_name: mcp-repomix
-  declared_license: Apache-2.0
-- repo_url: srobroek/agentic-packages
-  host: github.com
-  resolved_commit: 9b0f0edf6e89312e6de0f157f4f9f8731f9d0475
   virtual_path: packages/steering-tools-scripts
   is_virtual: true
   package_type: apm_package
@@ -847,7 +831,6 @@ mcp_servers:
 - codebase-memory-mcp
 - context7
 - mcp-package-version
-- repomix
 mcp_configs:
   codebase-memory-mcp:
     name: codebase-memory-mcp
@@ -868,14 +851,5 @@ mcp_configs:
     args:
     - -y
     - mcp-package-version
-    registry: false
-    command: npx
-  repomix:
-    name: repomix
-    transport: stdio
-    args:
-    - -y
-    - repomix
-    - --mcp
     registry: false
     command: npx

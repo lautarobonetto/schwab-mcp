@@ -193,12 +193,6 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   DTE failures starting 2026-11-04. All `TestDteCeiling` fixtures now pass
   `today=TODAY` explicitly, matching the convention used elsewhere in the
   suite; assertions unchanged, full suite green again.
-- **repomix packing config for codebase-memory-mcp**: the repository now
-  tracks `repomix.config.json` and `.repomixignore`, which pack the
-  codebase into `repomix-output.xml` — the snapshot the
-  codebase-memory-mcp knowledge graph is built from. The generated
-  output (≈3.8 MB, regenerable) is git-ignored; only the configuration
-  is committed, and `docs/development.md` documents the setup.
 - **Tool registration and CLI dispatch deduplicated** (tech debt TD-006,
   2026-11-04): `server.py` repeated a ~15-line wrapper-closure +
   manual-`__name__` + `register_tool` ceremony per tool (×6) and
@@ -256,6 +250,20 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   AND freshness verification before consuming evidence; passive
   warehouse usage explicitly does not satisfy it); new quality gate 9
   (evidence-tier gate). No principle added, removed, or redefined.
+
+### Removed
+
+- **Repomix packing configuration**: deleted `repomix.config.json`,
+  `.repomixignore` and the git-ignored `repomix-output.xml` snapshot,
+  plus all textual references (`.gitignore` entry,
+  `docs/development.md` setup paragraph, stale
+  `mcp-repomix` package and `repomix` MCP-server entries in
+  `.specify/extensions/roadmap/apm.lock.yaml` and the roadmap
+  extension's `.gitignore`). Repomix was never actually load-bearing:
+  codebase-memory-mcp indexes the working tree directly (watch
+  strategy `git`), and the snapshot was git-ignored, so it never
+  entered the graph. The graph was re-indexed after the removal;
+  `search_code` confirms zero residual `repomix` mentions.
 
 ## [0.9.7] - 2026-11-03
 
