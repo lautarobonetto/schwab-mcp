@@ -357,7 +357,7 @@ and a DTE filter. Read-only: places no orders and moves no money.
 
 | Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces; passed as-is to the provider. |
+| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces, and must match the shared symbol grammar (`schwab_mcp.symbols`): equity/ETF (e.g. `AAPL`, `BRK.B`) or index (`$SPX`). Lowercase and the provider-internal slash form (`BRK/B`) are accepted; option-contract symbols and off-grammar strings (e.g. `AAPL!`) are rejected before any upcall. |
 | `max_strikes` | int | `50` | ≥ 1. Strikes per side of the money (ATM included) per expiration: up to `2 × max_strikes` rows. With `delta_target` it does not reduce that window. |
 | `option_type` | enum `both` \| `calls` \| `puts` | `both` | Which legs the response includes. |
 | `delta_target` | number \| null | `null` | If present: `0 < \|delta_target\| < 1`. Selects, per expiration and per included type, up to 5 strikes around the contract with \|delta\| closest to the target. |
@@ -478,6 +478,8 @@ message naming the parameter and the constraint:
 |-----------|------------------|
 | `symbol` empty or whitespace only | Names `symbol` and the non-empty constraint |
 | `symbol` with internal spaces | Names `symbol` and the constraint |
+| `symbol` matches no grammar (e.g. `AAPL!`) | Names `symbol` and the grammar constraint (shared `schwab_mcp.symbols` grammar) |
+| `symbol` is an option contract | Names `symbol` and the underlying constraint (the chain endpoints serve underlyings) |
 | `max_strikes ≤ 0` | Names `max_strikes` and `>= 1` |
 | `option_type` outside the enum | Names `option_type` and the values `both, calls, puts` |
 | `\|delta_target\| ∉ (0,1)` | Names `delta_target` and `0 < \|delta_target\| < 1` |
@@ -1039,7 +1041,7 @@ places no orders and moves no money.
 
 | Field | Type | Default | Semantics |
 |-------|------|---------|-----------|
-| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces; passed as-is to the provider. |
+| `symbol` | string | — (required) | Underlying instrument. Non-empty, no internal spaces, and must match the shared symbol grammar (`schwab_mcp.symbols`): equity/ETF (e.g. `AAPL`, `BRK.B`) or index (`$SPX`). Lowercase and the provider-internal slash form (`BRK/B`) are accepted; option-contract symbols and off-grammar strings (e.g. `AAPL!`) are rejected before any upcall. |
 | `dte_max` | int \| null | `null` | If present: ≥ 1 (calendar days) — replaces the 60-day default ceiling. **`null` does not mean "no ceiling"**: it applies the current 60-day ceiling (FR-005 semantics shared with `get_option_chain`). No hard upper limit: `365` is accepted. |
 | `extended` | bool | `false` | `false` (default): compact curated set. `true`: adds `provider` with the raw provider payload (003/006/008 pattern). |
 
@@ -1097,6 +1099,8 @@ parameter and the constraint:
 |-----------|------------------|
 | `symbol` empty or whitespace only | Names `symbol` and the non-empty constraint |
 | `symbol` with internal spaces | Names `symbol` and the constraint |
+| `symbol` matches no grammar (e.g. `AAPL!`) | Names `symbol` and the grammar constraint (shared `schwab_mcp.symbols` grammar) |
+| `symbol` is an option contract | Names `symbol` and the underlying constraint (the chain endpoints serve underlyings) |
 | `dte_max ≤ 0` | Names `dte_max` and `>= 1` |
 | `dte_max` non-integer (including `true`) | Names `dte_max` and the integer constraint |
 | unknown parameter (e.g. `max_strikes`) | Names the parameter |

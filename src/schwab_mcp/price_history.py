@@ -15,8 +15,9 @@ Reuse (constitution Principles II–III): the unwrap/error taxonomy is
 ``schwab_mcp.provider.response_json``, retries are
 ``schwab_mcp.tokens.retry_call``, audit events go through
 ``schwab_mcp.log.auth_event``, and the symbol grammars are the ones
-already owned by ``schwab_mcp.quotes._classify`` (single source of truth
-for equity/ETF, index, and option-contract shapes).
+already owned by ``schwab_mcp.symbols.classify_symbol`` (single source of
+truth for equity/ETF, index, and option-contract shapes,
+bug duplicate-symbol-validation).
 
 Stamping convention (research D8 — unverified empirical constant): the
 provider's ``datetime`` semantics (period start vs period end) are not
@@ -40,7 +41,7 @@ from schwab_mcp.errors import (
 )
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
-from schwab_mcp.quotes import _OPTION_RE, _classify
+from schwab_mcp.symbols import OPTION_RE, classify_symbol
 from schwab_mcp.tokens import retry_call
 from schwab_mcp.tool_errors import (
     history_unavailable,
@@ -459,13 +460,13 @@ def get_price_history(
             "malformed_symbol", normalized, frequency, period, extended_hours, extended
         )
 
-    classified = _classify(normalized)
+    classified = classify_symbol(normalized)
     if classified is None:
         # An option-shaped symbol is still recognizably an option contract
         # even when its strike cannot be re-encoded (D9): the price-history
         # endpoint serves underlyings, so the kind rejection comes first.
-        # The OCC shape grammar is reused from ``quotes`` (Principle II).
-        if _OPTION_RE.match(normalized):
+        # The OCC shape grammar is reused from ``symbols`` (Principle II).
+        if OPTION_RE.match(normalized):
             return _fail(
                 "unsupported_symbol_kind",
                 normalized,

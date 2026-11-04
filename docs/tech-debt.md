@@ -22,7 +22,7 @@ pages are updated in the same commit.
 | TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Fixed (v0.9.8, 2026-11-04) |
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Fixed (v0.9.8, 2026-11-04) |
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Fixed (v0.9.8, 2026-11-04) |
-| TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Open |
+| TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Fixed (v0.9.8, 2026-11-04) |
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Open |
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Open |
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Open |
@@ -384,6 +384,22 @@ e.g. `"BRK/B"` without the equity/index shape analysis that
 `quotes.py` or a `symbols.py`) returning `(kind, provider_form)` or an
 error; `OptionChainQuery.validate()` calls it, keeping only its
 contract-specific error messages on top of the single grammar.
+
+**Resolved** (v0.9.8, 2026-11-04): the grammars moved to a new shared
+module `src/schwab_mcp/symbols.py` (`INDEX_RE`, `EQUITY_RE`, `OPTION_RE`,
+`canonical_option_symbol`, `classify_symbol`) — the package's single
+source of truth, consumed by `quotes.py`, `price_history.py` (import
+path updated) and now `options_chain.py`. `OptionChainQuery.validate()`
+classifies the raw symbol through the new `classify_underlying()`
+wrapper (slash-form `BRK/B` and lowercase tolerated — both resolve at
+the provider), rejecting off-grammar symbols (`AAPL!`) and
+option-contract symbols with an actionable `ValueError` **before any
+upcall**; the empty/internal-whitespace messages are unchanged on top
+of the shared grammar. This closes the misleading path where an
+off-grammar chain symbol reached the provider's HTTP 400 and surfaced
+as `no_options_listed`. TDD (red confirmed first: 5 failing regression
+tests). Full suite green (1819 passed, 0 skipped). Assessment, fix
+report and verification: `.specify/bugs/duplicate-symbol-validation/`.
 
 ---
 

@@ -15,12 +15,12 @@ implementing commit message.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json, trade_time_value
+from schwab_mcp.symbols import classify_symbol
 from schwab_mcp.tokens import retry_call
 from schwab_mcp.tool_errors import (
     provider_unreachable,
@@ -58,70 +58,16 @@ MARKET = "equity"
 equities/ETFs, option contracts, and index symbols all trade on the same
 regular schedule."""
 
-_INDEX_RE = re.compile(r"^\$[A-Z0-9]{1,5}$")
-_EQUITY_RE = re.compile(r"^[A-Z0-9.]{1,6}$")
-# Root + optional separator(s) + OCC tail.  Strike: exactly 8 digits is
-# the OCC-encoded form (strike x 1000); otherwise it is a literal strike
-# (optional decimals).  The canonical OCC spacing (root padded to six
-# columns) is matched by the separator run and rebuilt below.
-_OPTION_RE = re.compile(
-    r"^(?P<root>[A-Z0-9.]{1,6})[ _]*"
-    r"(?P<date>\d{6})(?P<cp>[CP])(?P<strike>\d+(?:\.\d+)?)$"
-)
-
 
 # =============================================================================
-# Symbol normalization (research D5, FR-005/FR-013)
+# Symbol grammar
 # =============================================================================
-
-
-def _canonical_option_symbol(root: str, date: str, cp: str, strike_raw: str) -> str | None:
-    """Build the canonical OCC provider form, or ``None`` if unencodable.
-
-    Live evidence (2026-10-27): the provider quotes option contracts by
-    canonical OCC form only — root left-padded to six columns plus a
-    15-character tail ``YYMMDD`` + ``C``/``P`` + 8-digit strike x 1000.
-    Exactly-8-digit strike fields are read as OCC-encoded; anything else
-    is a literal strike price (the contract's compact grammar).
-    """
-    if "." not in strike_raw and len(strike_raw) == 8:
-        strike = int(strike_raw) / 1000
-    else:
-        strike = float(strike_raw)
-    encoded = round(strike * 1000)
-    if strike <= 0 or encoded >= 100_000_000:
-        return None
-    return f"{root:<6}{date}{cp}{encoded:08d}"
-
-
-def _classify(symbol: str) -> tuple[str, str] | None:
-    """Classify one normalized symbol as ``(kind, provider_form)``.
-
-    Returns ``None`` when the symbol matches no kind grammar (the caller
-    reports ``malformed_symbol``).  Index symbols travel to the provider
-    as requested; equity/ETF class shares (embedded dot) are rewritten
-    to the provider's slash form (live probe 2026-11-02); option
-    contracts are rewritten to the canonical OCC form above.
-    """
-    if _INDEX_RE.match(symbol):
-        return "index", symbol
-    match = _OPTION_RE.match(symbol)
-    if match:
-        provider = _canonical_option_symbol(
-            match.group("root"), match.group("date"), match.group("cp"),
-            match.group("strike"),
-        )
-        if provider is not None:
-            return "option", provider
-        return None
-    if _EQUITY_RE.match(symbol) and symbol.count(".") <= 1:
-        # Class shares (embedded dot) resolve at the provider ONLY in the
-        # slash form (live probe 2026-11-02: ``BRK/B``/``HEI/A``/``BF/B``/
-        # ``LEN/B`` -> candles + quotes; the dotted form -> not_found /
-        # empty candles).  The agent-facing echo stays the dotted request
-        # form; this translation is provider-internal.
-        return "equity", symbol.replace(".", "/")
-    return None
+#
+# The symbol grammars and classification live in ``schwab_mcp.symbols``
+# (bug duplicate-symbol-validation: one definition of "valid symbol" for
+# quotes, price history, and the option tools).  ``classify_symbol``
+# classifies a *normalized* (strip + uppercase) symbol as
+# ``(kind, provider_form)`` or ``None`` (research D5, FR-005/FR-013).
 
 
 
@@ -293,7 +239,7 @@ def get_quotes(
     kinds: dict[str, str] = {}
     seen: set[str] = set()
     for symbol in normalized:
-        classified = _classify(symbol)
+        classified = classify_symbol(symbol)
         if classified is None:
             errors[symbol] = "malformed_symbol"
             continue

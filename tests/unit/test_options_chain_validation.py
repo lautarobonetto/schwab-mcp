@@ -183,6 +183,89 @@ class TestSymbolValidation:
         assert "symbol" in str(excinfo.value)
 
 
+class TestSymbolGrammar:
+    """``symbol`` must match the shared symbol grammar (single source of
+    truth, bug duplicate-symbol-validation).
+
+    The chain endpoints serve underlyings, so the ad-hoc "non-empty, no
+    internal whitespace" check is replaced by the package's one symbol
+    grammar (``schwab_mcp.symbols.classify_underlying``): off-grammar
+    strings (``"AAPL!"``) are rejected before any upcall instead of
+    surfacing as a misleading ``no_options_listed``, and
+    option-contract symbols are rejected as non-underlyings.  Symbols
+    the provider actually resolves keep passing: the slash form
+    (``BRK/B``, live probe 2026-11-02) and lowercase input (the chain
+    endpoints pass the symbol as-is, so case is the provider's job).
+    """
+
+    @pytest.mark.parametrize("symbol", ["AAPL!", "$BAD$", "BRK.B.C", "A#B"])
+    def test_symbol_off_grammar_rejected(self, symbol: str) -> None:
+        """A ``symbol`` matching no grammar is rejected before any upcall.
+
+        Bug duplicate-symbol-validation: ``"AAPL!"`` used to pass local
+        validation and the provider's HTTP 400 surfaced as the misleading
+        ``no_options_listed`` outcome.  Now ``validate()`` raises a
+        ``ValueError`` naming ``symbol`` and the grammar constraint.
+        """
+        from schwab_mcp.options_chain import OptionChainQuery
+
+        with pytest.raises(ValueError) as excinfo:
+            query = OptionChainQuery(symbol=symbol)
+            query.validate()
+        msg = str(excinfo.value)
+        assert "symbol" in msg
+        assert "grammar" in msg
+        assert symbol in msg
+
+    def test_symbol_slash_form_accepted(self) -> None:
+        """The provider-internal slash form (``BRK/B``) still passes.
+
+        Bug duplicate-symbol-validation regression guard: the provider
+        resolves ``BRK/B`` (live probe 2026-11-02), so tightening to the
+        shared grammar must not break it.
+        """
+        from schwab_mcp.options_chain import OptionChainQuery
+
+        query = OptionChainQuery(symbol="BRK/B")
+        assert query.validate() is None
+
+    def test_symbol_lowercase_accepted(self) -> None:
+        """Lowercase input (``"aapl"``) still passes.
+
+        The chain endpoints pass ``symbol`` to the provider as-is, so
+        case tolerance is preserved while the grammar is tightened.
+        """
+        from schwab_mcp.options_chain import OptionChainQuery
+
+        query = OptionChainQuery(symbol="aapl")
+        assert query.validate() is None
+
+    def test_symbol_index_accepted(self) -> None:
+        """Index symbols (``$SPX``) match the shared grammar and pass."""
+        from schwab_mcp.options_chain import OptionChainQuery
+
+        query = OptionChainQuery(symbol="$SPX")
+        assert query.validate() is None
+
+    def test_symbol_option_contract_rejected(self) -> None:
+        """An option-contract symbol is rejected as a non-underlying.
+
+        The chain endpoints serve underlyings; the shared grammar
+        recognizes option contracts (kind ``option``) and ``validate()``
+        rejects them with an actionable message instead of letting the
+        provider's HTTP 400 surface as ``no_options_listed``.
+        """
+        from schwab_mcp.options_chain import OptionChainQuery
+
+        with pytest.raises(ValueError) as excinfo:
+            query = OptionChainQuery(symbol="AAPL240119C00195000")
+            query.validate()
+        msg = str(excinfo.value)
+        assert "symbol" in msg
+        assert "underlying" in msg
+        assert "AAPL240119C00195000" in msg
+
+
 # =============================================================================
 # max_strikes
 # =============================================================================

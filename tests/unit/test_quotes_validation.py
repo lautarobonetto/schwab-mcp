@@ -194,16 +194,18 @@ class TestAcceptedSymbolKinds:
         slash form — the only representation the provider resolves (live
         probe 2026-11-02: ``BRK/B`` -> candles, ``BRK.B`` -> not_found).
 
-        The mapping is owned by ``_classify`` (single source of truth) so
-        ``get_quotes`` and ``get_price_history`` inherit it alike.  The
-        agent-facing echo stays the dotted request form.
+        The mapping is owned by ``schwab_mcp.symbols.classify_symbol``
+        (single source of truth, bug duplicate-symbol-validation) so
+        ``get_quotes``, ``get_price_history``, and the option tools
+        inherit it alike.  The agent-facing echo stays the dotted request
+        form.
         """
-        from schwab_mcp.quotes import _classify
+        from schwab_mcp.symbols import classify_symbol
 
-        assert _classify("BRK.B") == ("equity", "BRK/B")
-        assert _classify("HEI.A") == ("equity", "HEI/A")
-        assert _classify("AAPL") == ("equity", "AAPL"), "dotless symbols pass through unchanged"
-        assert _classify("$SPX") == ("index", "$SPX"), "indexes are never rewritten"
+        assert classify_symbol("BRK.B") == ("equity", "BRK/B")
+        assert classify_symbol("HEI.A") == ("equity", "HEI/A")
+        assert classify_symbol("AAPL") == ("equity", "AAPL"), "dotless symbols pass through unchanged"
+        assert classify_symbol("$SPX") == ("index", "$SPX"), "indexes are never rewritten"
 
     @pytest.mark.parametrize(
         "requested,expected_provider",

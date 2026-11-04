@@ -32,6 +32,22 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **Symbol grammar unified in `schwab_mcp.symbols`** (tech debt TD-009,
+  2026-11-04): two definitions of "valid symbol" coexisted — the quotes
+  grammars (`quotes.py`, declared single source of truth and already
+  reused by `price_history.py`) and an ad-hoc "non-empty, no internal
+  whitespace" check in `OptionChainQuery.validate()`. The grammars moved
+  to a new shared module `schwab_mcp.symbols` (`classify_symbol` with
+  public `INDEX_RE`/`EQUITY_RE`/`OPTION_RE`/`canonical_option_symbol`);
+  `quotes.py`, `price_history.py` and the option tools all consume it.
+  `OptionChainQuery.validate()` now classifies its raw symbol through
+  the tolerant `classify_underlying()` wrapper (provider-internal slash
+  form `BRK/B` and lowercase accepted; empty/whitespace messages
+  unchanged) and rejects off-grammar symbols (e.g. `AAPL!`) and
+  option-contract symbols with an actionable `ValueError` before any
+  upcall — they previously passed local validation and surfaced the
+  provider's HTTP 400 as a misleading `no_options_listed`. TDD (red
+  confirmed first). Full suite green (1819 passed, 0 skipped).
 - **`options_chain.py` internal duplication consolidated** (tech debt
   TD-008, 2026-11-04): the option-chain and expiration-chain tools had
   re-implemented the same provider semantics side by side — HTTP-400

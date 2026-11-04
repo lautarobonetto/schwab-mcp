@@ -25,6 +25,7 @@ from typing import Any, Optional
 from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json, trade_time_value
+from schwab_mcp.symbols import classify_underlying
 from schwab_mcp.tokens import retry_call
 
 
@@ -212,6 +213,27 @@ class OptionChainQuery:
                 "symbol must not contain internal whitespace "
                 "(data-model §1: 'non-empty, no internal spaces'); "
                 f"got {self.symbol!r}"
+            )
+
+        # --- symbol grammar: the package's single source of truth (bug
+        # duplicate-symbol-validation).  The chain endpoints serve
+        # underlyings, so the raw symbol is classified through
+        # ``classify_underlying`` (slash-form and case tolerant); an
+        # off-grammar symbol is rejected here instead of surfacing the
+        # provider's HTTP 400 as a misleading ``no_options_listed``.
+        classified = classify_underlying(self.symbol)
+        if classified is None:
+            raise ValueError(
+                "symbol matches no supported grammar "
+                "(equity/ETF like AAPL or BRK.B, or index like $SPX "
+                "— schwab_mcp.symbols.classify_underlying); "
+                f"got {self.symbol!r}"
+            )
+        if classified[0] == "option":
+            raise ValueError(
+                "symbol must be an underlying (equity/ETF or index), "
+                "not an option contract — the chain endpoints serve "
+                f"underlyings; got {self.symbol!r}"
             )
 
         # --- max_strikes: int >= 1 ---
