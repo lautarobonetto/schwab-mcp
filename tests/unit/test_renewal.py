@@ -889,3 +889,112 @@ class TestRenew:
         )
         assert len(results) == 2
         assert all(r.outcome in ("renewed", "not_needed") for r in results)
+
+    def test_waiter_renews_serialized_when_first_renewal_leaves_store_expired(
+        self, tmp_path
+    ) -> None:
+        """Bug TD-001 regression: a waiter whose store is still expired must
+        renew **under** the lock, never unlocked.
+
+        Two threads race into ``renew()``; the first holder's
+        ``update_tokens()`` does NOT refresh the store (a renewal that
+        fails server-side).  The waiter must block on the lock, re-check
+        the margin inside the critical section, and perform its own
+        serialized renewal — no ``RuntimeError: release unlocked lock`` may
+        escape ``renew()`` and the two ``update_tokens()`` calls must never
+        overlap (FR-005).
+        """
+        import time
+
+        from schwab_mcp.renewal import renew
+
+        db = tmp_path / "schwabdev.db"
+        # Access token about to expire (10 s remaining → below 61 s margin)
+        self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
+
+        client = MagicMock()
+
+        guard = threading.Lock()
+        state = {"in_flight": 0, "max_in_flight": 0}
+
+        def _update_tokens_without_store_write() -> bool:
+            """Network-round-trip delay; the renewal does NOT refresh the
+            store.  Tracks the maximum number of overlapping calls."""
+            with guard:
+                state["in_flight"] += 1
+                state["max_in_flight"] = max(
+                    state["max_in_flight"], state["in_flight"]
+                )
+            time.sleep(0.1)
+            with guard:
+                state["in_flight"] -= 1
+            return True
+
+        client.update_tokens.side_effect = _update_tokens_without_store_write
+
+        barrier = threading.Barrier(2)
+        results: list[object] = []
+        errors: list[BaseException] = []
+
+        def _call_renew() -> None:
+            barrier.wait()
+            try:
+                results.append(renew(client, str(db)))
+            except BaseException as exc:  # noqa: BLE001 — the test's assertion target
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_call_renew) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"No exception may escape renew(); got {errors!r}"
+        assert len(results) == 2
+        assert all(r.outcome == "renewed" for r in results)
+        assert client.update_tokens.call_count == 2, (
+            "The waiter must perform its own renewal: the first renewal "
+            "left the store expired"
+        )
+        assert state["max_in_flight"] == 1, (
+            f"update_tokens() calls overlapped "
+            f"(max in-flight: {state['max_in_flight']})"
+        )
+
+    def test_second_sequential_renew_sees_refreshed_store(self, tmp_path) -> None:
+        """Bug TD-001 companion (deterministic, no threads): the first
+        ``renew()`` refreshes the store; a second ``renew()`` observes the
+        fresh store and returns ``not_needed`` — no ``RuntimeError`` and no
+        duplicate network call."""
+        from schwab_mcp.renewal import renew
+
+        db = tmp_path / "schwabdev.db"
+        self._seed_store(db, expires_in=1800, access_age=1790, refresh_age=3600)
+
+        client = MagicMock()
+
+        def _renew_and_refresh_store() -> bool:
+            """Simulate a successful renewal: the store is refreshed as a
+            side effect (mirrors what ``schwabdev`` does internally)."""
+            self._seed_store(db, expires_in=1800, access_age=0, refresh_age=3600)
+            return True
+
+        client.update_tokens.side_effect = _renew_and_refresh_store
+
+        first = renew(client, str(db))
+        second = renew(client, str(db))
+
+        assert first.outcome == "renewed"
+        assert second.outcome == "not_needed"
+        assert second.detail == "still_valid"
+        assert client.update_tokens.call_count == 1
+
+    def test_acquire_release_store_lock_helpers_removed(self) -> None:
+        """Bug TD-001 guard: the broken acquire/release dance must stay
+        deleted; coordination lives only in the ``_store_lock`` context
+        manager, so a release can never be paired with a foreign acquire."""
+        import schwab_mcp.renewal as renewal_module
+
+        assert not hasattr(renewal_module, "_acquire_store_lock")
+        assert not hasattr(renewal_module, "_release_store_lock")
+        assert hasattr(renewal_module, "_store_lock")

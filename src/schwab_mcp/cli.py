@@ -26,7 +26,6 @@ from schwab_mcp.tokens import (
     backup_token_store,
     discard_token_store_backup,
     enforce_permissions,
-    peek_store,
     peek_store_status,
     quarantine_corrupt_store,
     restore_token_store,
@@ -118,8 +117,8 @@ def run_auth() -> None:
 
         # Bug auth-false-success: ``auth`` is a deliberate re-authorization
         # and must never trust the rows already in the store — a refresh
-        # token revoked server-side looks identical to a fresh one to
-        # ``peek_store``, and schwabdev's init-time silent refresh then
+        # token revoked server-side looks identical to a fresh one to any
+        # store read, and schwabdev's init-time silent refresh then
         # fails (invalid_grant) without ever reaching the hook.  Move the
         # store aside so the client performs a REAL authorization-code
         # flow through ``call_on_auth``; restore the previous store
@@ -153,8 +152,11 @@ def run_auth() -> None:
 
             # If the client never ran the interactive flow (e.g. inert test
             # stubs) and the store is still empty, invoke the hook manually so
-            # the URL is printed and the user is prompted.
-            if not peek_store(config.token_db) and hook_calls == 0:
+            # the URL is printed and the user is prompted.  (TD-003: the
+            # status-based check replaces the deleted peek_store; a corrupted
+            # store is unreachable here — quarantined above, and the store is
+            # moved aside by backup_token_store before this point.)
+            if peek_store_status(config.token_db) == "absent" and hook_calls == 0:
                 auth_url = _build_auth_url(config.app_key, config.callback_url)
                 counted_hook(auth_url)
 
@@ -166,7 +168,7 @@ def run_auth() -> None:
                 hook_calls > 0
                 or _read_store_bytes(config.token_db) != pre_bytes
             )
-            if not peek_store(config.token_db) or not fresh_write:
+            if peek_store_status(config.token_db) == "absent" or not fresh_write:
                 if last_paste:
                     auth_event(
                         "auth_failure", "failed",

@@ -22,7 +22,12 @@ from pathlib import Path
 import pytest
 
 from schwab_mcp.errors import ConcurrentAuthError
-from schwab_mcp.tokens import AuthLock, enforce_permissions, peek_store
+from schwab_mcp.tokens import (
+    AuthLock,
+    _read_schwabdev_row,
+    enforce_permissions,
+    peek_store_status,
+)
 
 
 def _make_full_schema_store(
@@ -62,47 +67,152 @@ def _make_full_schema_store(
 
 
 # ---------------------------------------------------------------------------
-# peek_store
+# _read_schwabdev_row (TD-003 — single store-read implementation)
 # ---------------------------------------------------------------------------
 
 
-class TestPeekStore:
-    """peek_store(path) → absent-marker (False-ish) vs present-marker (True-ish)."""
+class TestReadSchwabdevRow:
+    """_read_schwabdev_row(path) → ("absent", None) | ("corrupted", None) | ("present", row).
+
+    TD-003: one implementation of the store-read contract (stat → empty
+    check → read-only connect → query → close), shared by
+    ``peek_store_status`` and ``renewal.read_store_lifetime``.
+    """
 
     def test_absent_for_missing_file(self, tmp_path: Path) -> None:
-        """Non-existent path yields absent-marker, never an exception."""
-        nonexistent = tmp_path / "does-not-exist.db"
-        result = peek_store(nonexistent)
-        assert not result, f"Expected absent-marker, got {result!r}"
+        status, row = _read_schwabdev_row(tmp_path / "does-not-exist.db")
+        assert (status, row) == ("absent", None)
 
-    def test_absent_for_corrupted_content(self, tmp_path: Path) -> None:
-        """Corrupted/unparseable content (not a SQLite DB) → absent-marker, not crash.
+    def test_absent_for_empty_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "empty.db"
+        path.write_bytes(b"")
+        status, row = _read_schwabdev_row(path)
+        assert (status, row) == ("absent", None)
 
-        FR-009: corrupted store must be treated as absent.
-        """
+    def test_corrupted_for_non_sqlite_bytes(self, tmp_path: Path) -> None:
+        """FR-009: unparseable content → corrupted, never a crash."""
         path = tmp_path / "corrupted.db"
         path.write_bytes(b"not a database")
-        result = peek_store(path)
-        assert not result, f"Expected absent-marker for corrupted store, got {result!r}"
+        status, row = _read_schwabdev_row(path)
+        assert (status, row) == ("corrupted", None)
 
-    def test_present_for_valid_sqlite_with_schwabdev_row(self, tmp_path: Path) -> None:
-        """A SQLite file containing a single-row schwabdev table → present-marker."""
-        path = tmp_path / "valid.db"
+    def test_corrupted_for_missing_schwabdev_table(self, tmp_path: Path) -> None:
+        """Valid SQLite but no schwabdev table → corrupted (loader cannot read a row)."""
+        path = tmp_path / "wrong-schema.db"
+        con = sqlite3.connect(str(path))
+        try:
+            con.execute("CREATE TABLE other (x TEXT)")
+            con.commit()
+        finally:
+            con.close()
+        status, row = _read_schwabdev_row(path)
+        assert (status, row) == ("corrupted", None)
+
+    def test_absent_for_empty_schwabdev_table(self, tmp_path: Path) -> None:
+        path = tmp_path / "empty-table.db"
         con = sqlite3.connect(str(path))
         try:
             con.execute(
-                "CREATE TABLE schwabdev (access_token TEXT, refresh_token TEXT)"
-            )
-            con.execute(
-                "INSERT INTO schwabdev (access_token, refresh_token) VALUES (?, ?)",
-                ("dummy_access", "dummy_refresh"),
+                "CREATE TABLE schwabdev (expires_in INTEGER,"
+                " access_token_issued TEXT, refresh_token_issued TEXT)"
             )
             con.commit()
         finally:
             con.close()
+        status, row = _read_schwabdev_row(path)
+        assert (status, row) == ("absent", None)
 
-        result = peek_store(path)
-        assert result, f"Expected present-marker for valid store, got {result!r}"
+    def test_present_row_for_full_schema_store(self, tmp_path: Path) -> None:
+        path = tmp_path / "valid.db"
+        _make_full_schema_store(path)
+        status, row = _read_schwabdev_row(path)
+        assert status == "present"
+        assert row == (1800, "2026-11-03T00:00:00+00:00", "2026-11-03T00:00:00+00:00")
+
+
+class TestStoreReadEquivalence:
+    """TD-003 lock-in: ``peek_store_status`` consumes ``_read_schwabdev_row``
+    and keeps its tri-state semantics, and the ``run_auth`` success gate
+    (``peek_store_status(...) != "absent"``) matches the deleted
+    ``peek_store`` on reachable states (absent/present)."""
+
+    @staticmethod
+    def _fixture(tmp_path: Path, kind: str) -> Path:
+        path = tmp_path / "store.db"
+        if kind == "missing":
+            return path
+        if kind == "empty":
+            path.write_bytes(b"")
+        elif kind == "garbage":
+            path.write_bytes(b"not a database")
+        elif kind == "no-table":
+            con = sqlite3.connect(str(path))
+            try:
+                con.execute("CREATE TABLE other (x TEXT)")
+                con.commit()
+            finally:
+                con.close()
+        elif kind == "empty-table":
+            con = sqlite3.connect(str(path))
+            try:
+                con.execute(
+                    "CREATE TABLE schwabdev (expires_in INTEGER,"
+                    " access_token_issued TEXT, refresh_token_issued TEXT)"
+                )
+                con.commit()
+            finally:
+                con.close()
+        else:  # valid
+            _make_full_schema_store(path)
+        return path
+
+    @pytest.mark.parametrize(
+        ("kind", "expected"),
+        [
+            ("missing", "absent"),
+            ("empty", "absent"),
+            ("garbage", "corrupted"),
+            ("no-table", "corrupted"),
+            ("empty-table", "absent"),
+            ("valid", "present"),
+        ],
+    )
+    def test_peek_store_status_aligns_with_helper(
+        self, tmp_path: Path, kind: str, expected: str
+    ) -> None:
+        path = self._fixture(tmp_path, kind)
+        status, _row = _read_schwabdev_row(path)
+        assert peek_store_status(path) == expected
+        # The helper's structural status drives peek_store_status; the only
+        # refinement it adds is ISO-timestamp validation, which can downgrade
+        # "present" to "corrupted" but never upgrades the other two.
+        if expected != "present":
+            assert status == expected
+
+    @pytest.mark.parametrize(
+        ("kind", "store_missing"),
+        [
+            ("missing", True),
+            ("empty", True),
+            ("empty-table", True),
+            ("garbage", False),
+            ("no-table", False),
+            ("valid", False),
+        ],
+    )
+    def test_auth_gate_expression_semantics(
+        self, tmp_path: Path, kind: str, store_missing: bool
+    ) -> None:
+        """Documents the run_auth gate translation (TD-003): the deleted
+        ``not peek_store(...)`` ("no row") becomes
+        ``peek_store_status(...) == "absent"`` — exact parity on reachable
+        states (absent / present).  Corrupted stores are unreachable in
+        run_auth: they are quarantined before the flow (cli.py) and the
+        store is moved aside by backup_token_store before the gate is
+        evaluated; the old bool collapsed them into "missing" while the
+        status check reports them as "corrupted"."""
+        path = self._fixture(tmp_path, kind)
+        assert (peek_store_status(path) == "absent") is store_missing
 
 
 # ---------------------------------------------------------------------------

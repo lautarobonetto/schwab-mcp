@@ -21,6 +21,15 @@ from schwab_mcp.errors import (
 )
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
+from schwab_mcp.results import (
+    DETAIL_ACCOUNT_FAILED,
+    DETAIL_PROVIDER_UNREACHABLE,
+    DETAIL_REAUTH_NEEDED,
+    AccountFailed,
+    AccountFailureDetail,
+    ResultOutcome,
+    validate_shared_outcome_rules,
+)
 
 
 class InstrumentType(str, Enum):
@@ -33,13 +42,9 @@ class InstrumentType(str, Enum):
     CASH_EQUIVALENT = "CASH_EQUIVALENT"
 
 
-class OutcomeType(str, Enum):
-    """Allowed outcome classifications for a positions query."""
-
-    OK = "ok"
-    PARTIAL_FAILURE = "partial_failure"
-    TRANSIENT_FAILURE = "transient_failure"
-    REAUTH_REQUIRED = "reauth_required"
+# Shared outcome taxonomy — single definition in results.py, re-exported
+# here under the feature's historical name (TD-002).
+OutcomeType = ResultOutcome
 
 
 class PutCall(str, Enum):
@@ -50,22 +55,24 @@ class PutCall(str, Enum):
 
 
 class DetailType(str, Enum):
-    """Closed vocabulary for result detail field."""
+    """Closed vocabulary for result detail field.
+
+    Shared values (account_failed, provider_unreachable, reauth_needed)
+    are defined once in schwab_mcp.results (TD-002).
+    """
 
     DATA_RECEIVED = "data_received"
     NO_POSITIONS = "no_positions"
-    ACCOUNT_FAILED = "account_failed"
-    PROVIDER_UNREACHABLE = "provider_unreachable"
-    REAUTH_NEEDED = "reauth_needed"
+    ACCOUNT_FAILED = DETAIL_ACCOUNT_FAILED
+    PROVIDER_UNREACHABLE = DETAIL_PROVIDER_UNREACHABLE
+    REAUTH_NEEDED = DETAIL_REAUTH_NEEDED
     STORE_ABSENT = "store_absent"
     STORE_CORRUPTED = "store_corrupted"
 
 
-class AccountFailureDetail(str, Enum):
-    """Allowed detail values for accounts_failed entries."""
-
-    PROVIDER_ERROR = "provider_error"
-    TRANSIENT = "transient"
+# Shared account-failure taxonomy — single definition in results.py,
+# re-exported here under the feature's historical names (TD-002).
+# (AccountFailureDetail / AccountFailed imported above.)
 
 
 class PositionEntry(BaseModel):
@@ -121,13 +128,6 @@ class PositionEntry(BaseModel):
         return self
 
 
-class AccountFailed(BaseModel):
-    """Describes a single account that failed during a multi-account query."""
-
-    account_hash: str = Field(..., min_length=1, description="Opaque identifier of the failed account")
-    detail: AccountFailureDetail = Field(..., description="Reason for the failure")
-
-
 class PositionsResult(BaseModel):
     """The single structured result of a ``get_open_positions`` invocation (data-model.md §2).
 
@@ -143,26 +143,25 @@ class PositionsResult(BaseModel):
 
     @model_validator(mode="after")
     def _validate_outcome_rules(self) -> "PositionsResult":
-        """Cross-field validation for outcome-specific rules."""
+        """Cross-field validation for outcome-specific rules.
+
+        Rules shared across result models (retryable ⇔ transient_failure,
+        accounts_failed ⇔ partial_failure) live in results.py (TD-002);
+        this validator adds only the positions-specific rules.
+        """
         is_transient = self.outcome == OutcomeType.TRANSIENT_FAILURE
         is_ok = self.outcome == OutcomeType.OK
-        is_partial = self.outcome == OutcomeType.PARTIAL_FAILURE
         is_reauth = self.outcome == OutcomeType.REAUTH_REQUIRED
 
-        if self.retryable and not is_transient:
-            raise ValueError("retryable=True is only allowed when outcome == 'transient_failure'")
-        if is_transient and not self.retryable:
-            raise ValueError("transient_failure outcome requires retryable=True")
+        # Shared rules 4-5 (results.py, TD-002)
+        validate_shared_outcome_rules(
+            self.outcome, self.retryable, self.accounts_failed
+        )
 
         if self.positions and (is_transient or is_reauth):
             raise ValueError("positions must be empty for transient_failure and reauth_required outcomes")
         if not self.positions and is_ok and self.detail not in (DetailType.NO_POSITIONS, DetailType.DATA_RECEIVED):
             raise ValueError("ok outcome with empty positions must use detail='no_positions'")
-
-        if self.accounts_failed is not None and not is_partial:
-            raise ValueError("accounts_failed is only allowed when outcome == 'partial_failure'")
-        if is_partial and self.accounts_failed is None:
-            raise ValueError("partial_failure outcome requires accounts_failed")
 
         return self
 

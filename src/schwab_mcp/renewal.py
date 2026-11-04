@@ -6,6 +6,7 @@ No secret/credential values are ever included in payloads (FR-004).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 from typing import Optional
@@ -99,8 +100,7 @@ class AuthHealth:
 # ---------------------------------------------------------------------------
 
 import logging
-import os as _os
-import sqlite3
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -111,6 +111,7 @@ from schwab_mcp.errors import (
 )
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
+from schwab_mcp.tokens import _read_schwabdev_row
 from schwab_mcp.tokens import issued_to_epoch as _tokens_issued_to_epoch
 
 # Per-store-path locks for single-flight coordination within this process
@@ -130,6 +131,16 @@ def _seconds_from_store(store_path: str) -> Optional[int]:
     if lifetime is None:
         return None
     return lifetime.access_remaining_seconds
+
+
+def _not_needed_outcome(lifetime: StoreLifetime) -> RenewalOutcome:
+    """Build the ``not_needed`` outcome from a store lifetime reading."""
+    return RenewalOutcome(
+        outcome="not_needed",
+        expires_in_seconds=lifetime.access_remaining_seconds,
+        retryable=False,
+        detail="still_valid",
+    )
 
 
 def _make_renewed_outcome(store_path: Optional[str]) -> RenewalOutcome:
@@ -205,34 +216,23 @@ def _tie_breaker_probe(client: object,
     return _make_renewed_outcome(store_path)
 
 
-def _acquire_store_lock(store_path: Optional[str]) -> bool:
-    """Try to acquire the per-store renewal lock.
+@contextlib.contextmanager
+def _store_lock(store_path: Optional[str]):
+    """Hold the per-store renewal lock for the duration of the block.
 
-    Returns ``True`` if the lock was acquired (caller should proceed and
-    eventually release).  Returns ``False`` if another renewal is already
-    in-flight for this store — the caller should wait for the holder to
-    finish, then re-check the store.
+    Single-flight coordination (FR-005): concurrent callers for the same
+    store serialise on a blocking acquire, and the release is paired with
+    the acquire by the context manager — it can never double-release a
+    lock this thread does not own (bug TD-001).  With no store there is
+    nothing to coordinate, so the block runs unlocked.
     """
     if store_path is None:
-        return True  # No store → no coordination needed
-    with _renew_locks_lock:
-        lock = _renew_locks.setdefault(store_path, threading.Lock())
-    acquired = lock.acquire(blocking=False)
-    if not acquired:
-        # Block until the other renewal finishes, then re-check.
-        lock.acquire()
-        lock.release()
-    return acquired
-
-
-def _release_store_lock(store_path: Optional[str]) -> None:
-    """Release the per-store renewal lock."""
-    if store_path is None:
+        yield  # No store → no coordination needed
         return
     with _renew_locks_lock:
-        lock = _renew_locks.get(store_path)
-    if lock is not None:
-        lock.release()
+        lock = _renew_locks.setdefault(store_path, threading.Lock())
+    with lock:
+        yield
 
 
 def renew(client: object, store_path: Optional[str] = None,
@@ -256,35 +256,24 @@ def renew(client: object, store_path: Optional[str] = None,
     if store_path is None:
         store_path = getattr(client, "tokens_db", None)
 
-    # 1. Margin short-circuit — no network call if enough validity remains.
-    if store_path is not None:
+    if store_path is None:
+        return _do_renew(client, store_path, trigger_detail=trigger_detail)
+
+    # 1. Margin short-circuit — no network call if enough validity remains
+    #    (advisory fast path; the authoritative re-check runs under the lock).
+    lifetime = read_store_lifetime(store_path)
+    if lifetime is not None and lifetime.access_remaining_seconds > ACCESS_MARGIN:
+        return _not_needed_outcome(lifetime)
+
+    # 2. Single-flight critical section (bug TD-001): blocking acquire, then
+    #    re-check the margin INSIDE the lock so a renewal completed by
+    #    another thread is observed here — otherwise renew under the lock,
+    #    which is held across the whole attempt (including retries).
+    with _store_lock(store_path):
         lifetime = read_store_lifetime(store_path)
         if lifetime is not None and lifetime.access_remaining_seconds > ACCESS_MARGIN:
-            return RenewalOutcome(
-                outcome="not_needed",
-                expires_in_seconds=lifetime.access_remaining_seconds,
-                retryable=False,
-                detail="still_valid",
-            )
-
-    # 2. Concurrency coordination: if another renewal is already in-flight
-    #    for this store, wait for it to finish then re-check the store.
-    acquired = _acquire_store_lock(store_path)
-    if not acquired:
-        # Another renewal just finished; re-read the store.
-        if store_path is not None:
-            lifetime = read_store_lifetime(store_path)
-            if lifetime is not None and lifetime.access_remaining_seconds > ACCESS_MARGIN:
-                return RenewalOutcome(
-                    outcome="not_needed",
-                    expires_in_seconds=lifetime.access_remaining_seconds,
-                    retryable=False,
-                    detail="still_valid",
-                )
-    try:
+            return _not_needed_outcome(lifetime)
         return _do_renew(client, store_path, trigger_detail=trigger_detail)
-    finally:
-        _release_store_lock(store_path)
 
 
 def _do_renew(client: object, store_path: Optional[str],
@@ -376,8 +365,8 @@ class StoreLifetime:
 def read_store_lifetime(path: str | os.PathLike) -> Optional[StoreLifetime]:
     """Read the token store and compute remaining lifetimes.
 
-    Uses the same SQLite read pattern as ``peek_store_status`` in
-    ``tokens.py`` (no schema duplication).  Reads ``expires_in``,
+    Consumes ``tokens._read_schwabdev_row`` — the single store-read
+    implementation (TD-003, Constitution II).  Reads ``expires_in``,
     ``access_token_issued``, and ``refresh_token_issued`` from the
     ``schwabdev`` row to compute remaining seconds.
 
@@ -386,35 +375,10 @@ def read_store_lifetime(path: str | os.PathLike) -> Optional[StoreLifetime]:
     StoreLifetime or None
         ``None`` when the store is absent, empty, or corrupted.
     """
-    import os as _os
-
-    try:
-        st = _os.stat(path)
-    except FileNotFoundError:
+    status, row = _read_schwabdev_row(path)
+    if status != "present" or row is None:
         return None
-    except (OSError, ValueError):
-        return None
-
-    if st.st_size == 0:
-        return None
-
-    try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return None
-
-    try:
-        row = con.execute(
-            "SELECT expires_in, access_token_issued, refresh_token_issued "
-            "FROM schwabdev LIMIT 1"
-        ).fetchone()
-        if row is None:
-            return None
-        expires_in, access_issued, refresh_issued = row
-    except sqlite3.Error:
-        return None
-    finally:
-        con.close()
+    expires_in, access_issued, refresh_issued = row
 
     now = time.time()
     access_epoch = _issued_to_epoch(access_issued)

@@ -6,6 +6,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.8] - 2026-11-04
+
+### Fixed
+
+- **`renew()` no longer risks a `RuntimeError: release unlocked lock` or
+  parallel duplicate renewals under in-process concurrency** (bug TD-001,
+  2026-11-04): the per-store coordination in `renewal.py` used a
+  non-blocking acquire that, on contention, blocked-and-released inside
+  the helper and returned `False` — so a waiter whose store was still
+  expired proceeded to renew **without holding the lock**, and its
+  `finally` released a lock it did not own (raising `RuntimeError` when
+  the lock was free, or silently releasing another thread's lock). The
+  coordination is now a single blocking critical section
+  (`with _store_lock(store_path):`) that re-checks the store margin
+  **inside** the lock and returns `not_needed` when another thread's
+  renewal already refreshed it; `_acquire_store_lock` /
+  `_release_store_lock` were deleted, making the FR-005 single-flight
+  invariant structural. Behavior change under contention: a waiter that
+  still finds an expired store now performs its own serialized renewal
+  instead of renewing unlocked. Cross-process exclusion is unchanged
+  (file-based `AuthLock` in the CLI). Pinned by a threaded regression
+  test (no exception escapes `renew()`, `update_tokens()` calls never
+  overlap) plus a deterministic sequential-renewal test.
+
+### Changed
+
+- **Shared result taxonomy extracted to `schwab_mcp.results`** (tech debt
+  TD-002, 2026-11-04): `positions.py` and `transactions.py` had each
+  re-implemented the same self-classifying result shape (outcome enum,
+  detail values, `AccountFailed` model, and the outcome↔field
+  cross-validation rules with word-for-word identical error messages).
+  Both modules now consume one definition from the new `results.py`
+  (`ResultOutcome` aliased as `OutcomeType`/`TransactionOutcome`, shared
+  `DETAIL_*` constants, one `AccountFailed`, shared validator for rules
+  4–5) and keep only their feature-specific rules. The wire format is
+  unchanged: enum values, accepted vocabulary, and validation messages
+  are byte-identical to before (pinned by 25 new tests in
+  `tests/unit/test_results_shared_taxonomy.py`, including a
+  cross-module message-parity drift guard); the only visible tightening
+  is that `TransactionsResult` account-failure `detail` now rejects
+  non-enum strings it already never documented.
+- **Token-store SQLite read consolidated** (tech debt TD-003,
+  2026-11-04): the read-only store-read block (`os.stat` → empty-file
+  check → `mode=ro` connect → query → close) existed three times across
+  `tokens.py` and `renewal.py`, with `peek_store_status` and
+  `read_store_lifetime` running the identical `schwabdev` query. The
+  single implementation is now the private
+  `tokens._read_schwabdev_row(path)` helper (tri-state
+  absent/corrupted/present), consumed by `peek_store_status` and
+  `read_store_lifetime`; the bool `peek_store()` helper was deleted
+  (internal only — no CLI or tool-interface change) and its two `auth`
+  call sites use `peek_store_status(...) == "absent"` instead.
+  Behavior-preserving on all reachable states; pinned by tri-state and
+  equivalence tests in `tests/unit/test_tokens.py`.
+
 ## [0.9.7] - 2026-11-03
 
 ### Fixed

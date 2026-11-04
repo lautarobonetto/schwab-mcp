@@ -64,38 +64,60 @@ def issued_to_epoch(value: object, *, strict: bool = False) -> Optional[float]:
     return parsed.timestamp() if parsed is not None else None
 
 
-def peek_store(path: str | os.PathLike) -> bool:
-    """Check whether a token store exists and has a valid schwabdev token.
+def _read_schwabdev_row(
+    path: str | os.PathLike,
+) -> tuple[str, Optional[tuple]]:
+    """Open the token store read-only and fetch the ``schwabdev`` row.
 
-    Returns ``True`` when *path* is a SQLite file containing a ``schwabdev``
-    table with at least one row.  Returns ``False`` if the file is missing,
-    is not valid SQLite, or the table is empty (FR-009 – no crash on
-    corrupted content).
+    Single implementation of the store-read contract (TD-003):
+    ``os.stat`` → empty-file check → read-only SQLite connect →
+    query → ``finally: close()``.  Consumed by :func:`peek_store_status`
+    and ``renewal.read_store_lifetime`` — do not copy this block.
+
+    Returns
+    -------
+    (status, row)
+        ``("absent", None)``
+            The file does not exist, is empty, or the ``schwabdev``
+            table exists but holds no rows.
+        ``("corrupted", None)``
+            ``os.stat`` failed with ``OSError``/``ValueError``, the
+            file is not a valid SQLite database, or the schema does
+            not match the expected query (FR-009 — no crash).
+        ``("present", row)``
+            A ``schwabdev`` row was fetched; *row* is the raw tuple in
+            query-column order
+            ``(expires_in, access_token_issued, refresh_token_issued)``.
     """
     try:
         st = os.stat(path)
     except FileNotFoundError:
-        return False
+        return "absent", None
     except (OSError, ValueError):
-        return False
+        return "corrupted", None
 
     if st.st_size == 0:
-        return False
+        return "absent", None
 
     try:
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error:
-        return False
+        return "corrupted", None
 
     try:
         row = con.execute(
-            "SELECT 1 FROM schwabdev LIMIT 1"
+            "SELECT expires_in, access_token_issued, refresh_token_issued "
+            "FROM schwabdev LIMIT 1"
         ).fetchone()
-        return row is not None
     except sqlite3.Error:
-        return False
+        # Missing/mismatched schema — the loader could not read the row.
+        return "corrupted", None
     finally:
         con.close()
+
+    if row is None:
+        return "absent", None
+    return "present", row
 
 
 def peek_store_status(path: str | os.PathLike) -> str:
@@ -123,34 +145,9 @@ def peek_store_status(path: str | os.PathLike) -> str:
     existing corrupted-store paths (renew exit 3, serve exit 5, auth
     quarantine).
     """
-    try:
-        st = os.stat(path)
-    except FileNotFoundError:
-        return "absent"
-    except (OSError, ValueError):
-        return "corrupted"
-
-    if st.st_size == 0:
-        return "absent"
-
-    try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    except sqlite3.Error:
-        return "corrupted"
-
-    try:
-        row = con.execute(
-            "SELECT expires_in, access_token_issued, refresh_token_issued "
-            "FROM schwabdev LIMIT 1"
-        ).fetchone()
-    except sqlite3.Error:
-        # Missing/mismatched schema — the loader could not read the row.
-        return "corrupted"
-    finally:
-        con.close()
-
-    if row is None:
-        return "absent"
+    status, row = _read_schwabdev_row(path)
+    if status != "present" or row is None:
+        return status
 
     _expires_in, access_issued, refresh_issued = row
     if (
@@ -171,7 +168,7 @@ def backup_token_store(path: str | os.PathLike) -> Optional[Path]:
 
     Bug auth-false-success: ``auth`` must never trust the rows already in
     the store (a refresh token revoked server-side is indistinguishable
-    from a fresh one to :func:`peek_store`).  Renaming the store away
+    from a fresh one to any store read).  Renaming the store away
     forces the client's empty-store authorization flow; the caller keeps
     *backup* around and either restores it on failure
     (:func:`restore_token_store`) or discards it on success

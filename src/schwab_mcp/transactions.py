@@ -19,6 +19,14 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
+from schwab_mcp.results import (
+    DETAIL_ACCOUNT_FAILED,
+    DETAIL_PROVIDER_UNREACHABLE,
+    DETAIL_REAUTH_NEEDED,
+    AccountFailed,
+    ResultOutcome,
+    validate_shared_outcome_rules,
+)
 from schwab_mcp.tokens import retry_call
 
 
@@ -141,32 +149,28 @@ def movement_involves_filter(
 # =============================================================================
 
 
-class TransactionOutcome(str, Enum):
-    """Allowed outcome classifications for a transaction history query.
-
-    Values: ok, partial_failure, transient_failure, reauth_required.
-    Reused from the positions feature (003).
-    """
-
-    ok = "ok"
-    partial_failure = "partial_failure"
-    transient_failure = "transient_failure"
-    reauth_required = "reauth_required"
+# Shared outcome taxonomy — single definition in results.py, re-exported
+# here under the feature's historical name (TD-002).  This supersedes the
+# previous local re-definition, whose docstring claimed reuse from the
+# positions feature (003) that did not actually exist.
+TransactionOutcome = ResultOutcome
 
 
 class TransactionDetail(str, Enum):
     """Closed vocabulary for the result detail field.
 
     Values: history_retrieved, no_movements, no_movements_for_instrument,
-    account_failed, provider_unreachable, reauth_needed.
+    account_failed, provider_unreachable, reauth_needed.  Shared values
+    (account_failed, provider_unreachable, reauth_needed) are defined
+    once in schwab_mcp.results (TD-002).
     """
 
     history_retrieved = "history_retrieved"
     no_movements = "no_movements"
     no_movements_for_instrument = "no_movements_for_instrument"
-    account_failed = "account_failed"
-    provider_unreachable = "provider_unreachable"
-    reauth_needed = "reauth_needed"
+    account_failed = DETAIL_ACCOUNT_FAILED
+    provider_unreachable = DETAIL_PROVIDER_UNREACHABLE
+    reauth_needed = DETAIL_REAUTH_NEEDED
 
 
 class MovementCategory(str, Enum):
@@ -543,13 +547,12 @@ def _bypass_validator(client: Any) -> None:
 # =============================================================================
 
 
-class TransactionAccountFailed(BaseModel):
-    """Describes a single account that failed during a multi-account query."""
-
-    account_hash: str = Field(
-        ..., min_length=1, description="Opaque identifier of the failed account"
-    )
-    detail: str = Field(..., description="Reason for the failure")
+# Shared account-failure model — single definition in results.py,
+# re-exported here under the feature's historical name (TD-002).
+# Tightened from a free-form ``detail: str`` to the shared
+# ``AccountFailureDetail`` vocabulary; production code only ever
+# constructed "transient" / "provider_error".
+TransactionAccountFailed = AccountFailed
 
 
 class MovementEntry(BaseModel):
@@ -644,31 +647,20 @@ class TransactionsResult(BaseModel):
 
     @model_validator(mode="after")
     def _validate_cross_rules(self) -> TransactionsResult:
-        """Cross-field validation rules 1-8 from data-model.md."""
+        """Cross-field validation rules 1-8 from data-model.md.
+
+        Rules 4-5 are shared across result models (results.py, TD-002);
+        this validator adds the transaction-history-specific rules.
+        """
         is_ok = self.outcome == TransactionOutcome.ok
         is_transient = self.outcome == TransactionOutcome.transient_failure
         is_partial = self.outcome == TransactionOutcome.partial_failure
         is_reauth = self.outcome == TransactionOutcome.reauth_required
 
-        # Rule 5: retryable=true <-> outcome=transient_failure
-        if self.retryable and not is_transient:
-            raise ValueError(
-                "retryable=True is only allowed when outcome == 'transient_failure'"
-            )
-        if is_transient and not self.retryable:
-            raise ValueError(
-                "transient_failure outcome requires retryable=True"
-            )
-
-        # Rule 4: accounts_failed present <-> outcome=partial_failure
-        if self.accounts_failed is not None and not is_partial:
-            raise ValueError(
-                "accounts_failed is only allowed when outcome == 'partial_failure'"
-            )
-        if is_partial and self.accounts_failed is None:
-            raise ValueError(
-                "partial_failure outcome requires accounts_failed"
-            )
+        # Shared rules 4-5 (results.py, TD-002)
+        validate_shared_outcome_rules(
+            self.outcome, self.retryable, self.accounts_failed
+        )
 
         # Rule 1: outcome=ok + movements=[] <-> detail in
         #         {no_movements, no_movements_for_instrument}

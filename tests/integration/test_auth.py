@@ -46,7 +46,7 @@ import pytest
 # red phase.
 # ---------------------------------------------------------------------------
 from schwab_mcp.cli import main
-from schwab_mcp.tokens import peek_store
+from schwab_mcp.tokens import peek_store_status
 
 # ---------------------------------------------------------------------------
 # Fake schwabdev Client — mirrors the subset of schwabdev.v4.Client that the
@@ -89,8 +89,13 @@ class FakeSchwabdevClient:
         self.last_hook_url: str | None = None
         self.last_paste: str | None = None
         FakeSchwabdevClient._instances.append(self)
-        # Real schwabdev v4 auto-starts the auth flow when the DB is empty.
-        if call_on_auth is not None and not peek_store(self.tokens_db):
+        # Real schwabdev v4 auto-starts the auth flow when the DB has no
+        # token row (TD-003: status-based check replaces the deleted
+        # peek_store; "absent" = no store / empty store).
+        if (
+            call_on_auth is not None
+            and peek_store_status(self.tokens_db) == "absent"
+        ):
             self._run_auth_flow()
 
     def _auth_url(self) -> str:
@@ -738,7 +743,7 @@ class TestCancelledAuth:
 
 class TestAuthCompletionDetection:
     """``auth`` must report success ONLY when a usable token set is
-    actually stored (``peek_store``), never merely because a string was
+    actually stored (``peek_store_status``), never merely because a string was
     pasted or because stdin is/is not a TTY.  A flow that ends without a
     stored token set (empty paste — interactive or not — or a paste whose
     exchange failed) must exit 3 with the ``auth_failure`` event and must
@@ -828,7 +833,7 @@ class TestAuthCompletionDetection:
             "A flow without a stored token set must NEVER print success"
         )
         assert "auth_event=auth_success" not in stderr_text
-        assert not peek_store(str(tmp_path / "tokens.db")), (
+        assert peek_store_status(str(tmp_path / "tokens.db")) != "present", (
             "No token set may be stored after a failed exchange"
         )
 
@@ -857,7 +862,7 @@ class TestAuthCompletionDetection:
             main(["auth"])
 
         assert exc_info.value.code == 0
-        assert peek_store(str(tmp_path / "tokens.db")), (
+        assert peek_store_status(str(tmp_path / "tokens.db")) == "present", (
             "US1/AC1: a successful auth must have stored a usable token set"
         )
         assert "auth_event=auth_success" in "\n".join(captured_stderr)
@@ -1099,7 +1104,7 @@ class TestReauthFlow:
         assert FakeSchwabdevClient._instances[0].hook_invocations >= 1, (
             "Re-auth must run the fresh authorization flow (hook invoked)"
         )
-        assert peek_store(str(token_db)), (
+        assert peek_store_status(str(token_db)) == "present", (
             "A fresh token set must be stored after re-auth"
         )
 
@@ -1129,7 +1134,7 @@ class TestReauthFlow:
 # ===================================================================
 # 8. Stale store → auth performs a REAL fresh flow (bug auth-false-success)
 #    A store whose refresh token was revoked server-side (invalid_grant)
-#    looks identical to a fresh one to ``peek_store``.  Before the fix,
+#    looks identical to a fresh one to any store read.  Before the fix,
 #    ``auth`` on such a store never ran the browser flow and reported
 #    "Authorization successful" on dead credentials.
 # ===================================================================
@@ -1248,7 +1253,7 @@ class TestStaleStoreReauthorization:
             main(["auth"])
 
         assert exc_info.value.code == 0
-        assert token_db.exists() and peek_store(str(token_db))
+        assert token_db.exists() and peek_store_status(token_db) == "present"
         backups = list(tmp_path.glob("tokens.db.bak*"))
         assert backups == [], (
             f"Backup must be discarded on success: {backups}"
@@ -1292,7 +1297,10 @@ class TestCorruptStoreRecovery:
         assert quarantined and quarantined[0].read_text() == "not a database", (
             "The corrupt file must be preserved under *.corrupt.*"
         )
-        assert store_path.exists() and peek_store(str(store_path)), (
+        assert (
+            store_path.exists()
+            and peek_store_status(store_path) == "present"
+        ), (
             "A fresh token set must be stored after recovery"
         )
         client = FakeSchwabdevClient._instances[0]

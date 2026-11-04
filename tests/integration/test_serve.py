@@ -769,7 +769,7 @@ class TestCustomTokenDbPath:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """A custom ``SCHWAB_TOKEN_DB`` path must be used by
-        ``peek_store()`` and passed to the client."""
+        ``peek_store_status()`` and passed to the client."""
         custom_dir = tmp_path / "custom" / "path"
         custom_dir.mkdir(parents=True)
         custom_db = custom_dir / "my_tokens.db"
