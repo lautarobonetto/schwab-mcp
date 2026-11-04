@@ -30,7 +30,7 @@ pages are updated in the same commit.
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Fixed (v0.9.8, 2026-11-04) |
 | TD-016 | Low | Dead code | Dead parameters in helpers | Fixed (v0.9.9, 2026-11-04) |
-| TD-017 | Low | Dead code | Unused imports and members | Partial (v0.9.9, 2026-11-04) |
+| TD-017 | Low | Dead code | Unused imports and members | Fixed (v0.9.9, 2026-11-04) |
 | TD-018 | Low | KISS | Obscured imports and misc readability | Fixed (v0.9.9, 2026-11-04) |
 
 ---
@@ -228,6 +228,28 @@ tests in `tests/unit/test_tool_error_classification.py`. Assessment:
 `PAGE_SIZE` used by both sites; delete the dead `partial_failure`
 branch; extract `_paginate(movements, offset)` and
 `_fetch_account_movements(...)` so the orchestrator drops to ~80 lines.
+
+**Resolved** (v0.9.8, 2026-11-04): all listed duplications collapsed.
+`_reauth_result` / `_transient_result` /
+`_empty_ok_result(retrieved_at, offset, symbol)` replace the repeated
+result blocks; one `ConnectivityError` handler classifies by `__cause__`
+via `_classify_connectivity_cause` (reauth / transient / provider_error);
+`PAGE_SIZE = 50` is a module-level constant consumed by the orchestrator,
+the validator rule and both rendered messages; the dead all-failed
+`partial_failure` branch is deleted (a single branch covers both cases —
+with no successes `_paginate([])` yields exactly the previously
+hardcoded values); `_paginate(movements, offset)` and
+`_fetch_account_movements(...)` were extracted (plus `_account_hash`),
+dropping the orchestrator from 333 to 224 lines (the residual is
+docstring, numbered step comments, audit events and single-definition
+outcome classification — compressing further would trade clarity for
+line count). Behavior preserved: the existing suite already locked every
+outcome class touched, so no behavioral tests were added; `PAGE_SIZE` is
+pinned by `TestPageSizeConsistency` in
+`tests/unit/test_transactions_query.py` (module-level constant +
+field-description derivation). Full suite green (1789 passed, 0 skipped
+at the time). Assessment and fix report:
+`.specify/bugs/transaction-result-dry/`.
 
 ---
 
