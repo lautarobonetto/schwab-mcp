@@ -29,9 +29,9 @@ pages are updated in the same commit.
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Fixed (v0.9.8, 2026-11-04) |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Fixed (v0.9.8, 2026-11-04) |
-| TD-016 | Low | Dead code | Dead parameters in helpers | Open |
+| TD-016 | Low | Dead code | Dead parameters in helpers | Fixed (unreleased, 2026-11-04) |
 | TD-017 | Low | Dead code | Unused imports and members | Partial (unreleased, 2026-11-04) |
-| TD-018 | Low | KISS | Obscured imports and misc readability | Open |
+| TD-018 | Low | KISS | Obscured imports and misc readability | Fixed (unreleased, 2026-11-04) |
 
 ---
 
@@ -613,12 +613,12 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 | Location | Issue |
 |----------|-------|
-| `cli.py:356-357` | `__import__("logging").root` — plain `import logging` at module top is strictly simpler |
-| `cli.py:154-159` | Auth-URL fallback exists only for inert test stubs (per its own comment); consider moving to a test fixture |
-| `renewal.py:1-5, 101-114` | Docstring says "value types" but the module also holds the orchestrator, locks, and store reader; imports appear mid-file — split or fix docstring, move imports to top |
-| `transactions.py:381-384` (pattern) | Results constructed with raw strings where enums exist; post-hoc mutation (`positions.py:542-545`) bypasses validator intent (also listed in TD-002/TD-007) |
-| `options_chain.py:367-386` | `serialize_leg` elif-chain; move the `trade_time` alias into the key map as candidate keys (`("tradeTime", "tradeTimeInLong")`) |
-| `archive.py:71` | `payloads.get(spec.path, generated.get(spec.path))` fails with a cryptic `TypeError` if a member is in neither dict; use an explicit merged lookup with a clear error |
+| `cli.py:424-425` | ~~`__import__("logging").root` — plain `import logging` at module top is strictly simpler~~ Fixed (TD-018, unreleased): `import logging` added to the top-level stdio imports; both redaction-filter call sites use it directly |
+| `cli.py:152-160` | ~~Auth-URL fallback exists only for inert test stubs (per its own comment); consider moving to a test fixture~~ Resolved (TD-018, unreleased): kept as deliberate hardening against a schwabdev hook-timing change — comment reframed and behavior pinned by `TestAuthUrlFallbackForInertClient` (URL printed exactly once, never reports success) |
+| `renewal.py:1-5, 101-114` | ~~Docstring says "value types" but the module also holds the orchestrator, locks, and store reader; imports appear mid-file — split or fix docstring, move imports to top~~ Fixed (TD-018, unreleased): docstring describes all three responsibilities, mid-file import block hoisted to the top, misplaced section banners corrected. The module split was deliberately deferred (higher blast radius, zero behavior gain) |
+| `transactions.py:1204, 1212` (pattern) | ~~Results constructed with raw strings where enums exist; post-hoc mutation (`positions.py:542-545`) bypasses validator intent (also listed in TD-002/TD-007)~~ Fixed (TD-018, unreleased): `AccountFailureDetail` enum used at both `TransactionAccountFailed` constructions (pinned by `test_enum_construction_serializes_canonical_values`). The post-hoc-mutation claim was stale — already fixed by TD-007; the remaining `positions.py` raw-dict `accounts_failed_list` construction stays with TD-002/TD-007 |
+| `options_chain.py:390-423` | ~~`serialize_leg` elif-chain; move the `trade_time` alias into the key map as candidate keys (`("tradeTime", "tradeTimeInLong")`)~~ Fixed (TD-018, unreleased): `_PROVIDER_KEY_MAP` retyped to candidate-key tuples in precedence order, `trade_time` maps to `("tradeTime", "tradeTimeInLong")`, `serialize_leg` takes the first candidate present; the special-case branch is gone (pinned by two `TestSerializeLeg` alias tests) |
+| `archive.py:71` | ~~`payloads.get(spec.path, generated.get(spec.path))` fails with a cryptic `TypeError` if a member is in neither dict; use an explicit merged lookup with a clear error~~ Fixed (TD-018, unreleased): explicit membership check raises `ReleaseError("no payload or generated artifact for archive member <path>")` — pinned red→green by `TestMemberLookupRobustness` (pre-fix failure was the predicted `zipfile` `TypeError`) |
 
 ---
 
@@ -638,5 +638,5 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 1. TD-001 (bug, regression test first) → 2. TD-004 (live divergence) →
 3. TD-005 → 4. TD-002 → 5. TD-003 → 6. TD-006 → 7. TD-013 (bug) →
-8. remaining medium items → 9. low-priority cleanup (TD-016..018 can be
-batched into one commit each area, still TDD-gated).
+8. remaining medium items → 9. low-priority cleanup — **done**: TD-013 …
+TD-018 all resolved (2026-11-04, one commit per area, TDD-gated).

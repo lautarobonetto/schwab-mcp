@@ -77,32 +77,35 @@ _CONTRACT_TYPE_MAP: dict[str, str] = {
     "puts": "PUT",
 }
 
-# Source key per curated column (research R6 curation).  ``tradeTime`` is
-# also accepted under the ``tradeTimeInLong`` spelling seen live.
-_PROVIDER_KEY_MAP: dict[str, str] = {
-    "bid": "bid",
-    "ask": "ask",
-    "last": "last",
-    "mark": "mark",
-    "mark_change": "markChange",
-    "mark_pct_change": "markPercentChange",
-    "high": "highPrice",
-    "low": "lowPrice",
-    "open": "openPrice",
-    "close": "closePrice",
-    "volume": "totalVolume",
-    "open_interest": "openInterest",
-    "iv": "volatility",
-    "delta": "delta",
-    "gamma": "gamma",
-    "theta": "theta",
-    "vega": "vega",
-    "rho": "rho",
-    "theoretical_value": "theoreticalOptionValue",
-    "time_value": "timeValue",
-    "multiplier": "multiplier",
-    "trade_time": "tradeTime",
-    "deliverable_note": "deliverableNote",
+# Source keys per curated column (research R6 curation), in precedence
+# order: the first candidate present on the contract wins.  ``tradeTime``
+# is also accepted under the ``tradeTimeInLong`` spelling seen live
+# (td-018: the alias lives here as a candidate key, not as a special
+# case in ``serialize_leg``).
+_PROVIDER_KEY_MAP: dict[str, tuple[str, ...]] = {
+    "bid": ("bid",),
+    "ask": ("ask",),
+    "last": ("last",),
+    "mark": ("mark",),
+    "mark_change": ("markChange",),
+    "mark_pct_change": ("markPercentChange",),
+    "high": ("highPrice",),
+    "low": ("lowPrice",),
+    "open": ("openPrice",),
+    "close": ("closePrice",),
+    "volume": ("totalVolume",),
+    "open_interest": ("openInterest",),
+    "iv": ("volatility",),
+    "delta": ("delta",),
+    "gamma": ("gamma",),
+    "theta": ("theta",),
+    "vega": ("vega",),
+    "rho": ("rho",),
+    "theoretical_value": ("theoreticalOptionValue",),
+    "time_value": ("timeValue",),
+    "multiplier": ("multiplier",),
+    "trade_time": ("tradeTime", "tradeTimeInLong"),
+    "deliverable_note": ("deliverableNote",),
 }
 
 _INTEGER_COLUMNS = frozenset({"volume", "open_interest", "multiplier"})
@@ -400,10 +403,16 @@ def serialize_leg(contract: dict) -> list:
     """
     values: list = []
     for name in CONTRACT_FIELDS:
-        source_key = _PROVIDER_KEY_MAP[name]
-        raw = contract.get(source_key)
-        if raw is None and name == "trade_time":
-            raw = contract.get("tradeTimeInLong")
+        # First candidate source key present on the contract wins
+        # (precedence order in ``_PROVIDER_KEY_MAP``).
+        raw = next(
+            (
+                contract.get(key)
+                for key in _PROVIDER_KEY_MAP[name]
+                if contract.get(key) is not None
+            ),
+            None,
+        )
         if raw is None:
             values.append(None)
         elif name == "trade_time":

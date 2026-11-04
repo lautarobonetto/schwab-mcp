@@ -297,6 +297,27 @@ class TestSerializeLeg:
 
         assert leg[_index("trade_time")] is None
 
+    def test_trade_time_in_long_alias_only_is_converted(self) -> None:
+        """td-018: the ``tradeTimeInLong`` alias is a candidate key of the
+        provider key map — a contract carrying only that spelling still
+        converts to ISO-8601."""
+        contract = build_contract(
+            "CALL", 250.0, tradeTime=None, tradeTimeInLong=_TRADE_TIME_EPOCH_MS
+        )
+        leg = _leg(contract)
+
+        assert leg[_index("trade_time")] == _EXPECTED_TRADE_TIME_ISO
+
+    def test_trade_time_takes_precedence_over_alias(self) -> None:
+        """When both spellings are present, the canonical ``tradeTime``
+        wins over the ``tradeTimeInLong`` alias."""
+        contract = build_contract(
+            "CALL", 250.0, tradeTime=_TRADE_TIME_EPOCH_MS, tradeTimeInLong=0
+        )
+        leg = _leg(contract)
+
+        assert leg[_index("trade_time")] == _EXPECTED_TRADE_TIME_ISO
+
     def test_deliverable_note_passthrough(self) -> None:
         """``deliverableNote`` passes through as-is (default ``None``)."""
         note = "DELIVER 100 SHARES OF TEST"

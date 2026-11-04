@@ -365,6 +365,58 @@ class TestEmptyStoreTriggersAuthFlow:
 
 
 # ===================================================================
+# 1b. td-018 — auth-URL fallback for a client that never ran the flow
+# ===================================================================
+
+
+class TestAuthUrlFallbackForInertClient:
+    """td-018 (item 2): the manual hook invocation at the end of the auth
+    flow is deliberate hardening, not dead code.  If a client never runs
+    the interactive flow itself (today: only inert stubs; in principle: a
+    schwabdev change in hook timing), the CLI must still print the
+    authorization URL exactly once and fail without reporting success."""
+
+    def test_fallback_prints_url_once_and_never_reports_success(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """Absent store + client that never invokes the hook → the CLI
+        fallback prints the authorization URL exactly once, and ``auth``
+        fails (no fresh token write, store still absent)."""
+
+        class InertClient(FakeSchwabdevClient):
+            """A client that never runs the auth flow (no hook call)."""
+
+            def _run_auth_flow(self) -> None:  # pragma: no cover — never called
+                pass
+
+        _paste(monkeypatch, PASTED_REDIRECT_URL)
+        monkeypatch.setattr("schwab_mcp.cli.schwabdev.Client", InertClient)
+        InertClient._instances.clear()
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["auth"])
+
+        assert exc_info.value.code != 0, (
+            "auth must not report success when the client never stored "
+            "fresh tokens, even though the fallback printed the URL"
+        )
+        out = capsys.readouterr().out
+        assert "Authorization successful" not in out, (
+            "Success confirmation printed without a fresh token write"
+        )
+        url_lines = [
+            line for line in out.splitlines() if "schwabapi.com" in line
+        ]
+        assert len(url_lines) == 1, (
+            f"Expected the authorization URL printed exactly once by the "
+            f"CLI fallback, got {len(url_lines)}: {url_lines!r}"
+        )
+        assert "client_id=" in url_lines[0], (
+            "Fallback URL must include the client_id parameter"
+        )
+
+
+# ===================================================================
 # 2. Successful paste → token exchange → exit 0
 # ===================================================================
 

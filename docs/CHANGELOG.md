@@ -10,6 +10,31 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Fixed
 
+- **Obscured imports and readability nits cleaned up across six files**
+  (tech debt TD-018, 2026-11-04): `cli.py` uses a plain module-top
+  `import logging` instead of two `__import__("logging")` calls, and the
+  auth-URL fallback (unreachable with the real schwabdev client, which
+  invokes the hook itself when the store is empty) is kept as deliberate
+  hardening with a reframed comment, now pinned by
+  `TestAuthUrlFallbackForInertClient` (URL printed exactly once, never
+  reports success). `renewal.py`'s docstring now describes all three of
+  the module's responsibilities (value types, renewal orchestrator with
+  per-store locks, store lifetime reader) and the mid-file import block
+  was hoisted to the top (module split deliberately deferred).
+  `transactions.py` builds `TransactionAccountFailed` with the
+  `AccountFailureDetail` enum instead of raw strings. `options_chain.py`'s
+  `_PROVIDER_KEY_MAP` is now a candidate-key map in precedence order —
+  `trade_time` maps to `("tradeTime", "tradeTimeInLong")` — and
+  `serialize_leg` takes the first candidate present, deleting the
+  special-case branch. The release tool's `archive.py` raises a
+  `ReleaseError` naming the member when a spec is covered by neither the
+  copied payloads nor the generated inventory, instead of the cryptic
+  `zipfile` `TypeError` (demonstrated red→green by
+  `TestMemberLookupRobustness`). Four new tests; full suite 1833 passed,
+  0 skipped. TD-018 rows in `docs/tech-debt.md` struck through (the
+  stale TD-016 summary status corrected to Fixed). Assessment, fix, and
+  verification reports: `.specify/bugs/td-018/`.
+
 - **Unused imports and dead members removed; `ALL_TRANSACTION_TYPES`
   derived from the enum** (tech debt TD-017, 2026-11-04): the audit's six
   confirmed dead items are gone — `import time` in `positions.py` (with

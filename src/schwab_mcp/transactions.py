@@ -24,6 +24,7 @@ from schwab_mcp.results import (
     DETAIL_PROVIDER_UNREACHABLE,
     DETAIL_REAUTH_NEEDED,
     AccountFailed,
+    AccountFailureDetail,
     ResultOutcome,
     validate_shared_outcome_rules,
 )
@@ -1201,7 +1202,7 @@ def get_transaction_history(
                 failed_accounts.append(
                     TransactionAccountFailed(
                         account_hash=account_hash,
-                        detail="transient",
+                        detail=AccountFailureDetail.transient,
                     )
                 )
                 continue
@@ -1209,7 +1210,7 @@ def get_transaction_history(
             failed_accounts.append(
                 TransactionAccountFailed(
                     account_hash=account_hash,
-                    detail="provider_error",
+                    detail=AccountFailureDetail.provider_error,
                 )
             )
             continue

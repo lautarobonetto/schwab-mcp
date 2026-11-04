@@ -68,6 +68,14 @@ def assemble_archive(
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for spec in member_specs(version):
+            # td-018: an explicit membership check instead of the nested
+            # ``.get(spec.path, generated.get(spec.path))`` — a member in
+            # neither dict must fail with a domain error naming the member,
+            # not a cryptic ``TypeError`` from ``zipfile``.
+            if spec.path not in payloads and spec.path not in generated:
+                raise ReleaseError(
+                    f"no payload or generated artifact for archive member {spec.path}"
+                )
             data = payloads.get(spec.path, generated.get(spec.path))
             info = zipfile.ZipInfo(f"{wrap}/{spec.path}", date_time=FIXED_DATE_TIME)
             info.compress_type = zipfile.ZIP_DEFLATED

@@ -126,6 +126,17 @@ class TestAccountFailedShared:
             "transient",
         }
 
+    def test_enum_construction_serializes_canonical_values(self) -> None:
+        """td-018: results must be constructed with the enum, not raw
+        strings — the serialized values stay the canonical spellings."""
+        for member, expected in (
+            (AccountFailureDetail.transient, "transient"),
+            (AccountFailureDetail.provider_error, "provider_error"),
+        ):
+            failed = TransactionAccountFailed(account_hash="ACC123", detail=member)
+            assert failed.detail is member
+            assert failed.detail.value == expected
+
     def test_free_form_detail_rejected(self) -> None:
         """Tightening: detail accepts only the closed vocabulary
         (transactions previously allowed any str)."""

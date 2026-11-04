@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import webbrowser
 from collections.abc import Callable
@@ -149,12 +150,16 @@ def run_auth() -> None:
 
             build_schwab_client(config, config.token_db, counted_hook)
 
-            # If the client never ran the interactive flow (e.g. inert test
-            # stubs) and the store is still empty, invoke the hook manually so
-            # the URL is printed and the user is prompted.  (TD-003: the
-            # status-based check replaces the deleted peek_store; a corrupted
-            # store is unreachable here — quarantined above, and the store is
-            # moved aside by backup_token_store before this point.)
+            # Fallback (td-018): production schwabdev always invokes the
+            # hook itself when the store is empty (v4 auto-start), so this
+            # branch is unreachable with the real client.  It is kept as
+            # deliberate hardening: if the hook timing ever changes (today
+            # it is exercised by inert test stubs), ``auth`` must still
+            # print the URL and prompt rather than fail silently.
+            # (TD-003: the status-based check replaces the deleted
+            # peek_store; a corrupted store is unreachable here —
+            # quarantined above, and the store is moved aside by
+            # backup_token_store before this point.)
             if peek_store_status(config.token_db) == "absent" and hook_calls == 0:
                 auth_url = _build_auth_url(config.app_key, config.callback_url)
                 counted_hook(auth_url)
@@ -421,8 +426,8 @@ _COMMAND_RUNNERS: dict[str, Callable[[], None]] = {
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for the ``schwab-mcp`` console script."""
     # Install redaction filter on root and schwabdev loggers at startup.
-    install_redaction_filter(__import__("logging").root)  # root logger
-    install_redaction_filter(__import__("logging").getLogger("Schwabdev"))
+    install_redaction_filter(logging.root)  # root logger
+    install_redaction_filter(logging.getLogger("Schwabdev"))
 
     parser = argparse.ArgumentParser(
         prog="schwab-mcp",

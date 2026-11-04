@@ -15,7 +15,14 @@ import pytest
 
 from tests.unit.helpers import make_fake_wheel, make_release_project, release_sandbox
 
-from schwab_mcp_release.allowlist import member_specs, source_map, wheel_name, wrap_dir
+from schwab_mcp_release import ReleaseError
+from schwab_mcp_release.allowlist import (
+    MemberSpec,
+    member_specs,
+    source_map,
+    wheel_name,
+    wrap_dir,
+)
 from schwab_mcp_release.archive import assemble_archive
 
 VERSION = "9.9.9"
@@ -100,3 +107,25 @@ class TestAssembleArchive:
         assert result.member_count == 7
         assert result.archive_size == result.archive_path.stat().st_size
         assert result.sha256 == hashlib.sha256(result.archive_path.read_bytes()).hexdigest()
+
+
+class TestMemberLookupRobustness:
+    """td-018: a member spec covered by neither the copied payloads nor
+    the generated inventory must fail with a domain ``ReleaseError``
+    naming the member, not a cryptic ``TypeError`` from ``zipfile``."""
+
+    def test_member_in_neither_dict_raises_release_error(
+        self, project, monkeypatch
+    ) -> None:
+        sandbox, wheel = project
+        specs = member_specs(VERSION) + (
+            MemberSpec("phantom.txt", True, True, "test-only: in neither dict"),
+        )
+        monkeypatch.setattr(
+            "schwab_mcp_release.archive.member_specs", lambda _version: specs
+        )
+
+        with pytest.raises(ReleaseError) as exc_info:
+            _assemble(sandbox, wheel)
+
+        assert "phantom.txt" in str(exc_info.value)

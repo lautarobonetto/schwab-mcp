@@ -1,6 +1,15 @@
-"""Value types for token renewal results (FR-003) and auth health queries (FR-008).
+"""Token renewal and auth-health support.
 
-All types are frozen dataclasses that serialise to a single compact JSON line.
+Three responsibilities (td-018 docstring fix — this module is more than
+value types):
+
+- Value types: ``RenewalOutcome`` (FR-003) and ``AuthHealth`` (FR-008),
+  frozen dataclasses that serialise to a single compact JSON line.
+- The renewal orchestrator: ``renew`` / ``_do_renew`` with per-store-path
+  single-flight locks (``_renew_locks``).
+- The store lifetime reader (FR-008, research.md D5): ``StoreLifetime`` /
+  ``read_store_lifetime``.
+
 No secret/credential values are ever included in payloads (FR-004).
 """
 
@@ -9,7 +18,20 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import logging
+import os
+import threading
+import time
 from typing import Optional
+
+from schwab_mcp.errors import (
+    ConnectivityError,
+    ReauthorizationRequiredError,
+)
+from schwab_mcp.log import auth_event
+from schwab_mcp.provider import response_json
+from schwab_mcp.tokens import _read_schwabdev_row
+from schwab_mcp.tokens import issued_to_epoch as _tokens_issued_to_epoch
 
 
 _VALID_OUTCOMES = frozenset(
@@ -96,22 +118,8 @@ class AuthHealth:
 
 
 # ---------------------------------------------------------------------------
-# Store lifetime reader (FR-008, research.md D5)
+# Renewal orchestrator and per-store-path single-flight locks
 # ---------------------------------------------------------------------------
-
-import logging
-import os
-import threading
-import time
-
-from schwab_mcp.errors import (
-    ConnectivityError,
-    ReauthorizationRequiredError,
-)
-from schwab_mcp.log import auth_event
-from schwab_mcp.provider import response_json
-from schwab_mcp.tokens import _read_schwabdev_row
-from schwab_mcp.tokens import issued_to_epoch as _tokens_issued_to_epoch
 
 # Per-store-path locks for single-flight coordination within this process
 # (complements schwabdev's internal SQLite-level coordination).
@@ -340,6 +348,11 @@ def _do_renew(client: object, store_path: Optional[str],
     auth_event("renewal_failure", "connectivity",
                detail="retries exhausted")
     return outcome
+
+
+# ---------------------------------------------------------------------------
+# Store lifetime reader (FR-008, research.md D5)
+# ---------------------------------------------------------------------------
 
 
 class StoreLifetime:
