@@ -44,5 +44,8 @@ Thumbs.db
 .codebase-memory/graph.db.zst
 .codebase-memory/artifact.json
 
+# repomix snapshot for codebase-memory-mcp (regenerable, never committed)
+repomix-output.xml
+
 # Spec Kit extension cache (regenerable catalogs and downloads)
 .specify/extensions/.cache/

@@ -108,6 +108,12 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   DTE failures starting 2026-11-04. All `TestDteCeiling` fixtures now pass
   `today=TODAY` explicitly, matching the convention used elsewhere in the
   suite; assertions unchanged, full suite green again.
+- **repomix packing config for codebase-memory-mcp**: the repository now
+  tracks `repomix.config.json` and `.repomixignore`, which pack the
+  codebase into `repomix-output.xml` — the snapshot the
+  codebase-memory-mcp knowledge graph is built from. The generated
+  output (≈3.8 MB, regenerable) is git-ignored; only the configuration
+  is committed, and `docs/development.md` documents the setup.
 
 ## [0.9.7] - 2026-11-03
 

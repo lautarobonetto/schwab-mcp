@@ -29,7 +29,11 @@ workflow you also need, in your OpenCode **global** config
   (symbol search, call tracing, architecture overview). Used through
   its `search_graph` / `trace_path` / `get_code_snippet` tools instead
   of raw grep wherever possible. Configure it as an MCP server in the
-  global config.
+  global config. The repository ships the **repomix** configuration the
+  MCP relies on: `repomix.config.json` (packing options) and
+  `.repomixignore` (extra exclusions) pack the repo into
+  `repomix-output.xml`, the snapshot the MCP indexes. That output is
+  regenerable and git-ignored; only the two config files are tracked.
 - **Spec Kit commands**: already included in this repository at
   `.opencode/commands/speckit.*` — nothing to install; they appear as
   `/speckit.*` commands inside OpenCode.
