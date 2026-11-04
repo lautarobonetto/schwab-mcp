@@ -114,6 +114,23 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   codebase-memory-mcp knowledge graph is built from. The generated
   output (≈3.8 MB, regenerable) is git-ignored; only the configuration
   is committed, and `docs/development.md` documents the setup.
+- **Tool registration and CLI dispatch deduplicated** (tech debt TD-006,
+  2026-11-04): `server.py` repeated a ~15-line wrapper-closure +
+  manual-`__name__` + `register_tool` ceremony per tool (×6) and
+  `cli.py` repeated the same `try / except AuthError / except
+  Exception / else sys.exit(0)` mapping per command (×4). Registration
+  is now one `_register_bound_tool(mcp, client, fn, name=...,
+  description=...)` call per tool, binding the client with
+  `functools.partial` — deliberately not `functools.wraps`, whose
+  `__wrapped__` would leak `client` into the advertised input schema
+  (pinned by the new `tests/unit/test_tool_registration.py`, which also
+  locks the six tool names, byte-for-byte descriptions, and
+  client-passing); CLI dispatch is now a `_COMMAND_RUNNERS` table with
+  one `_run_command` mapping (and `_run_auth_command` keeping auth's
+  distinct concurrent/cancelled handling and its deliberate lack of a
+  generic `except Exception`), pinned by
+  `tests/unit/test_cli_dispatch.py`. Emitted schemas, descriptions,
+  exit codes, and audit events are unchanged; full suite green.
 
 ## [0.9.7] - 2026-11-03
 

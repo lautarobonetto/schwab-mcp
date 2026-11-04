@@ -19,7 +19,7 @@ pages are updated in the same commit.
 | TD-003 | High | DRY | SQLite token-store read triplicated | Fixed (v0.9.8, 2026-11-04) |
 | TD-004 | High | DRY | Error envelopes and tool `ToolError` boundary divergent | Fixed (v0.9.8, 2026-11-04) |
 | TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Open |
-| TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Open |
+| TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Fixed (v0.9.8, 2026-11-04) |
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Open |
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Open |
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Open |
@@ -246,6 +246,24 @@ branch; extract `_paginate(movements, offset)` and
 **Refactor:** `_register_bound_tool(mcp, fn, name, description, **defaults)`
 using `functools.wraps`/`partial` in `server.py`; a dispatch table
 `{command: runner}` with one `_run_command(fn)` wrapper in `cli.py`.
+
+**Resolved** (v0.9.8, 2026-11-04): each registration is now a single
+`_register_bound_tool(mcp, client, fn, name=..., description=...)` call;
+the helper binds the client with `functools.partial` — deliberately not
+`functools.wraps`, which was verified to leak `client` into the
+advertised input schema via `__wrapped__` (`inspect.signature` follows
+it) — plus the manual `__name__`/`__qualname__` assignment the SDK
+requires, centralized once. Parameter defaults now live only in the
+underlying tool functions' signatures (the proposed `**defaults`
+channel would have created a second source of truth). In `cli.py`, a
+module-level `_COMMAND_RUNNERS` table with one `_run_command` mapper
+replaced the duplicated arms; `auth` keeps its distinct
+`_run_auth_command` (concurrent/cancelled handling, no generic
+`except Exception`). Pinned by `tests/unit/test_tool_registration.py`
+(six names, no `client` in any schema, byte-for-byte descriptions,
+client binding) and `tests/unit/test_cli_dispatch.py` (table coverage,
+exit-code mapping, `SystemExit` passthrough, auth special cases). Full
+suite green (1800 passed, 0 skipped).
 
 ---
 

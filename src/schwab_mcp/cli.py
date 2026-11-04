@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 import webbrowser
+from collections.abc import Callable
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
@@ -352,6 +354,77 @@ def package_version() -> str:
         return "unknown"
 
 
+def _run_serve_command() -> None:
+    """Run the ``serve`` command body.
+
+    The late import keeps the server module loadable after the CLI has
+    been patched (same reason the import sat inside the ``elif`` arm).
+    """
+    from schwab_mcp.server import run_serve
+
+    run_serve()
+
+
+def _run_command(runner: Callable[[], None]) -> None:
+    """Run a CLI command body with the shared error mapping (TD-006).
+
+    Replaces the ``try / except AuthError / except Exception / else
+    sys.exit(0)`` block previously duplicated across the ``renew``,
+    ``auth-status`` and ``serve`` arms. ``SystemExit`` raised by a
+    runner that maps its own outcome to an exit code (``run_renew``)
+    propagates untouched (``SystemExit`` is not an ``Exception``).
+    """
+    try:
+        runner()
+    except AuthError as e:
+        print(e.message, file=sys.stderr)
+        sys.exit(e.exit_code)
+    except Exception as exc:
+        print(f"Unexpected error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+
+def _run_auth_command(runner: Callable[[], None]) -> None:
+    """Run the ``auth`` command body.
+
+    Kept separate from :func:`_run_command` (TD-006): ``auth`` handles
+    :class:`ConcurrentAuthError` — with an audit event — and
+    :class:`AuthorizationCancelledError` specially, and deliberately has
+    no generic ``except Exception`` clause; folding it into the shared
+    mapping would change the auth contract (``contracts/cli.md``).
+    """
+    try:
+        runner()
+    except ConcurrentAuthError:
+        auth_event(
+            "auth_failure", "refused_concurrent",
+            "another auth already running",
+        )
+        print(ConcurrentAuthError.message, file=sys.stderr)
+        sys.exit(ConcurrentAuthError.exit_code)
+    except AuthorizationCancelledError:
+        print(AuthorizationCancelledError.message, file=sys.stderr)
+        sys.exit(AuthorizationCancelledError.exit_code)
+    except AuthError as e:
+        print(e.message, file=sys.stderr)
+        sys.exit(e.exit_code)
+    else:
+        sys.exit(0)
+
+
+#: Command dispatch table (TD-006): one entry per ``schwab-mcp``
+#: subcommand; each value runs the command with the appropriate error
+#: mapping. Adding a command is a table entry, not a new ``elif`` arm.
+_COMMAND_RUNNERS: dict[str, Callable[[], None]] = {
+    "auth": partial(_run_auth_command, run_auth),
+    "renew": partial(_run_command, run_renew),
+    "auth-status": partial(_run_command, run_auth_status),
+    "serve": partial(_run_command, _run_serve_command),
+}
+
+
 def main(argv: list[str] | None = None) -> None:
     """Main entry point for the ``schwab-mcp`` console script."""
     # Install redaction filter on root and schwabdev loggers at startup.
@@ -371,61 +444,11 @@ def main(argv: list[str] | None = None) -> None:
     subparsers.add_parser("serve", help="Start the stdio MCP server")
     args = parser.parse_args(argv)
 
-    if args.command == "auth":
-        try:
-            run_auth()
-        except ConcurrentAuthError:
-            auth_event(
-                "auth_failure", "refused_concurrent",
-                "another auth already running",
-            )
-            print(ConcurrentAuthError.message, file=sys.stderr)
-            sys.exit(ConcurrentAuthError.exit_code)
-        except AuthorizationCancelledError:
-            print(AuthorizationCancelledError.message, file=sys.stderr)
-            sys.exit(AuthorizationCancelledError.exit_code)
-        except AuthError as e:
-            print(e.message, file=sys.stderr)
-            sys.exit(e.exit_code)
-        else:
-            sys.exit(0)
-    elif args.command == "renew":
-        try:
-            run_renew()
-        except AuthError as e:
-            print(e.message, file=sys.stderr)
-            sys.exit(e.exit_code)
-        except Exception as exc:
-            print(f"Unexpected error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            sys.exit(0)
-    elif args.command == "auth-status":
-        try:
-            run_auth_status()
-        except AuthError as e:
-            print(e.message, file=sys.stderr)
-            sys.exit(e.exit_code)
-        except Exception as exc:
-            print(f"Unexpected error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            sys.exit(0)
-    elif args.command == "serve":
-        from schwab_mcp.server import run_serve
-        try:
-            run_serve()
-        except AuthError as e:
-            print(e.message, file=sys.stderr)
-            sys.exit(e.exit_code)
-        except Exception as exc:
-            print(f"Unexpected error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        else:
-            sys.exit(0)
-    else:
+    runner = _COMMAND_RUNNERS.get(args.command)
+    if runner is None:
         parser.print_help()
         sys.exit(1)
+    runner()
 
 
 if __name__ == "__main__":

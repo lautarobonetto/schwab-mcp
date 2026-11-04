@@ -8,6 +8,7 @@ authorization flow (FR-001).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import sys
 from typing import Any
@@ -192,27 +193,54 @@ def run_serve() -> None:
         raise
 
 
+def _register_bound_tool(
+    mcp: MCPServer,
+    client: Any,
+    fn: Any,
+    *,
+    name: str,
+    description: str,
+) -> None:
+    """Register *fn* as an MCP tool with *client* bound as first argument.
+
+    TD-006 (2026-11-04): replaces the wrapper-closure boilerplate —
+    hand-written closure, manual ``__name__``/``__qualname__``
+    assignment, ``register_tool`` call — that every registration
+    previously repeated. Parameter defaults come from the underlying
+    tool function's own signature, so each default is declared exactly
+    once (in the tool module).
+
+    The client is bound with :func:`functools.partial` — deliberately
+    NOT ``functools.wraps``: ``wraps`` copies ``__wrapped__`` onto the
+    wrapper and ``inspect.signature`` follows it, which would leak
+    *client* into the advertised input schema (pinned by
+    ``tests/unit/test_tool_registration.py``). The manual
+    ``__name__``/``__qualname__`` assignment remains necessary because
+    the SDK derives the argument-model name from ``__name__``, which
+    partial objects lack.
+
+    Every registration MUST go through :func:`register_tool` (unknown-
+    argument hardening); this helper is the single funnel for that.
+    """
+    bound = functools.partial(fn, client)
+    bound.__name__ = name
+    bound.__qualname__ = name
+    register_tool(mcp, bound, name=name, description=description)
+
+
 def _register_tools(mcp: MCPServer, client: Any) -> None:
     """Register every agent-facing MCP tool on *mcp*.
 
     Extracted from ``run_serve`` (bug option-chain-dte-filter) so tool
     registration — and the strict unknown-argument hardening applied by
     :func:`register_tool` — is unit-testable without a live session.
-    Every registration MUST go through :func:`register_tool`; a plain
-    ``mcp.add_tool`` call would silently ignore unknown arguments.
+    Each tool is one :func:`_register_bound_tool` call (TD-006); the
+    underlying tool functions carry their own defaults and signatures.
     """
     # Register the get_open_positions tool (003-list-open-positions).
-    # The client is bound via a closure so the MCP input schema only
-    # exposes the ``extended`` parameter.
-    from schwab_mcp.positions import get_open_positions as _get_open_positions
+    from schwab_mcp.positions import get_open_positions
 
-    def _get_open_positions_wrapper(extended: bool = False) -> object:
-        return _get_open_positions(client, extended=extended)
-
-    _get_open_positions_wrapper.__name__ = "get_open_positions"
-    _get_open_positions_wrapper.__qualname__ = "get_open_positions"
-    register_tool(mcp,
-        _get_open_positions_wrapper,
+    _register_bound_tool(mcp, client, get_open_positions,
         name="get_open_positions",
         description=(
             "Fetch all open positions across all linked accounts. "
@@ -222,30 +250,9 @@ def _register_tools(mcp: MCPServer, client: Any) -> None:
     )
 
     # Register the get_transaction_history tool (006-transaction-history).
-    from schwab_mcp.transactions import (
-        get_transaction_history_tool as _get_transaction_history,
-    )
+    from schwab_mcp.transactions import get_transaction_history_tool
 
-    def _get_transaction_history_wrapper(
-        start_date: str,
-        end_date: str,
-        symbol: str | None = None,
-        extended: bool = False,
-        offset: int = 0,
-    ) -> object:
-        return _get_transaction_history(
-            client,
-            start_date=start_date,
-            end_date=end_date,
-            symbol=symbol,
-            extended=extended,
-            offset=offset,
-        )
-
-    _get_transaction_history_wrapper.__name__ = "get_transaction_history"
-    _get_transaction_history_wrapper.__qualname__ = "get_transaction_history"
-    register_tool(mcp,
-        _get_transaction_history_wrapper,
+    _register_bound_tool(mcp, client, get_transaction_history_tool,
         name="get_transaction_history",
         description=(
             "Retrieve transaction history for a date range across all "
@@ -255,32 +262,9 @@ def _register_tools(mcp: MCPServer, client: Any) -> None:
     )
 
     # Register the get_option_chain tool (008-extract-option-chain).
-    from schwab_mcp.options_chain import (
-        get_option_chain_tool as _get_option_chain,
-    )
+    from schwab_mcp.options_chain import get_option_chain_tool
 
-    def _get_option_chain_wrapper(
-        symbol: str,
-        max_strikes: int = 50,
-        option_type: str = "both",
-        delta_target: float | None = None,
-        dte_max: int | None = None,
-        extended: bool = False,
-    ) -> object:
-        return _get_option_chain(
-            client,
-            symbol=symbol,
-            max_strikes=max_strikes,
-            option_type=option_type,
-            delta_target=delta_target,
-            dte_max=dte_max,
-            extended=extended,
-        )
-
-    _get_option_chain_wrapper.__name__ = "get_option_chain"
-    _get_option_chain_wrapper.__qualname__ = "get_option_chain"
-    register_tool(mcp,
-        _get_option_chain_wrapper,
+    _register_bound_tool(mcp, client, get_option_chain_tool,
         name="get_option_chain",
         description=(
             "Extract the option chain of an underlying with bounding "
@@ -292,18 +276,9 @@ def _register_tools(mcp: MCPServer, client: Any) -> None:
     )
 
     # Register the get_quotes tool (010-real-time-quotes).
-    from schwab_mcp.quotes import get_quotes_tool as _get_quotes
+    from schwab_mcp.quotes import get_quotes_tool
 
-    def _get_quotes_wrapper(
-        symbols: str | list[str],
-        extended: bool = False,
-    ) -> object:
-        return _get_quotes(client, symbols=symbols, extended=extended)
-
-    _get_quotes_wrapper.__name__ = "get_quotes"
-    _get_quotes_wrapper.__qualname__ = "get_quotes"
-    register_tool(mcp,
-        _get_quotes_wrapper,
+    _register_bound_tool(mcp, client, get_quotes_tool,
         name="get_quotes",
         description=(
             "Fetch current quotes for 1..20 symbols (equity/ETF, index, or "
@@ -315,28 +290,9 @@ def _register_tools(mcp: MCPServer, client: Any) -> None:
     )
 
     # Register the get_price_history tool (011-price-history-ohlcv).
-    from schwab_mcp.price_history import get_price_history_tool as _get_price_history
+    from schwab_mcp.price_history import get_price_history_tool
 
-    def _get_price_history_wrapper(
-        symbol: str,
-        frequency: str = "daily",
-        period: str = "1m",
-        extended_hours: bool = False,
-        extended: bool = False,
-    ) -> object:
-        return _get_price_history(
-            client,
-            symbol=symbol,
-            frequency=frequency,
-            period=period,
-            extended_hours=extended_hours,
-            extended=extended,
-        )
-
-    _get_price_history_wrapper.__name__ = "get_price_history"
-    _get_price_history_wrapper.__qualname__ = "get_price_history"
-    register_tool(mcp,
-        _get_price_history_wrapper,
+    _register_bound_tool(mcp, client, get_price_history_tool,
         name="get_price_history",
         description=(
             "Fetch OHLCV candles for ONE symbol (equity/ETF or index) at "
@@ -350,26 +306,9 @@ def _register_tools(mcp: MCPServer, client: Any) -> None:
     )
 
     # Register the get_option_expiration_chain tool (012-option-expiration-list).
-    from schwab_mcp.options_chain import (
-        get_option_expiration_chain_tool as _get_option_expiration_chain,
-    )
+    from schwab_mcp.options_chain import get_option_expiration_chain_tool
 
-    def _get_option_expiration_chain_wrapper(
-        symbol: str,
-        dte_max: int | None = None,
-        extended: bool = False,
-    ) -> object:
-        return _get_option_expiration_chain(
-            client,
-            symbol=symbol,
-            dte_max=dte_max,
-            extended=extended,
-        )
-
-    _get_option_expiration_chain_wrapper.__name__ = "get_option_expiration_chain"
-    _get_option_expiration_chain_wrapper.__qualname__ = "get_option_expiration_chain"
-    register_tool(mcp,
-        _get_option_expiration_chain_wrapper,
+    _register_bound_tool(mcp, client, get_option_expiration_chain_tool,
         name="get_option_expiration_chain",
         description=(
             "List the upcoming option expirations of ONE underlying in a "
