@@ -294,6 +294,26 @@ members and build the final `PositionsResult` in one place (parameterize
 Related dead params: `_detect_account_failures(..., retrieved_at)`
 (`580`) never uses `retrieved_at`.
 
+**Resolved** (v0.9.8, 2026-11-04): `unrealized_pl` is now computed
+exactly once, at `PositionEntry` construction — the transform-layer
+`unrealizedPL` bake (never read by the mapping core) and the never-read
+consolidation-map key were removed. `_transform_provider_payload` reuses
+`_collect_extended` instead of an inline duplicate, and the defensive
+timestamp override in `get_open_positions` was dropped (values already
+propagate via the payload injection). Every `PositionsResult`
+construction passes `ResultOutcome`/`DetailType` members instead of raw
+strings; `map_provider_positions` gained `outcome` / `detail` /
+`accounts_failed` / `retryable` parameters so the partial-failure path
+builds its result in a single call instead of mutating a validated
+result — the post-hoc assignment bypassed pydantic validation
+(`accounts_failed` entries survived as raw dicts, confirmed by the Red
+run). `_detect_account_failures` lost its dead `retrieved_at`
+parameter (TD-016 row closed). Pinned by the rewritten transform test,
+`TestMapProviderPositionsOutcomeParams` and `TestPartialFailure` in
+`tests/unit/test_positions.py` / `tests/unit/test_server_tool.py`.
+Full suite green (1810 passed, 0 skipped at the time). Assessment, fix
+report and verification: `.specify/bugs/td-007-positions-transform-dry/`.
+
 ---
 
 ### TD-008 — `options_chain.py` internal duplication, seven sites (DRY)
