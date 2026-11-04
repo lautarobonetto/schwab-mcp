@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [Unreleased]
+
+### Changed
+
+- **Spec Kit tooling upgraded from 1.2.3 to 1.3.0**: the `specify` CLI (uv
+  tool) and the in-repo scaffolding (`.specify/`, OpenCode commands) are
+  re-rendered at 1.3.0. The core `/speckit.taskstoissues` command was
+  removed upstream (moved to the `github` extension) and its orphaned
+  OpenCode command file deleted. The `roadmap` extension's pinned copy
+  still references `speckit.taskstoissues` in its workflows; it tracks
+  its own pinned version and was not re-rendered.
+
 ## [0.9.8] - 2026-11-04
 
 ### Fixed
