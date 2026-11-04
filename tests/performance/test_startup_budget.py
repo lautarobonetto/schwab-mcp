@@ -25,7 +25,7 @@ class FakeSchwabdevClient:
     """A stubbed schwabdev Client whose methods never touch the network.
 
     ``run_serve()`` constructs this via ``schwabdev.Client(...)`` and calls
-    ``linked_accounts()`` through ``retry_once()``.
+    ``linked_accounts()`` through ``retry_call()`` (retries=1).
     """
 
     def __init__(

@@ -10,6 +10,27 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Fixed
 
+- **Unused imports and dead members removed; `ALL_TRANSACTION_TYPES`
+  derived from the enum** (tech debt TD-017, 2026-11-04): the audit's six
+  confirmed dead items are gone — `import time` in `positions.py` (with
+  the `accounts_failed` annotation normalized to `list[...]`),
+  `collections.abc.Mapping` in the release `allowlist.py`, the unused
+  `TypeVar F` and the caller-less `retry_once` wrapper in `tokens.py`
+  (docstring mentions now name `retry_call(..., retries=1)`, matching
+  `server.py`), and the unused mid-file `datetime`/`timezone` import in
+  `renewal.py`. `ALL_TRANSACTION_TYPES` in `transactions.py` is now
+  derived as `",".join(t.value for t in ProviderTransactionType)`
+  instead of a hand-maintained string duplicate of the 15 enum values
+  (verified byte-identical), pinned by two new unit tests in
+  `tests/unit/test_transactions_models.py`. The audit's
+  `Config.__getitem__` row was **corrected, not applied**: the method
+  has real callers (15 `config["key"]` assertions in
+  `tests/unit/test_config.py`), so bracket access stays part of the
+  `Config` contract; two further rows were already resolved by the
+  v0.9.8 refactor. TD-017 rows in `docs/tech-debt.md` are struck
+  through/corrected. Assessment, fix, and verification reports:
+  `.specify/bugs/td-017/`.
+
 - **Dead `range_days` parameter removed from the transaction bisection
   trigger, cap is now the named constant `UPSTREAM_TXN_CAP`** (bug
   TD-016, 2026-11-04): `_should_split(movements, range_days)` in

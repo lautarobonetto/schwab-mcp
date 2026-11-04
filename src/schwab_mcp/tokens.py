@@ -10,12 +10,11 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional
 
 from schwab_mcp.errors import ConcurrentAuthError, ConnectivityError
 
 _logger = logging.getLogger(__name__)
-F = TypeVar("F", bound=Callable[..., Any])
 
 
 def parse_issued_datetime(value: object) -> Optional[datetime]:
@@ -377,11 +376,3 @@ def retry_call(
                 ) from exc
             _logger.warning("Attempt %d failed; retrying: %s", attempt, exc)
             time.sleep(0.5)
-
-
-def retry_once(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Retry exactly once (backward-compatible wrapper).
-
-    See :func:`retry_call` for details.
-    """
-    return retry_call(fn, retries=1, *args, **kwargs)

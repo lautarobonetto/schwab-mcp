@@ -30,7 +30,7 @@ pages are updated in the same commit.
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Fixed (v0.9.8, 2026-11-04) |
 | TD-016 | Low | Dead code | Dead parameters in helpers | Open |
-| TD-017 | Low | Dead code | Unused imports and members | Open |
+| TD-017 | Low | Dead code | Unused imports and members | Partial (unreleased, 2026-11-04) |
 | TD-018 | Low | KISS | Obscured imports and misc readability | Open |
 
 ---
@@ -599,15 +599,15 @@ Assessment, fix report and verification: `.specify/bugs/td-015/`.
 
 | Location | Issue |
 |----------|-------|
-| `positions.py:10, 13` | `import time` and `List` unused |
-| `allowlist.py:19` | `from collections.abc import Mapping` unused |
-| `tokens.py:18` | `TypeVar F` unused (`retry_call` does not annotate) |
-| `tokens.py:380-385` | `retry_once` has no src callers (tests and comments only) — remove with test updates |
-| `renewal.py:106` | `from datetime import datetime, timezone` unused |
-| `renewal.py:102, 389` | `import os as _os` duplicated (module level and inside `read_store_lifetime`) |
-| `config.py:36-37` | `Config.__getitem__` has no callers — speculative over-engineering |
-| `transactions.py:218-242` | `ALL_TRANSACTION_TYPES` lists the 15 enum values twice (map keys and joined string); derive as `",".join(t.value for t in ProviderTransactionType)` |
-| `transactions.py:1191-1205` | Dead `partial_failure` branch producing an identical result (also listed in TD-005) |
+| `positions.py:10, 13` | ~~`import time` and `List` unused~~ `import time` Fixed (TD-017, unreleased): removed. `List` was **not** unused — used by `accounts_failed`; annotation normalized to `list[...]` in the same change |
+| `allowlist.py:19` | ~~`from collections.abc import Mapping` unused~~ Fixed (TD-017, unreleased): removed |
+| `tokens.py:18` | ~~`TypeVar F` unused (`retry_call` does not annotate)~~ Fixed (TD-017, unreleased): removed |
+| `tokens.py:380-385` | ~~`retry_once` has no src callers (tests and comments only) — remove with test updates~~ Fixed (TD-017, unreleased): removed; docstring mentions updated to `retry_call(..., retries=1)` |
+| `renewal.py:106` | ~~`from datetime import datetime, timezone` unused~~ Fixed (TD-017, unreleased): removed |
+| `renewal.py:102, 389` | ~~`import os as _os` duplicated (module level and inside `read_store_lifetime`)~~ Stale — already removed by the v0.9.8 refactor (commit e3e5466); a single `import os` remains |
+| `config.py:36-37` | ~~`Config.__getitem__` has no callers — speculative over-engineering~~ Corrected (TD-017, unreleased): claim **invalid** — `tests/unit/test_config.py` exercises `config["key"]` bracket access 15×; the method and the `Any` import are retained |
+| `transactions.py:218-242` | ~~`ALL_TRANSACTION_TYPES` lists the 15 enum values twice (map keys and joined string); derive as `",".join(t.value for t in ProviderTransactionType)`~~ Fixed (TD-017, unreleased): derived from the enum, pinned by unit test |
+| `transactions.py:1191-1205` | ~~Dead `partial_failure` branch producing an identical result (also listed in TD-005)~~ Stale — already consolidated by TD-005 (v0.9.8): a single branch now covers both cases |
 
 ### TD-018 — Obscured imports and readability nits
 

@@ -7,10 +7,9 @@ MCP tool of the server.
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -296,7 +295,7 @@ def map_provider_positions(
     extended: bool = False,
     outcome: OutcomeType = OutcomeType.OK,
     detail: Optional[DetailType] = None,
-    accounts_failed: Optional[List[AccountFailed]] = None,
+    accounts_failed: Optional[list[AccountFailed]] = None,
     retryable: bool = False,
 ) -> PositionsResult:
     """Map an already-processed provider payload to a ``PositionsResult``.

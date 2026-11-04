@@ -238,13 +238,10 @@ _TYPE_CATEGORY_MAP: dict[str, MovementCategory] = {
 }
 
 
-ALL_TRANSACTION_TYPES = (
-    "TRADE,RECEIVE_AND_DELIVER,DIVIDEND_OR_INTEREST,ACH_RECEIPT,"
-    "ACH_DISBURSEMENT,CASH_RECEIPT,CASH_DISBURSEMENT,ELECTRONIC_FUND,"
-    "WIRE_OUT,WIRE_IN,JOURNAL,MEMORANDUM,MARGIN_CALL,MONEY_MARKET,"
-    "SMA_ADJUSTMENT"
-)
-"""All 15 upstream transaction types, comma-separated (research D2)."""
+ALL_TRANSACTION_TYPES = ",".join(t.value for t in ProviderTransactionType)
+"""All 15 upstream transaction types, comma-separated (research D2).
+
+Derived from the enum (TD-017) so the two lists cannot drift apart."""
 
 UPSTREAM_TXN_CAP = 3000
 """Upstream returns at most 3000 movements per query; hitting it triggers bisection."""

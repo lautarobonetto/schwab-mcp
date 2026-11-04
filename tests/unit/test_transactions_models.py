@@ -1351,3 +1351,32 @@ class TestTransactionsResult:
         )
         times = [datetime.fromisoformat(m.occurred_at) for m in result.movements]
         assert times == sorted(times)
+
+
+# =============================================================================
+# ALL_TRANSACTION_TYPES derivation (TD-017)
+# =============================================================================
+
+
+class TestAllTransactionTypes:
+    """``ALL_TRANSACTION_TYPES`` must be derived from the enum, not
+    hand-maintained, so the two lists cannot drift apart."""
+
+    def test_derived_from_enum_values(self) -> None:
+        from schwab_mcp.transactions import (
+            ALL_TRANSACTION_TYPES,
+            ProviderTransactionType,
+        )
+
+        assert ALL_TRANSACTION_TYPES == ",".join(
+            t.value for t in ProviderTransactionType
+        )
+
+    def test_covers_all_fifteen_upstream_types(self) -> None:
+        from schwab_mcp.transactions import ALL_TRANSACTION_TYPES
+
+        values = ALL_TRANSACTION_TYPES.split(",")
+        assert len(values) == 15
+        assert values[0] == "TRADE"
+        assert values[-1] == "SMA_ADJUSTMENT"
+        assert len(set(values)) == len(values)

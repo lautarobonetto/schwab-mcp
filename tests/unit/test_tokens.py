@@ -496,8 +496,8 @@ class TestAuthLock:
 class TestRetryCall:
     """RED-phase tests for ``retry_call(fn, retries=2, ...)``.
 
-    The ``retry_call`` helper generalises the existing ``retry_once`` so the
-    caller can configure the number of retries.  Guarantees:
+    The ``retry_call`` helper lets the caller configure the number of
+    retries.  Guarantees:
 
     * Initial attempt + exactly *retries* retries with short fixed waits.
     * :exc:`ConnectivityError <schwab_mcp.errors.ConnectivityError>` after

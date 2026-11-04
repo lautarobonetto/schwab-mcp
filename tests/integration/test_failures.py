@@ -733,7 +733,7 @@ class TestConcurrentAuth:
 
 class TestNetworkErrorDuringRefresh:
     """When the proactive ``linked_accounts()`` call in ``serve`` fails with a
-    network exception, ``retry_once`` must retry exactly once and then raise
+    network exception, ``retry_call`` (retries=1) must retry exactly once and then raise
     ``ConnectivityError`` (exit 7).  The token store must NOT be modified or
     deleted (T020)."""
 
@@ -779,7 +779,7 @@ class TestNetworkErrorDuringRefresh:
         _assert_no_secrets(stderr_text)
 
     def test_network_error_retried_exactly_once(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """``retry_once`` must call ``linked_accounts`` exactly twice
+        """``retry_call`` (retries=1) must call ``linked_accounts`` exactly twice
         (first attempt + one retry) before raising ``ConnectivityError``."""
         store_path = _make_token_db(tmp_path / "tokens.db")
         monkeypatch.setenv("SCHWAB_TOKEN_DB", str(store_path))
