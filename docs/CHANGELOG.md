@@ -67,6 +67,19 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   audit-event names, detail strings and envelopes unchanged. Full suite
   green (1819 passed, 0 skipped). Assessment, fix report and
   verification: `.specify/bugs/td-010-price-history-fail-dry/`.
+- **Client-shim installation centralized in `build_schwab_client()`**
+  (tech debt TD-012, 2026-11-04): the trailing-slash callback shim was
+  installed by a pre-construction ritual at three entry points
+  (`cli.run_auth`, `cli._do_run_renew`, `server.run_serve`), even though
+  `client.py` is the declared single construction point — a future
+  fourth entry point forgetting the ritual would silently reproduce the
+  callback-trailing-slash bug. The install now happens inside
+  `build_schwab_client()` itself (the shim is idempotent via its
+  `_SHIM_MARKER` guard), the three call sites and their imports were
+  deleted, and the factory guarantee (timeout + shim) is pinned by a new
+  factory test. Behavior-preserving on the happy path. Full suite green
+  (1820 passed, 0 skipped). Assessment and fix report:
+  `.specify/bugs/td-012-client-shim-install/`.
 - **Symbol grammar unified in `schwab_mcp.symbols`** (tech debt TD-009,
   2026-11-04): two definitions of "valid symbol" coexisted — the quotes
   grammars (`quotes.py`, declared single source of truth and already

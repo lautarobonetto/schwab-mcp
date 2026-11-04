@@ -22,7 +22,6 @@ from schwab_mcp.errors import (
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
 from schwab_mcp.renewal import AuthHealth, RenewalOutcome, read_store_lifetime, renew as _renew
-from schwab_mcp.schwabdev_compat import install_trailing_slash_callback_support
 from schwab_mcp.tokens import (
     AuthLock,
     backup_token_store,
@@ -144,10 +143,8 @@ def run_auth() -> None:
 
             # schwabdev's Client constructor invokes call_on_auth when the
             # token store is empty, performing the code exchange and writing
-            # tokens before returning.
-            # The callback URL may legitimately end in '/' (portal-required,
-            # literal redirect_uri comparison) — relax schwabdev's check.
-            install_trailing_slash_callback_support()
+            # tokens before returning.  The trailing-slash callback shim is
+            # installed by build_schwab_client itself (TD-012).
             from schwab_mcp.client import build_schwab_client  # noqa: PLC0415 — late import for testability
 
             build_schwab_client(config, config.token_db, counted_hook)
@@ -319,10 +316,6 @@ def _do_run_renew(config: object, store_path: str) -> None:
     from schwab_mcp.server import _build_serve_guard_hook
 
     guard_hook = _build_serve_guard_hook()
-
-    # Same relaxation as ``auth``: preserve a portal-required trailing
-    # slash in the callback URL.
-    install_trailing_slash_callback_support()
 
     # Use the same guard hook as ``serve`` — in the explicit CLI command,
     # a re-authorization attempt is still a permanent error.

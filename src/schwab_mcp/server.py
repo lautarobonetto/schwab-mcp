@@ -25,7 +25,6 @@ from schwab_mcp.errors import (
 )
 from schwab_mcp.log import auth_event, install_redaction_filter
 from schwab_mcp.provider import response_json
-from schwab_mcp.schwabdev_compat import install_trailing_slash_callback_support
 from schwab_mcp.tokens import peek_store_status, retry_call
 
 _logger = logging.getLogger(__name__)
@@ -120,10 +119,8 @@ def run_serve() -> None:
     # ------------------------------------------------------------------
     guard_hook = _build_serve_guard_hook()
 
-    # Same relaxation as ``auth``: preserve a portal-required trailing
-    # slash in the callback URL (literal redirect_uri comparison).
-    install_trailing_slash_callback_support()
-
+    # The trailing-slash callback shim is installed by build_schwab_client
+    # itself (TD-012) — no per-entry-point pre-construction ritual.
     from schwab_mcp.client import (  # noqa: PLC0415 — late import so CLI can patch
         build_schwab_client,
     )

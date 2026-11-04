@@ -25,7 +25,7 @@ pages are updated in the same commit.
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Fixed (v0.9.8, 2026-11-04) |
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Fixed (v0.9.8, 2026-11-04) |
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Fixed (v0.9.8, 2026-11-04) |
-| TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Open |
+| TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Fixed (v0.9.8, 2026-11-04) |
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Open |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Open |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Open |
@@ -479,6 +479,14 @@ fourth entry point silently reproduces the callback-trailing-slash bug.
 **Refactor:** move installation inside `build_schwab_client()` (it is
 idempotent — `schwabdev_compat.py:71-72`). Deletes three lines of
 coupling and closes the error class.
+
+**Resolved** (v0.9.8, 2026-11-04): the install now happens inside
+`build_schwab_client()` itself; the three call sites (`cli.run_auth`,
+`cli._do_run_renew`, `server.run_serve`) and their imports were deleted.
+The factory guarantee (request timeout **and** trailing-slash shim) is
+pinned by `tests/unit/test_client_factory.py::
+TestClientInstallsTrailingSlashShim`. Assessment, fix report and
+verification: `.specify/bugs/td-012-client-shim-install/`.
 
 ---
 

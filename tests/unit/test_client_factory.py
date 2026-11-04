@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 import schwabdev
 
+from schwab_mcp import client as client_module
 from schwab_mcp.client import build_schwab_client
 from schwab_mcp.config import Config
 
@@ -102,5 +103,32 @@ class TestClientRequestTimeout:
             _make_client(config)
             (_args, kwargs) = RecordingClient.instances[0]
             assert kwargs["timeout"] == 60
+        finally:
+            monkey_client.undo()
+
+
+class TestClientInstallsTrailingSlashShim:
+    """TD-012: the factory itself must install the trailing-slash shim.
+
+    Before this refactor, every entry point had to call
+    ``install_trailing_slash_callback_support()`` right before
+    constructing the client; forgetting it at a new entry point silently
+    reproduced the callback-trailing-slash bug. The install now lives
+    inside ``build_schwab_client()`` and these tests lock it in.
+    """
+
+    def test_factory_installs_shim_per_construction(self, config) -> None:
+        monkey_client = pytest.MonkeyPatch()
+        calls: list[str] = []
+        try:
+            monkey_client.setattr(schwabdev, "Client", RecordingClient)
+            monkey_client.setattr(
+                client_module,
+                "install_trailing_slash_callback_support",
+                lambda: calls.append("installed"),
+            )
+            _make_client(config)
+            _make_client(config)
+            assert calls == ["installed", "installed"]
         finally:
             monkey_client.undo()
