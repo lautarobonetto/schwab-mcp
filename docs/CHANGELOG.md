@@ -31,6 +31,22 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **Release archive member list de-duplicated into a single table** (tech
+  debt TD-014, 2026-11-04): the shipped-member set existed twice in
+  `src/schwab_mcp_release/allowlist.py` — once as `MemberSpec` literals in
+  `member_specs()` and once as `source_map()` keys — so adding a manual
+  required two synchronized edits, and a `source_map`-only desync silently
+  shipped nothing while the completeness check (derived from
+  `member_specs()`) kept passing. Both functions now derive from one
+  `_CONTENT_MEMBER_TABLE` (archive path, source path, provenance) with the
+  wheel as the only dynamic entry (`_WHEEL` sentinel); signatures, fixed
+  member order (FR-011), provenance strings, and the generated members
+  (`manifest.json`, `SHA256SUMS`) are unchanged. A new invariant test pins
+  `source_map()`'s key set to `content_members()`'s path set, so either
+  desync direction now fails loudly in the suite. Behavior-preserving; full
+  suite green (1821 passed, 0 skipped). Assessment, fix report and
+  verification: `.specify/bugs/td-014/`.
+
 - **Spec Kit tooling upgraded from 1.2.3 to 1.3.0**: the `specify` CLI (uv
   tool) and the in-repo scaffolding (`.specify/`, OpenCode commands) are
   re-rendered at 1.3.0. The core `/speckit.taskstoissues` command was

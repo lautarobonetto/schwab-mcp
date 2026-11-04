@@ -41,20 +41,50 @@ def wheel_name(version: str) -> str:
     return f"schwab_mcp-{version}-py3-none-any.whl"
 
 
+# Single authoritative table of the content members (TD-014): both
+# ``member_specs()`` and ``source_map()`` derive from it, so adding a member
+# is a one-place edit.  Columns: (archive path, source path relative to the
+# project root, provenance quoted from contracts/archive-layout.md).  The
+# wheel is the one dynamic entry — ``_WHEEL`` resolves via ``wheel_name()``
+# in the archive and to the built wheel file on disk.
+_WHEEL = "<wheel>"
+
+_CONTENT_MEMBER_TABLE: tuple[tuple[str, str, str], ...] = (
+    ("README.md", "docs/release/README.md", "docs/release/README.md (verbatim copy)"),
+    (_WHEEL, _WHEEL, "runtime wheel (only package schwab_mcp)"),
+    ("manuals/installation.md", "docs/release/installation.md", "docs/release/installation.md"),
+    (
+        "manuals/first-run-authentication.md",
+        "docs/release/first-run-authentication.md",
+        "docs/release/first-run-authentication.md",
+    ),
+    ("manuals/usage.md", "docs/release/usage.md", "docs/release/usage.md"),
+    ("manuals/troubleshooting.md", "docs/release/troubleshooting.md", "docs/release/troubleshooting.md"),
+    ("install.sh", "src/schwab_mcp_release/install.sh", "src/schwab_mcp_release/install.sh"),
+)
+
+
+def _member_path(table_path: str, version: str) -> str:
+    """Resolve a table path to its archive-relative member path."""
+    return f"dist/{wheel_name(version)}" if table_path == _WHEEL else table_path
+
+
+def _member_source(table_source: str, project_root: Path, wheel_path: Path) -> Path:
+    """Resolve a table source to its on-disk source file."""
+    return wheel_path if table_source == _WHEEL else project_root / table_source
+
+
 def member_specs(version: str) -> tuple[MemberSpec, ...]:
-    """The exact member set of ``contracts/archive-layout.md``, fixed order."""
-    return (
-        MemberSpec("README.md", True, False, "docs/release/README.md (verbatim copy)"),
-        MemberSpec(
-            f"dist/{wheel_name(version)}", True, False, "runtime wheel (only package schwab_mcp)"
-        ),
-        MemberSpec("manuals/installation.md", True, False, "docs/release/installation.md"),
-        MemberSpec(
-            "manuals/first-run-authentication.md", True, False, "docs/release/first-run-authentication.md"
-        ),
-        MemberSpec("manuals/usage.md", True, False, "docs/release/usage.md"),
-        MemberSpec("manuals/troubleshooting.md", True, False, "docs/release/troubleshooting.md"),
-        MemberSpec("install.sh", True, False, "src/schwab_mcp_release/install.sh"),
+    """The exact member set of ``contracts/archive-layout.md``, fixed order.
+
+    Content members derive from ``_CONTENT_MEMBER_TABLE``; the generated
+    inventory artifacts follow (they cannot list their own hash).
+    """
+    content = tuple(
+        MemberSpec(_member_path(path, version), True, False, provenance)
+        for path, _source_rel, provenance in _CONTENT_MEMBER_TABLE
+    )
+    return content + (
         MemberSpec("manifest.json", True, True, "generated: version, build_dirty, member inventory"),
         MemberSpec("SHA256SUMS", True, True, "generated: one sorted line per member"),
     )
@@ -66,16 +96,13 @@ def content_members(version: str) -> tuple[MemberSpec, ...]:
 
 
 def source_map(project_root: Path, version: str, wheel_path: Path) -> dict[str, Path]:
-    """Map every content-member archive path to its on-disk source file."""
-    docs = project_root / "docs" / "release"
+    """Map every content-member archive path to its on-disk source file.
+
+    Derived from ``_CONTENT_MEMBER_TABLE`` — same list as ``member_specs``.
+    """
     return {
-        "README.md": docs / "README.md",
-        f"dist/{wheel_name(version)}": wheel_path,
-        "manuals/installation.md": docs / "installation.md",
-        "manuals/first-run-authentication.md": docs / "first-run-authentication.md",
-        "manuals/usage.md": docs / "usage.md",
-        "manuals/troubleshooting.md": docs / "troubleshooting.md",
-        "install.sh": project_root / "src" / "schwab_mcp_release" / "install.sh",
+        _member_path(path, version): _member_source(source_rel, project_root, wheel_path)
+        for path, source_rel, _provenance in _CONTENT_MEMBER_TABLE
     }
 
 

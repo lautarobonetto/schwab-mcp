@@ -27,7 +27,7 @@ pages are updated in the same commit.
 | TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Fixed (v0.9.8, 2026-11-04) |
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Fixed (v0.9.8, 2026-11-04) |
-| TD-014 | Medium | DRY | Release: member list hardcoded twice | Open |
+| TD-014 | Medium | DRY | Release: member list hardcoded twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-015 | Medium | DRY | Release: duplicated validation and except-clones in `cmd_build` | Open |
 | TD-016 | Low | Dead code | Dead parameters in helpers | Open |
 | TD-017 | Low | Dead code | Unused imports and members | Open |
@@ -532,6 +532,19 @@ member list, no duplication".
 **Refactor:** one table `(_MEMBER_PATH, _SOURCE_REL, _PROVENANCE)` from
 which both `member_specs()` and `source_map()` derive; generated members
 (`manifest.json`, `SHA256SUMS`) stay separate as today.
+
+**Resolved** (v0.9.8, 2026-11-04): the member list lives once, in a
+`_CONTENT_MEMBER_TABLE` of `(archive path, source path, provenance)` rows —
+`member_specs()` and `source_map()` both derive from it (the wheel is the
+one dynamic entry, resolved via a `_WHEEL` sentinel), so adding a member is
+a one-place edit. Signatures, fixed order (FR-011), provenance strings and
+the generated members are unchanged. A new invariant test pins
+`set(source_map(...)) == {spec.path for spec in content_members(...)}`,
+turning either desync direction into a loud suite failure — one report
+claim was corrected during assessment: only the `source_map`-superset
+direction was silent (a `member_specs`-only addition already failed loudly
+with `ReleaseError`). Full suite green (1821 passed, 0 skipped).
+Assessment, fix report and verification: `.specify/bugs/td-014/`.
 
 ---
 

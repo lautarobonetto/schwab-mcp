@@ -106,6 +106,14 @@ class TestSources:
             sources = source_map(sandbox, VERSION, wheel)
             assert sources[f"dist/{wheel_name(VERSION)}"] == wheel
 
+    def test_source_map_covers_exactly_the_content_members(self) -> None:
+        """source_map() and content_members() derive from the same table
+        (TD-014): a member added to only one side fails loudly here."""
+        with release_sandbox("allowlist") as sandbox:
+            make_release_project(sandbox)
+            sources = source_map(sandbox, VERSION, sandbox / "dist" / wheel_name(VERSION))
+            assert set(sources) == {spec.path for spec in content_members(VERSION)}
+
 
 class TestForbiddenContentRules:
     """Dev-material + secret rules quoted from contracts/archive-layout.md."""
