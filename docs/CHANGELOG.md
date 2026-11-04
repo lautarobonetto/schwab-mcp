@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and versioning is [SemVer](https://semver.org/): MAJOR for
 incompatible changes, MINOR for a new feature, PATCH for fixes.
 
+## [0.9.10] - 2026-11-04
+
+### Fixed
+
+- **`docs/tech-debt.md` backlog completed and made internally consistent**
+  (documentation-only, no code change): the TD-005 section now carries
+  its missing **Resolved** note — the v0.9.8 refactor
+  (`_reauth_result`/`_transient_result`/`_empty_ok_result` helpers, one
+  `ConnectivityError` handler classifying by `__cause__`, module-level
+  `PAGE_SIZE`, the deleted dead `partial_failure` branch, the extracted
+  `_paginate`/`_fetch_account_movements`/`_account_hash`, orchestrator
+  333 → 224 lines, pinned by `TestPageSizeConsistency`) — referencing the
+  assessment at `.specify/bugs/transaction-result-dry/`; and the
+  TD-017 summary-table status is corrected from **Partial** to **Fixed**
+  (all nine rows of its detail table are resolved/corrected/stale, so
+  the summary was stale). Verified against the code and the full suite
+  (1833 passed, 0 skipped).
+
 ## [0.9.9] - 2026-11-04
 
 ### Fixed
