@@ -1207,3 +1207,32 @@ class TestGetTransactionHistoryGeneralErrorHandling:
         assert fail_entry.detail == "provider_error", (
             f"Expected detail='provider_error', got {fail_entry.detail!r}"
         )
+
+
+class TestPageSizeConsistency:
+    """TD-005: the page size must be defined exactly once.
+
+    ``PAGE_SIZE`` is a module-level constant in ``schwab_mcp.transactions``
+    and every site that hard-coded 50 (the paginator, validator rule 2, and
+    the ``returned`` field description) must derive from it, so a future
+    change cannot leave the sites diverged.
+    """
+
+    def test_page_size_is_module_level_constant(self) -> None:
+        """``PAGE_SIZE`` must be importable from the module and equal 50."""
+        import schwab_mcp.transactions as tx_mod
+
+        assert tx_mod.PAGE_SIZE == 50
+
+    def test_returned_field_description_derives_from_page_size(self) -> None:
+        """The ``returned`` field description must mention the same page
+        size as the ``PAGE_SIZE`` constant (no second hard-coded 50)."""
+        import schwab_mcp.transactions as tx_mod
+
+        description = (
+            tx_mod.TransactionsResult.model_fields["returned"].description or ""
+        )
+        assert str(tx_mod.PAGE_SIZE) in description, (
+            f"returned field description {description!r} does not mention "
+            f"PAGE_SIZE={tx_mod.PAGE_SIZE}"
+        )

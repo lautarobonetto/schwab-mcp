@@ -83,6 +83,24 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   `tests/unit/test_tool_error_classification.py`). Expected-failure
   envelopes on the normal path are unchanged (the domains still convert
   provider failures into structured results, per contracts/mcp-tools.md).
+- **`get_transaction_history` result construction consolidated** (tech
+  debt TD-005, 2026-11-04): the ~330-line orchestrator in
+  `transactions.py` repeated each result shape two or more times —
+  reauth/transient blocks ×2 with duplicated `__cause__` inspection, two
+  "ok, no movements" sites, two output-equivalent `partial_failure`
+  branches, and the page size 50 hard-coded in three places (paginator,
+  validator rule 2, `returned` field description). Result construction is
+  now single-definition: module-level `PAGE_SIZE` consumed by all three
+  sites, shared `_classify_connectivity_cause` / `_reauth_result` /
+  `_transient_result` / `_empty_ok_result` helpers, one
+  `if failed_accounts:` branch (the all-failed case yields identical
+  pagination values via `_paginate([])`), plus extracted `_paginate`,
+  `_fetch_account_movements` and `_account_hash` helpers, and validator
+  rule 7 parses each `occurred_at` once. The function drops from 333 to
+  224 lines; emitted results are unchanged (pinned by the existing
+  outcome/pagination suites plus the new
+  `TestPageSizeConsistency` drift guard in
+  `tests/unit/test_transactions_query.py`).
 - **`TestDteCeiling` fixtures anchored to the fixed capture date** (test
   suite only): the two `dte_max` ceiling tests built expiration dates from
   the wall clock (`chain_expiry_date` without an explicit base) while

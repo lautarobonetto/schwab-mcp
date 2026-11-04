@@ -607,6 +607,12 @@ class MovementEntry(BaseModel):
         return v[:80]
 
 
+PAGE_SIZE = 50
+"""Movements per page (TD-005: defined once; used by the paginator in
+``get_transaction_history``, validator rule 2, and the ``returned`` field
+description)."""
+
+
 class TransactionsResult(BaseModel):
     """The single structured result of a transaction history query.
 
@@ -630,7 +636,11 @@ class TransactionsResult(BaseModel):
         description="List of movement entries for the current page (ok outcome only)",
     )
     returned: Optional[int] = Field(
-        None, description="Number of movements in this page (ok outcome only; <= 50)"
+        None,
+        description=(
+            "Number of movements in this page "
+            f"(ok outcome only; <= {PAGE_SIZE})"
+        ),
     )
     has_more: Optional[bool] = Field(
         None, description="Whether more pages are available (ok outcome only)"
@@ -688,8 +698,8 @@ class TransactionsResult(BaseModel):
                 raise ValueError(
                     "has_more=true requires next_offset to be present"
                 )
-            if self.returned != 50:
-                raise ValueError("has_more=true requires returned==50")
+            if self.returned != PAGE_SIZE:
+                raise ValueError(f"has_more=true requires returned=={PAGE_SIZE}")
 
         # Rule 3: next_offset present => has_more=true
         if self.next_offset is not None and self.has_more is not True:
@@ -701,18 +711,18 @@ class TransactionsResult(BaseModel):
         if self.movements is not None:
             try:
                 retrieved = datetime.fromisoformat(self.retrieved_at)
-                for m in self.movements:
+                occurred_dates = [
                     datetime.fromisoformat(m.occurred_at)
+                    for m in self.movements
+                ]
             except ValueError:
                 # One or more dates are unparseable — skip rule 7
                 pass
             else:
-                for m in self.movements:
-                    occurred = datetime.fromisoformat(m.occurred_at)
-                    if retrieved < occurred:
-                        raise ValueError(
-                            "retrieved_at must be >= occurred_at of every movement"
-                        )
+                if any(retrieved < occurred for occurred in occurred_dates):
+                    raise ValueError(
+                        "retrieved_at must be >= occurred_at of every movement"
+                    )
 
         # --- Additional business rules ---
 
@@ -928,6 +938,149 @@ def _symbol_resolved_in_directory(client, symbol: str) -> bool:
         return False
 
 
+# =============================================================================
+# Result-construction helpers (TD-005 — one definition per result shape)
+# =============================================================================
+
+
+def _classify_connectivity_cause(exc: ConnectivityError) -> str:
+    """Classify a ``ConnectivityError`` by its ``__cause__`` (TD-005).
+
+    Returns ``"reauth"`` when the cause is an authorization/permission
+    failure, ``"transient"`` when the cause is a connection-level error,
+    and ``"provider_error"`` for any other cause.
+    """
+    cause = exc.__cause__
+    if isinstance(cause, (ReauthorizationRequiredError, PermissionError)):
+        return "reauth"
+    if isinstance(cause, (ConnectivityError, ConnectionError)):
+        return "transient"
+    return "provider_error"
+
+
+def _reauth_result(retrieved_at: str) -> TransactionsResult:
+    """Build the canonical ``reauth_required`` result (TD-005)."""
+    return TransactionsResult(
+        outcome=TransactionOutcome.reauth_required,
+        detail=TransactionDetail.reauth_needed,
+        retryable=False,
+        retrieved_at=retrieved_at,
+    )
+
+
+def _transient_result(retrieved_at: str) -> TransactionsResult:
+    """Build the canonical ``transient_failure`` result (TD-005)."""
+    return TransactionsResult(
+        outcome=TransactionOutcome.transient_failure,
+        detail=TransactionDetail.provider_unreachable,
+        retryable=True,
+        retrieved_at=retrieved_at,
+    )
+
+
+def _empty_ok_result(
+    retrieved_at: str, offset: int, symbol: str | None
+) -> TransactionsResult:
+    """Build the canonical ``ok`` result with zero movements (TD-005).
+
+    Used both when there are no linked accounts and when the (possibly
+    filtered) movement set is empty.  Emits the matching audit event.
+    """
+    detail = (
+        TransactionDetail.no_movements_for_instrument
+        if symbol
+        else TransactionDetail.no_movements
+    )
+    event_detail = (
+        "no_movements_for_instrument" if symbol else "no_movements"
+    )
+    auth_event("transactions_query_success", "ok", detail=event_detail)
+    return TransactionsResult(
+        outcome=TransactionOutcome.ok,
+        detail=detail,
+        retryable=False,
+        retrieved_at=retrieved_at,
+        total_count=0,
+        movements=[],
+        returned=0,
+        has_more=False,
+        next_offset=None,
+        offset_echo=offset,
+    )
+
+
+def _paginate(
+    movements: list[MovementEntry], offset: int
+) -> tuple[int, list[MovementEntry], int, bool, Optional[int]]:
+    """Slice one page and compute pagination metadata (TD-005).
+
+    Returns ``(total, page, returned, has_more, next_offset)``.
+    """
+    total = len(movements)
+    page = movements[offset : offset + PAGE_SIZE]
+    returned = len(page)
+    has_more = (offset + PAGE_SIZE) < total
+    next_offset = offset + PAGE_SIZE if has_more else None
+    return total, page, returned, has_more, next_offset
+
+
+def _account_hash(account: Any) -> str:
+    """Extract an account hash from a linked-account entry (TD-005).
+
+    Supports both dict (fake client) and attribute access (real SDK), and
+    both payload spellings: the real provider uses ``hashValue`` while
+    tests/fakes historically used ``accountHash``.
+    """
+    if isinstance(account, dict):
+        return account.get("hashValue") or account.get("accountHash", "")
+    return getattr(account, "hashValue", None) or getattr(account, "hash", "")
+
+
+def _fetch_account_movements(
+    client,
+    account_hash: str,
+    start_date: str,
+    end_date: str,
+    extended: bool,
+) -> list[MovementEntry]:
+    """Fetch and map one account's movements (TD-005).
+
+    Queries with bisection support for the 3000-txn upstream limit.
+    ``symbol`` is intentionally NOT sent upstream (research R1) — local
+    filtering happens in the orchestrator.
+    """
+    def _query_fn(
+        acct_hash: str, start_dt: str, end_dt: str, types_str: str
+    ) -> list[MovementEntry]:
+        """Query one sub-range, map to MovementEntry, and return."""
+        with _bypass_validator(client):
+            response = retry_call(
+                client.transactions,
+                retries=0,
+                accountHash=acct_hash,
+                startDate=_provider_datetime(start_dt, end_of_day=False),
+                endDate=_provider_datetime(end_dt, end_of_day=True),
+                types=types_str,
+            )
+            payload = retry_call(
+                response_json, retries=0, response=response
+            )
+            if isinstance(payload, list):
+                payload = {"transactions": payload}
+        raw_txs = payload.get("transactions", [])
+        for tx in raw_txs:
+            tx["accountHash"] = acct_hash
+        return map_provider_transactions(payload, extended=extended)
+
+    return _bisect_range(
+        _query_fn,
+        account_hash,
+        start_date,
+        end_date,
+        ALL_TRANSACTION_TYPES,
+    )
+
+
 def get_transaction_history(
     client,
     start_date: str,
@@ -1006,46 +1159,17 @@ def get_transaction_history(
             response_json, retries=0, response=client.linked_accounts()
         )
     except ConnectivityError as exc:
-        cause = exc.__cause__
-        if isinstance(cause, (ReauthorizationRequiredError, PermissionError)):
+        if _classify_connectivity_cause(exc) == "reauth":
             auth_event("transactions_query_failure", "reauth", detail="reauth_needed")
-            return TransactionsResult(
-                outcome=TransactionOutcome.reauth_required,
-                detail=TransactionDetail.reauth_needed,
-                retryable=False,
-                retrieved_at=retrieved_at,
-            )
+            return _reauth_result(retrieved_at)
         auth_event(
             "transactions_query_failure", "transient", detail="provider_unreachable"
         )
-        return TransactionsResult(
-            outcome=TransactionOutcome.transient_failure,
-            detail=TransactionDetail.provider_unreachable,
-            retryable=True,
-            retrieved_at=retrieved_at,
-        )
+        return _transient_result(retrieved_at)
 
     # No accounts → ok/no_movements
     if not accounts:
-        detail = (
-            TransactionDetail.no_movements_for_instrument
-            if symbol
-            else TransactionDetail.no_movements
-        )
-        event_detail = "no_movements_for_instrument" if symbol else "no_movements"
-        auth_event("transactions_query_success", "ok", detail=event_detail)
-        return TransactionsResult(
-            outcome=TransactionOutcome.ok,
-            detail=detail,
-            retryable=False,
-            retrieved_at=retrieved_at,
-            total_count=0,
-            movements=[],
-            returned=0,
-            has_more=False,
-            next_offset=None,
-            offset_echo=offset,
-        )
+        return _empty_ok_result(retrieved_at, offset, symbol)
 
     # ------------------------------------------------------------------
     # 4. Per-account query
@@ -1055,78 +1179,26 @@ def get_transaction_history(
     has_any_success = False
 
     for account in accounts:
-        # Support both dict (fake client) and attribute access (real SDK),
-        # and both payload spellings: the real provider uses ``hashValue``
-        # while tests/fakes historically used ``accountHash``.
-        if isinstance(account, dict):
-            account_hash = (
-                account.get("hashValue") or account.get("accountHash", "")
-            )
-        else:
-            account_hash = (
-                getattr(account, "hashValue", None)
-                or getattr(account, "hash", "")
-            )
+        account_hash = _account_hash(account)
 
         try:
-            # ------------------------------------------------------------------
-            # 5. Query with bisection support for the 3000-txn upstream limit
-            #     NOTE: ``symbol`` is intentionally NOT sent upstream (R1).
-            # ------------------------------------------------------------------
-            def _query_fn(
-                acct_hash: str, start_dt: str, end_dt: str, types_str: str
-            ) -> list[MovementEntry]:
-                """Query one sub-range, map to MovementEntry, and return."""
-                with _bypass_validator(client):
-                    response = retry_call(
-                        client.transactions,
-                        retries=0,
-                        accountHash=acct_hash,
-                        startDate=_provider_datetime(start_dt, end_of_day=False),
-                        endDate=_provider_datetime(end_dt, end_of_day=True),
-                        types=types_str,
-                    )
-                    payload = retry_call(
-                        response_json, retries=0, response=response
-                    )
-                    if isinstance(payload, list):
-                        payload = {"transactions": payload}
-                raw_txs = payload.get("transactions", [])
-                for tx in raw_txs:
-                    tx["accountHash"] = acct_hash
-                return map_provider_transactions(payload, extended=extended)
-
-            entries = _bisect_range(
-                _query_fn,
-                account_hash,
-                start_date,
-                end_date,
-                ALL_TRANSACTION_TYPES,
+            entries = _fetch_account_movements(
+                client, account_hash, start_date, end_date, extended
             )
             all_movements.extend(entries)
             has_any_success = True
 
         except ConnectivityError as exc:
-            cause = exc.__cause__
+            classification = _classify_connectivity_cause(exc)
 
-            if isinstance(cause, (ReauthorizationRequiredError, PermissionError)):
+            if classification == "reauth":
                 auth_event("transactions_query_failure", "reauth", detail="reauth_needed")
-                return TransactionsResult(
-                    outcome=TransactionOutcome.reauth_required,
-                    detail=TransactionDetail.reauth_needed,
-                    retryable=False,
-                    retrieved_at=retrieved_at,
-                )
+                return _reauth_result(retrieved_at)
 
-            if isinstance(cause, (ConnectivityError, ConnectionError)):
+            if classification == "transient":
                 if not has_any_success:
                     auth_event("transactions_query_failure", "transient", detail="provider_unreachable")
-                    return TransactionsResult(
-                        outcome=TransactionOutcome.transient_failure,
-                        detail=TransactionDetail.provider_unreachable,
-                        retryable=True,
-                        retrieved_at=retrieved_at,
-                    )
+                    return _transient_result(retrieved_at)
                 failed_accounts.append(
                     TransactionAccountFailed(
                         account_hash=account_hash,
@@ -1144,7 +1216,7 @@ def get_transaction_history(
             continue
 
     # ------------------------------------------------------------------
-    # 6. Sort, filter, paginate
+    # 5. Sort, filter, paginate
     # ------------------------------------------------------------------
     # Sort movements by occurred_at (lexicographic order is valid for
     # ISO-8601 timestamps), with tiebreak by account_hash then activityId
@@ -1156,8 +1228,6 @@ def get_transaction_history(
             (m.extended.get("activityId", "") if m.extended else ""),
         )
     )
-
-    PAGE_SIZE = 50
 
     # Apply local filter when symbol is present (R1)
     filter_match_count: int | None = None
@@ -1171,32 +1241,19 @@ def get_transaction_history(
         all_movements = filtered
 
     # Pagination over the (possibly filtered) set
-    _total = len(all_movements)
-    _page = all_movements[offset : offset + PAGE_SIZE]
-    _returned = len(_page)
-    _has_more = (offset + PAGE_SIZE) < _total
-    _next_offset = offset + PAGE_SIZE if _has_more else None
+    _total, _page, _returned, _has_more, _next_offset = _paginate(
+        all_movements, offset
+    )
 
     # ------------------------------------------------------------------
-    # 7. Outcome classification
+    # 6. Outcome classification
     # ------------------------------------------------------------------
-    if failed_accounts and not has_any_success:
-        auth_event("transactions_query_success", "partial_failure", detail="account_failed")
-        return TransactionsResult(
-            outcome=TransactionOutcome.partial_failure,
-            detail=TransactionDetail.account_failed,
-            retryable=False,
-            retrieved_at=retrieved_at,
-            accounts_failed=failed_accounts,
-            movements=[],
-            total_count=0,
-            returned=0,
-            has_more=False,
-            next_offset=None,
-            offset_echo=offset,
-        )
-
-    if failed_accounts and has_any_success:
+    if failed_accounts:
+        # Single partial-failure branch (TD-005): when no account
+        # succeeded, ``all_movements`` is empty and ``_paginate`` yields
+        # ``_total=0, _page=[], _returned=0, _has_more=False,
+        # _next_offset=None`` — exactly the previously hardcoded
+        # all-failed values — so one branch covers both cases.
         auth_event("transactions_query_success", "partial_failure", detail="account_failed")
         return TransactionsResult(
             outcome=TransactionOutcome.partial_failure,
@@ -1218,29 +1275,7 @@ def get_transaction_history(
             # Dual validation: nothing matched AND directory didn't resolve
             raise InstrumentNotFoundError(f"Instrument not found: {symbol}")
 
-        detail = (
-            TransactionDetail.no_movements_for_instrument
-            if symbol is not None and filter_match_count is not None
-            else TransactionDetail.no_movements
-        )
-        event_detail = (
-            "no_movements_for_instrument"
-            if detail == TransactionDetail.no_movements_for_instrument
-            else "no_movements"
-        )
-        auth_event("transactions_query_success", "ok", detail=event_detail)
-        return TransactionsResult(
-            outcome=TransactionOutcome.ok,
-            detail=detail,
-            retryable=False,
-            retrieved_at=retrieved_at,
-            total_count=0,
-            movements=[],
-            returned=0,
-            has_more=False,
-            next_offset=None,
-            offset_echo=offset,
-        )
+        return _empty_ok_result(retrieved_at, offset, symbol)
 
     # All succeeded, with movements
     if _returned == 0:
