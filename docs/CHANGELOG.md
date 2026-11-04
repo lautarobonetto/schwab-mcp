@@ -32,6 +32,20 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
 
 ### Changed
 
+- **`tokens.py` store move-aside sequence de-duplicated** (tech debt
+  TD-011, 2026-11-04): `backup_token_store` and
+  `quarantine_corrupt_store` each repeated the same algorithm — status
+  guard, timestamped collision-free `<name>.<suffix>.<stamp>[-<n>]`
+  naming, `os.rename`, `os.chmod(0o600)`, `_drop_sidecars(src)` —
+  differing only in the filename suffix and the required prior store
+  status. A shared `_move_store_aside(path, suffix, required_status)`
+  is now the single home of that sequence; the two public functions are
+  three-line wrappers (`("bak", "present")` / `("corrupt",
+  "corrupted")`) keeping their docstrings and return contracts, and the
+  `_backup_timestamp` test patch seam is unchanged. Behavior-preserving:
+  the existing backup/quarantine suites passed unchanged. Full suite
+  green (1819 passed, 0 skipped). Assessment and fix report:
+  `.specify/bugs/td-011/`.
 - **`price_history.py` failure-event pattern de-duplicated** (tech debt
   TD-010, 2026-11-04): `get_price_history` repeated the same
   5-argument selection tuple `(normalized, frequency, period,

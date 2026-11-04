@@ -24,7 +24,7 @@ pages are updated in the same commit.
 | TD-008 | Medium | DRY | `options_chain.py` internal duplication (x7) | Fixed (v0.9.8, 2026-11-04) |
 | TD-009 | Medium | DRY | Two symbol-validation grammars in the package | Fixed (v0.9.8, 2026-11-04) |
 | TD-010 | Medium | DRY | `price_history.py` failure-event pattern repeated manually | Fixed (v0.9.8, 2026-11-04) |
-| TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Open |
+| TD-011 | Medium | DRY | Store backup/quarantine: same algorithm twice | Fixed (v0.9.8, 2026-11-04) |
 | TD-012 | Medium | DRY | Client-shim installation scattered across 3 entry points | Open |
 | TD-013 | Medium | DRY + BUG | `log.py` redaction duplicated; malformed timestamp | Open |
 | TD-014 | Medium | DRY | Release: member list hardcoded twice | Open |
@@ -454,6 +454,16 @@ via `stamp` + `while target.exists()` counter, `os.rename`,
 
 **Refactor:** `_move_store_aside(path, suffix, required_status)` plus two
 three-line wrappers.
+
+**Resolved** (v0.9.8, 2026-11-04): `_move_store_aside` is now the single
+home of the safe move-aside sequence (status guard, `<name>.<suffix>.<UTC
+stamp>[-<counter>]` collision-free naming, `os.rename`, `0o600`,
+sidecar drop); `backup_token_store` and `quarantine_corrupt_store` are
+three-line wrappers (`("bak", "present")` / `("corrupt", "corrupted")`)
+keeping their docstrings and contracts, and reusing the `_backup_timestamp`
+patch seam. Behavior-preserving: the existing backup/quarantine suites
+passed unchanged. Full suite green (1819 passed, 0 skipped). Assessment
+and fix report: `.specify/bugs/td-011/`.
 
 ---
 

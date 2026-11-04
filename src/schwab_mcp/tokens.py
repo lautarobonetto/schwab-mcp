@@ -163,6 +163,38 @@ def _backup_timestamp() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
 
 
+def _move_store_aside(
+    path: str | os.PathLike, suffix: str, required_status: str
+) -> Optional[Path]:
+    """Move the token store aside to a timestamped sibling (shared core).
+
+    Single home of the safe move-aside sequence (bug td-011 DRY):
+    ``<name>.<suffix>.<UTC stamp>[-<counter>]`` — the counter never
+    overwrites an existing file — then ``os.rename``, owner-only
+    ``0o600`` (the moved file may hold live tokens, FR-003), and
+    sidecar drop at the original name (:func:`_drop_sidecars`).
+
+    Returns the new :class:`~pathlib.Path`, or ``None`` when the store
+    is not in *required_status* (never touches those files).
+    """
+    if peek_store_status(path) != required_status:
+        return None
+    src = Path(path)
+    stamp = _backup_timestamp()
+    target = src.with_name(f"{src.name}.{suffix}.{stamp}")
+    counter = 1
+    while target.exists():  # never overwrite an existing target
+        target = src.with_name(f"{src.name}.{suffix}.{stamp}-{counter}")
+        counter += 1
+    os.rename(src, target)
+    # The moved file may hold live tokens — owner read/write only (FR-003).
+    os.chmod(target, 0o600)
+    # Sidecars at the original name belong to the moved inode; drop them
+    # so they cannot shadow whatever is written at that path next.
+    _drop_sidecars(src)
+    return target
+
+
 def backup_token_store(path: str | os.PathLike) -> Optional[Path]:
     """Move a *present* token store aside to a timestamped sibling backup.
 
@@ -177,22 +209,7 @@ def backup_token_store(path: str | os.PathLike) -> Optional[Path]:
     Returns the backup :class:`~pathlib.Path`, or ``None`` when the store
     is absent, empty, or corrupted (never touches those files).
     """
-    if peek_store_status(path) != "present":
-        return None
-    src = Path(path)
-    stamp = _backup_timestamp()
-    backup = src.with_name(f"{src.name}.bak.{stamp}")
-    counter = 1
-    while backup.exists():  # never overwrite an existing backup
-        backup = src.with_name(f"{src.name}.bak.{stamp}-{counter}")
-        counter += 1
-    os.rename(src, backup)
-    # The backup holds live tokens — owner read/write only (FR-003).
-    os.chmod(backup, 0o600)
-    # Sidecars at the original name belong to the moved inode; drop them
-    # so they cannot shadow the fresh DB written at that path next.
-    _drop_sidecars(src)
-    return backup
+    return _move_store_aside(path, "bak", "present")
 
 
 def restore_token_store(
@@ -260,19 +277,7 @@ def quarantine_corrupt_store(path: str | os.PathLike) -> Optional[Path]:
     Returns the quarantine :class:`~pathlib.Path`, or ``None`` when the
     store is not in the corrupted state (present/absent are untouched).
     """
-    if peek_store_status(path) != "corrupted":
-        return None
-    src = Path(path)
-    stamp = _backup_timestamp()
-    target = src.with_name(f"{src.name}.corrupt.{stamp}")
-    counter = 1
-    while target.exists():  # never overwrite an existing quarantine
-        target = src.with_name(f"{src.name}.corrupt.{stamp}-{counter}")
-        counter += 1
-    os.rename(src, target)
-    os.chmod(target, 0o600)
-    _drop_sidecars(src)
-    return target
+    return _move_store_aside(path, "corrupt", "corrupted")
 
 
 def enforce_permissions(path: str | os.PathLike) -> None:
