@@ -60,6 +60,29 @@ incompatible changes, MINOR for a new feature, PATCH for fixes.
   call sites use `peek_store_status(...) == "absent"` instead.
   Behavior-preserving on all reachable states; pinned by tri-state and
   equivalence tests in `tests/unit/test_tokens.py`.
+- **Result envelopes and the tool `ToolError` boundary unified** (tech
+  debt TD-004, 2026-11-04): the four result-envelope builders existed
+  twice — `quotes.py` (no `symbol`) and `price_history.py` (with a
+  `symbol` field) carried near-verbatim copies of `_validation_error`,
+  `_provider_unreachable`, `_reauth_needed` (+`_history_unavailable`).
+  They are now shared `tool_errors.validation_error` /
+  `provider_unreachable` / `reauth_needed` / `history_unavailable`
+  builders with an optional `symbol: str | None = None` that is omitted
+  from the envelope when absent; emitted dicts are byte-identical to the
+  pre-dedup shapes (pinned by parity tests in
+  `tests/unit/test_quotes_mapping.py` /
+  `tests/unit/test_price_history_mapping.py`). The `get_quotes_tool` and
+  `get_price_history_tool` wrappers also stopped hand-rolling the
+  boundary mapping (`except (ValueError, TypeError) → ToolError`) and now
+  route `AuthError` taxonomy errors through the shared
+  `tool_errors.raise_classified_tool_error` like the transactions and
+  option-chain wrappers, so a `ConnectivityError` /
+  `ReauthorizationRequiredError` escaping the market-data domains
+  surfaces as `provider_unreachable:` / `reauth_needed:` instead of the
+  SDK's opaque `UnexpectedToolError` (pinned in
+  `tests/unit/test_tool_error_classification.py`). Expected-failure
+  envelopes on the normal path are unchanged (the domains still convert
+  provider failures into structured results, per contracts/mcp-tools.md).
 - **`TestDteCeiling` fixtures anchored to the fixed capture date** (test
   suite only): the two `dte_max` ceiling tests built expiration dates from
   the wall clock (`chain_expiry_date` without an explicit base) while

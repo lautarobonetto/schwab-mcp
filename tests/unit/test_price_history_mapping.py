@@ -307,3 +307,69 @@ class TestInProgressShape:
         assert len(result["candles"]) == 65
         for candle in result["candles"]:
             assert set(candle) == CANDLE_KEYS
+
+
+# =============================================================================
+# Shared envelope builders (bug td-004) — parity with the pre-dedup shapes
+# =============================================================================
+
+
+class TestSharedEnvelopeBuilders:
+    """The shared builders in ``tool_errors`` emit exactly the shapes the
+    module-private helpers emitted before the dedup: the ``symbol`` key sits
+    between ``retryable`` and any extra keys (contracts/mcp-tools.md §3)."""
+
+    def test_validation_error_names_symbol_before_extra(self) -> None:
+        from schwab_mcp.tool_errors import validation_error
+
+        envelope = validation_error("invalid_period", "SPX", limit=5)
+        assert envelope == {
+            "outcome": "validation_error",
+            "detail": "invalid_period",
+            "retryable": False,
+            "symbol": "SPX",
+            "limit": 5,
+        }
+        assert list(envelope) == [
+            "outcome",
+            "detail",
+            "retryable",
+            "symbol",
+            "limit",
+        ]
+
+    def test_provider_unreachable_names_symbol(self) -> None:
+        from schwab_mcp.tool_errors import provider_unreachable
+
+        envelope = provider_unreachable(symbol="SPX")
+        assert envelope == {
+            "outcome": "provider_unreachable",
+            "detail": "provider_unreachable",
+            "retryable": True,
+            "symbol": "SPX",
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable", "symbol"]
+
+    def test_reauth_needed_names_symbol(self) -> None:
+        from schwab_mcp.tool_errors import reauth_needed
+
+        envelope = reauth_needed(symbol="SPX")
+        assert envelope == {
+            "outcome": "reauth_needed",
+            "detail": "reauth_needed",
+            "retryable": False,
+            "symbol": "SPX",
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable", "symbol"]
+
+    def test_history_unavailable_shape(self) -> None:
+        from schwab_mcp.tool_errors import history_unavailable
+
+        envelope = history_unavailable(symbol="SPX")
+        assert envelope == {
+            "outcome": "history_unavailable",
+            "detail": "source_returned_no_candles",
+            "retryable": False,
+            "symbol": "SPX",
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable", "symbol"]

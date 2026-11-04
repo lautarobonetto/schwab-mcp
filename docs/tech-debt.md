@@ -17,7 +17,7 @@ pages are updated in the same commit.
 | TD-001 | High | KISS + BUG | `renewal.py` renewal lock | Fixed (v0.9.8, 2026-11-04) |
 | TD-002 | High | DRY | Outcome/detail taxonomy duplicated across modules | Fixed (v0.9.8, 2026-11-04) |
 | TD-003 | High | DRY | SQLite token-store read triplicated | Fixed (v0.9.8, 2026-11-04) |
-| TD-004 | High | DRY | Error envelopes and tool `ToolError` boundary divergent | Open |
+| TD-004 | High | DRY | Error envelopes and tool `ToolError` boundary divergent | Fixed (v0.9.8, 2026-11-04) |
 | TD-005 | High | DRY | Result construction repeated in `get_transaction_history` | Open |
 | TD-006 | High | DRY | Tool registration boilerplate x6; CLI dispatch x4 | Open |
 | TD-007 | Medium | DRY/KISS | `positions.py` transform remaps itself | Open |
@@ -183,14 +183,20 @@ stores are unreachable at both sites). Pinned by
    `ConnectivityError` or `ReauthorizationRequiredError` escaping in
    quotes or price_history today reaches the agent unclassified.
 
-**Refactor:** move envelopes to a shared module (e.g. `tool_errors.py`
-or `envelopes.py`) with an optional `symbol: str | None = None`
-parameter; route the remaining two tool wrappers through
-`raise_classified_tool_error` and drop the direct `ToolError` imports.
-
-**TDD:** test that a `ConnectivityError` raised inside
-`get_quotes`/`get_price_history` surfaces with the classified prefix
-(fails today, passes after the fix).
+**Resolved** (v0.9.8, 2026-11-04): the four envelope builders live once in
+`tool_errors.py` (`validation_error`, `provider_unreachable`,
+`reauth_needed`, `history_unavailable`) with an optional
+`symbol: str | None = None` that is omitted from the envelope when absent —
+`quotes.py` and `price_history.py` consume them and their module-private
+copies are deleted; emitted dicts are byte-identical to before. Both
+market-data tool wrappers now route `(AuthError, ValueError, TypeError)`
+through the shared `raise_classified_tool_error`, closing the
+unclassified-escape gap for `ConnectivityError` /
+`ReauthorizationRequiredError`. Pinned by parity tests in
+`tests/unit/test_quotes_mapping.py` /
+`tests/unit/test_price_history_mapping.py` and wrapper-classification
+tests in `tests/unit/test_tool_error_classification.py`. Assessment:
+`.specify/bugs/td-004/assessment.md`.
 
 ---
 
@@ -440,7 +446,6 @@ version through; share the strip helper.
 | `transactions.py:480` | `range_days` computed only to feed the dead parameter |
 | `positions.py:580` | `_detect_account_failures(payload, retrieved_at)` — `retrieved_at` never used (also listed in TD-007) |
 | `options_chain.py:675-680` | `_result_meta(query, payload)` — `payload` never used (also listed in TD-008) |
-| `quotes.py:137` | `_provider_unreachable(detail="provider_unreachable")` called once with no arguments |
 
 ### TD-017 — Unused imports and members
 

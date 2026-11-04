@@ -34,7 +34,8 @@ T013 (US2) — preset-table and applicability validation:
   provider calls.
 
 Contract assumptions (recorded in the T004/T013 report): the shared
-validation envelope mirrors ``quotes._validation_error`` exactly
+validation envelope mirrors the quotes envelope exactly — one
+implementation in ``tool_errors.validation_error`` since bug td-004
 (``outcome`` / ``detail`` / ``retryable`` plus extras, FR-009/C-02), and
 ``unsupported_period`` names its valid presets in a ``valid_presets``
 extra field (compared as a set, order-free).  Wrong TYPES at the tool

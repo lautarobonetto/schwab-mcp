@@ -22,6 +22,11 @@ from schwab_mcp.errors import ConnectivityError, ReauthorizationRequiredError
 from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json, trade_time_value
 from schwab_mcp.tokens import retry_call
+from schwab_mcp.tool_errors import (
+    provider_unreachable,
+    reauth_needed,
+    validation_error,
+)
 
 
 # =============================================================================
@@ -121,33 +126,9 @@ def _classify(symbol: str) -> tuple[str, str] | None:
 
 
 # =============================================================================
-# Result envelopes (contracts/mcp-tools.md §2-§3, FR-006/FR-008)
+# Result envelopes (contracts/mcp-tools.md §2-§3, FR-006/FR-008) live in
+# schwab_mcp.tool_errors (bug td-004) — imported above.
 # =============================================================================
-
-
-def _validation_error(detail: str, **extra: Any) -> dict:
-    return {
-        "outcome": "validation_error",
-        "detail": detail,
-        "retryable": False,
-        **extra,
-    }
-
-
-def _provider_unreachable(detail: str = "provider_unreachable") -> dict:
-    return {
-        "outcome": "provider_unreachable",
-        "detail": detail,
-        "retryable": True,
-    }
-
-
-def _reauth_needed() -> dict:
-    return {
-        "outcome": "reauth_needed",
-        "detail": "reauth_needed",
-        "retryable": False,
-    }
 
 
 # =============================================================================
@@ -304,7 +285,7 @@ def get_quotes(
         auth_event(
             "quotes_query_failure", "validation", detail="empty_symbol_list"
         )
-        return _validation_error("empty_symbol_list")
+        return validation_error("empty_symbol_list")
 
     errors: dict[str, str] = {}
     symbols_out: list[str] = []
@@ -328,13 +309,13 @@ def get_quotes(
         auth_event(
             "quotes_query_failure", "validation", detail="malformed_symbol"
         )
-        return _validation_error("malformed_symbol", errors=errors)
+        return validation_error("malformed_symbol", errors=errors)
 
     if len(symbols_out) > MAX_SYMBOLS:
         auth_event(
             "quotes_query_failure", "validation", detail="too_many_symbols"
         )
-        return _validation_error(
+        return validation_error(
             "too_many_symbols",
             limit=MAX_SYMBOLS,
             requested_count=len(symbols_out),
@@ -354,13 +335,13 @@ def get_quotes(
         cause = exc.__cause__
         if isinstance(cause, (ReauthorizationRequiredError, PermissionError)):
             auth_event("quotes_query_failure", "reauth", detail="reauth_needed")
-            return _reauth_needed()
+            return reauth_needed()
         auth_event(
             "quotes_query_failure",
             "provider_unreachable",
             detail="provider_unreachable",
         )
-        return _provider_unreachable()
+        return provider_unreachable()
 
     # ------------------------------------------------------------------
     # 4. Missing-symbol detection (research D3: requested minus response
@@ -415,15 +396,19 @@ def get_quotes_tool(
 ) -> dict:
     """MCP tool wrapper around :func:`get_quotes`.
 
-    Converts tool-boundary type errors (``ValueError``/``TypeError``)
-    into the MCP SDK's ``ToolError`` so the actionable message reaches
-    the agent (pattern: ``options_chain.get_option_chain_tool``).  All
-    expected failures return structured result envelopes and pass
-    through unchanged.
+    Converts tool-boundary validation errors (``ValueError``/``TypeError``)
+    and the auth-taxonomy errors (:class:`ConnectivityError`,
+    :class:`ReauthorizationRequiredError`) into the MCP SDK's ``ToolError``
+    through ``tool_errors.raise_classified_tool_error`` so the actionable,
+    classified message — not the SDK's generic wrapper text — reaches the
+    agent (bug td-004; pattern:
+    ``transactions.get_transaction_history_tool``).  All expected failures
+    return structured result envelopes and pass through unchanged.
     """
-    from mcp.server.mcpserver.exceptions import ToolError
+    from schwab_mcp.errors import AuthError
+    from schwab_mcp.tool_errors import raise_classified_tool_error
 
     try:
         return get_quotes(client, symbols, extended=extended)
-    except (ValueError, TypeError) as exc:
-        raise ToolError(str(exc)) from exc
+    except (AuthError, ValueError, TypeError) as exc:
+        raise_classified_tool_error(exc)

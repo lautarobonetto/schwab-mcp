@@ -356,3 +356,64 @@ class TestKeyedByRequestedSymbol:
             "AAPL",
             "AAPL  261028C00345000",
         ]
+
+
+# =============================================================================
+# Shared envelope builders (bug td-004) — parity with the pre-dedup shapes
+# =============================================================================
+
+
+class TestSharedEnvelopeBuilders:
+    """The shared builders in ``tool_errors`` emit exactly the shapes the
+    module-private helpers emitted before the dedup: no ``symbol`` key on
+    quotes envelopes (contracts/mcp-tools.md §3), keys in the pinned order."""
+
+    def test_validation_error_shape(self) -> None:
+        from schwab_mcp.tool_errors import validation_error
+
+        envelope = validation_error("empty_symbol_list")
+        assert envelope == {
+            "outcome": "validation_error",
+            "detail": "empty_symbol_list",
+            "retryable": False,
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable"]
+
+    def test_validation_error_extra_keys_follow_retryable(self) -> None:
+        from schwab_mcp.tool_errors import validation_error
+
+        envelope = validation_error("malformed_symbol", errors={"X": "malformed_symbol"})
+        assert envelope == {
+            "outcome": "validation_error",
+            "detail": "malformed_symbol",
+            "retryable": False,
+            "errors": {"X": "malformed_symbol"},
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable", "errors"]
+
+    def test_validation_error_symbol_omitted_when_none(self) -> None:
+        from schwab_mcp.tool_errors import validation_error
+
+        assert "symbol" not in validation_error("too_many_symbols", limit=20)
+
+    def test_provider_unreachable_shape(self) -> None:
+        from schwab_mcp.tool_errors import provider_unreachable
+
+        envelope = provider_unreachable()
+        assert envelope == {
+            "outcome": "provider_unreachable",
+            "detail": "provider_unreachable",
+            "retryable": True,
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable"]
+
+    def test_reauth_needed_shape(self) -> None:
+        from schwab_mcp.tool_errors import reauth_needed
+
+        envelope = reauth_needed()
+        assert envelope == {
+            "outcome": "reauth_needed",
+            "detail": "reauth_needed",
+            "retryable": False,
+        }
+        assert list(envelope) == ["outcome", "detail", "retryable"]

@@ -140,6 +140,58 @@ class TestOptionExpirationChainToolClassifiedErrors:
         assert str(excinfo.value).startswith(f"{prefix}: ")
 
 
+class TestQuotesToolClassifiedErrors:
+    @pytest.mark.parametrize(
+        ("error", "prefix"),
+        [
+            (_TIMEOUT, "provider_unreachable"),
+            (_EXPIRED, "reauth_needed"),
+        ],
+        ids=["connectivity", "reauth"],
+    )
+    def test_taxonomy_errors_become_classified_tool_error(
+        self, monkeypatch, error, prefix
+    ) -> None:
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        import schwab_mcp.quotes as quotes
+
+        def raiser(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(quotes, "get_quotes", raiser)
+        with pytest.raises(ToolError) as excinfo:
+            quotes.get_quotes_tool(None, "SPY")
+        assert type(excinfo.value) is ToolError
+        assert str(excinfo.value).startswith(f"{prefix}: ")
+
+
+class TestPriceHistoryToolClassifiedErrors:
+    @pytest.mark.parametrize(
+        ("error", "prefix"),
+        [
+            (_TIMEOUT, "provider_unreachable"),
+            (_EXPIRED, "reauth_needed"),
+        ],
+        ids=["connectivity", "reauth"],
+    )
+    def test_taxonomy_errors_become_classified_tool_error(
+        self, monkeypatch, error, prefix
+    ) -> None:
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        import schwab_mcp.price_history as price_history
+
+        def raiser(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(price_history, "get_price_history", raiser)
+        with pytest.raises(ToolError) as excinfo:
+            price_history.get_price_history_tool(None, "SPY")
+        assert type(excinfo.value) is ToolError
+        assert str(excinfo.value).startswith(f"{prefix}: ")
+
+
 class TestTransactionHistoryToolClassifiedErrors:
     @pytest.mark.parametrize(
         ("error", "prefix"),

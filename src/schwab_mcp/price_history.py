@@ -42,6 +42,12 @@ from schwab_mcp.log import auth_event
 from schwab_mcp.provider import response_json
 from schwab_mcp.quotes import _OPTION_RE, _classify
 from schwab_mcp.tokens import retry_call
+from schwab_mcp.tool_errors import (
+    history_unavailable,
+    provider_unreachable,
+    reauth_needed,
+    validation_error,
+)
 
 __all__ = [
     "PRESET_TABLE",
@@ -140,45 +146,9 @@ PRESET_TABLE: dict[str, dict[str, tuple[str, int, str, int]]] = {
 
 
 # =============================================================================
-# Result envelopes (contracts/mcp-tools.md §2-§3; shared shape, FR-009)
+# Result envelopes (contracts/mcp-tools.md §2-§3; shared shape, FR-009) live
+# in schwab_mcp.tool_errors (bug td-004) — imported above.
 # =============================================================================
-
-
-def _validation_error(detail: str, symbol: str, **extra: Any) -> dict:
-    return {
-        "outcome": "validation_error",
-        "detail": detail,
-        "retryable": False,
-        "symbol": symbol,
-        **extra,
-    }
-
-
-def _provider_unreachable(symbol: str, detail: str = "provider_unreachable") -> dict:
-    return {
-        "outcome": "provider_unreachable",
-        "detail": detail,
-        "retryable": True,
-        "symbol": symbol,
-    }
-
-
-def _reauth_needed(symbol: str) -> dict:
-    return {
-        "outcome": "reauth_needed",
-        "detail": "reauth_needed",
-        "retryable": False,
-        "symbol": symbol,
-    }
-
-
-def _history_unavailable(symbol: str) -> dict:
-    return {
-        "outcome": "history_unavailable",
-        "detail": "source_returned_no_candles",
-        "retryable": False,
-        "symbol": symbol,
-    }
 
 
 # =============================================================================
@@ -225,7 +195,7 @@ def _fail(
         "validation",
         detail=f"{detail} " + _selection_detail(symbol, frequency, period, extended_hours, extended),
     )
-    return _validation_error(detail, symbol, **extra)
+    return validation_error(detail, symbol, **extra)
 
 
 # =============================================================================
@@ -584,7 +554,7 @@ def get_price_history(
                     normalized, frequency, period, extended_hours, extended
                 ),
             )
-            return _reauth_needed(normalized)
+            return reauth_needed(symbol=normalized)
         auth_event(
             FAILURE_EVENT,
             "provider_unreachable",
@@ -593,7 +563,7 @@ def get_price_history(
                 normalized, frequency, period, extended_hours, extended
             ),
         )
-        return _provider_unreachable(normalized)
+        return provider_unreachable(symbol=normalized)
 
     if not isinstance(payload, dict):
         payload = {}
@@ -611,7 +581,7 @@ def get_price_history(
                 normalized, frequency, period, extended_hours, extended
             ),
         )
-        return _history_unavailable(normalized)
+        return history_unavailable(symbol=normalized)
 
     # ------------------------------------------------------------------
     # 5. Frequency-specific derivation + in-progress marking (D6)
@@ -674,13 +644,17 @@ def get_price_history_tool(
 ) -> dict:
     """MCP tool wrapper around :func:`get_price_history`.
 
-    Converts tool-boundary type errors (``ValueError``/``TypeError``)
-    into the MCP SDK's ``ToolError`` so the actionable message reaches
-    the agent (pattern: ``quotes.get_quotes_tool``).  All expected
-    failures return structured result envelopes and pass through
-    unchanged.
+    Converts tool-boundary validation errors (``ValueError``/``TypeError``)
+    and the auth-taxonomy errors (:class:`ConnectivityError`,
+    :class:`ReauthorizationRequiredError`) into the MCP SDK's ``ToolError``
+    through ``tool_errors.raise_classified_tool_error`` so the actionable,
+    classified message — not the SDK's generic wrapper text — reaches the
+    agent (bug td-004; pattern:
+    ``transactions.get_transaction_history_tool``).  All expected failures
+    return structured result envelopes and pass through unchanged.
     """
-    from mcp.server.mcpserver.exceptions import ToolError
+    from schwab_mcp.errors import AuthError
+    from schwab_mcp.tool_errors import raise_classified_tool_error
 
     try:
         return get_price_history(
@@ -691,5 +665,5 @@ def get_price_history_tool(
             extended_hours=extended_hours,
             extended=extended,
         )
-    except (ValueError, TypeError) as exc:
-        raise ToolError(str(exc)) from exc
+    except (AuthError, ValueError, TypeError) as exc:
+        raise_classified_tool_error(exc)

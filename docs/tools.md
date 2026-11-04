@@ -47,13 +47,17 @@ classification prefix, so clients can distinguish the remediation class:
 | `reauth_needed:` | Tokens expired beyond recovery (`ReauthorizationRequiredError`) | Do not retry the tool; run the `renew` playbook / notify the owner |
 | (no prefix) | Validation / bad request (`ValueError`, `TypeError`, `ChainDataError`, `InstrumentNotFoundError`) | Fix the parameters; the message names the violated constraint |
 
-Applies to `get_option_chain`, `get_option_expiration_chain` and
-`get_transaction_history` (their taxonomy errors used to be swallowed
-behind the SDK's opaque `Error executing tool <name>` wrapper — bug
-`domain-errors-swallowed`). `get_open_positions`, `get_quotes` and
-`get_price_history` surface these states as structured result envelopes
-(`transient_failure` / `provider_unreachable` / `reauth_needed`
-outcomes) instead of tool errors.
+Applies to `get_option_chain`, `get_option_expiration_chain`,
+`get_transaction_history` — and, since bug `td-004`, `get_quotes` and
+`get_price_history` as well (their wrappers previously mapped only
+`ValueError`/`TypeError`). On the normal path `get_quotes` and
+`get_price_history` still surface expected failures as structured result
+envelopes (`transient_failure` / `provider_unreachable` / `reauth_needed`
+outcomes) — the in-domain conversion is contractual — so the classified
+prefixes there cover taxonomy errors that escape the domain layer, which
+the SDK would otherwise wrap into the opaque
+`Error executing tool <name>`. `get_open_positions` surfaces these states
+as envelopes only.
 
 **Strict tool arguments.** Every registered tool rejects unknown
 arguments: the tool input schema sets `additionalProperties: false`, and
@@ -1310,9 +1314,10 @@ of authentication failure. It does not consume provider quota.
 
 ## `schwab-mcp serve` (MCP server)
 
-A **stdio**, headless MCP server. Registers 5 tools
+A **stdio**, headless MCP server. Registers 6 tools
 (``get_open_positions``, ``get_transaction_history``,
-``get_option_chain``, ``get_quotes`` and ``get_price_history``) and is
+``get_option_chain``, ``get_option_expiration_chain``, ``get_quotes``
+and ``get_price_history``) and is
 the process
 an MCP client (opencode, Claude Desktop, etc.) launches and talks to
 over stdio.
